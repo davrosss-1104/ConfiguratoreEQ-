@@ -1,565 +1,273 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Package, Wrench, Loader2, ArrowLeft, FileText, Settings, ScrollText, LayoutGrid, Cog, Info, DoorOpen, Shield, LogOut, User, Save, X, Download, Users, Settings2, ChevronDown } from 'lucide-react';
-import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
+import { Sidebar } from '@/components/Sidebar';
+import { DatiCommessaForm } from "@/components/sections/DatiCommessaForm";
+import { DatiPrincipaliForm } from "@/components/sections/DatiPrincipaliForm";
+import { NormativeForm } from "@/components/sections/NormativeForm";
+import DisposizioneVanoForm from "@/components/sections/DisposizioneVanoForm";
+import { MaterialsTable } from "@/components/MaterialsTable";
+import { CustomerNameEditor } from "@/components/CustomerNameEditor";
+import { getDatiCommessa, getDatiPrincipali, getNormative, getDisposizioneVano, getPreventivo } from '@/services/preventivi.service';
+import { PDFButton } from '@/components/PDFButton';
+import { GestioneArticoliPage } from '@/components/sections/GestioneArticoliPage';
+import GestioneOpzioniPage from '@/components/sections/GestioneOpzioniPage';
+import GestioneCampiPage from '@/components/sections/GestioneCampiPage';
+import { GestioneUtentiPage } from '@/components/sections/GestioneUtentiPage';
+import RuleEnginePage from '@/components/sections/RuleEnginePage';
 
-// Components
-import { ClienteSelector } from '../components/ClienteSelector';
-import { ExportButtons } from '../components/ExportButtons';
+// Colori sfondo per categoria
+const CATEGORY_THEMES = {
+  RISE: {
+    pageBg: 'bg-green-100/60',
+    progressBar: 'bg-green-600',
+    progressText: 'text-green-700',
+    badge: 'bg-green-100 text-green-800',
+    sidebarAccent: '#41923a',
+  },
+  HOME: {
+    pageBg: 'bg-amber-100/60',
+    progressBar: 'bg-amber-500',
+    progressText: 'text-amber-700',
+    badge: 'bg-amber-100 text-amber-800',
+    sidebarAccent: '#e1a51b',
+  },
+  DEFAULT: {
+    pageBg: 'bg-gray-50',
+    progressBar: 'bg-blue-600',
+    progressText: 'text-blue-600',
+    badge: '',
+    sidebarAccent: '#2563eb',
+  },
+} as const;
 
-// Forms per COMPLETO (named exports)
-import { DatiCommessaForm } from '../components/sections/DatiCommessaForm';
-import { DatiPrincipaliForm } from '../components/sections/DatiPrincipaliForm';
-import { NormativeForm } from '../components/sections/NormativeForm';
-import DisposizioneVanoForm from '../components/sections/DisposizioneVanoForm';
-import { MaterialiPage } from '../components/sections/MaterialiPage';
-import { ArganoForm } from '../components/sections/ArganoForm';
-import { GestioneArticoliPage } from '../components/sections/GestioneArticoliPage';
-import GestioneOpzioniPage from '../components/sections/GestioneOpzioniPage';
-import GestioneCampiPage from '../components/sections/GestioneCampiPage';
-import GestioneUtentiPage from '../components/sections/GestioneUtentiPage';
-import RuleEnginePage from '../components/sections/RuleEnginePage';
-
-// Form per RICAMBIO
-import { RicambiForm } from '../components/RicambiForm';
-
-const API_BASE = 'http://localhost:8000/api';
-
-// Sezioni per preventivo COMPLETO
-type SezioneCompleto = 'dati-commessa' | 'dati-principali' | 'normative' | 'disposizione-vano' | 'argano' | 'info-generale' | 'porte' | 'materiali' | 'rule-designer' | 'admin' | 'gestione-opzioni' | 'gestione-campi' | 'gestione-utenti';
-
-interface MenuItemType {
-  id: SezioneCompleto;
-  label: string;
-  icon: React.ReactNode;
-  adminOnly?: boolean;
-}
-
-const menuItems: MenuItemType[] = [
-  { id: 'dati-commessa', label: 'Dati Commessa', icon: <FileText className="w-5 h-5" /> },
-  { id: 'dati-principali', label: 'Dati Principali', icon: <Settings className="w-5 h-5" /> },
-  { id: 'normative', label: 'Normative', icon: <ScrollText className="w-5 h-5" /> },
-  { id: 'disposizione-vano', label: 'Disposizione Vano', icon: <LayoutGrid className="w-5 h-5" /> },
-  { id: 'argano', label: 'Argano', icon: <Cog className="w-5 h-5" /> },
-  { id: 'info-generale', label: 'Info Generale', icon: <Info className="w-5 h-5" /> },
-  { id: 'porte', label: 'Porte', icon: <DoorOpen className="w-5 h-5" /> },
-  { id: 'materiali', label: 'Materiali', icon: <Package className="w-5 h-5" /> },
-  { id: 'rule-designer', label: 'Rule Engine', icon: <Settings2 className="w-5 h-5" />, adminOnly: true },
-  { id: 'admin', label: 'Gestione Articoli', icon: <Package className="w-5 h-5" />, adminOnly: true },
-  { id: 'gestione-opzioni', label: 'Gestione Opzioni', icon: <Settings className="w-5 h-5" />, adminOnly: true },
-  { id: 'gestione-campi', label: 'Gestione Campi', icon: <Settings className="w-5 h-5" />, adminOnly: true },
-  { id: 'gestione-utenti', label: 'Gestione Utenti', icon: <Users className="w-5 h-5" />, adminOnly: true },
-];
-
-interface Preventivo {
-  id: number;
-  numero_preventivo: string;
-  tipo_preventivo: string;
-  cliente_id: number | null;
-  customer_name: string | null;
-  status: string;
-  total_price: number;
-  total_price_finale?: number;
-  sconto_cliente?: number;
-  sconto_extra_admin?: number;
-}
-
-interface Cliente {
-  id: number;
-  codice: string;
-  ragione_sociale: string;
-  sconto_produzione: number;
-  sconto_acquisto: number;
-}
-
-interface DatiCommessa {
-  data_consegna_richiesta?: string;
-}
-
-export default function PreventivoPage() {
+export const PreventivoPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const preventivoId = parseInt(id || '0');
-  
-  const [sezioneAttiva, setSezioneAttiva] = useState<SezioneCompleto>('dati-commessa');
-  const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
-  const [templateNome, setTemplateNome] = useState('');
-  const [templateDescrizione, setTemplateDescrizione] = useState('');
-  const [templatePubblico, setTemplatePubblico] = useState(false);
-  const [showClienteSelector, setShowClienteSelector] = useState(false);
-  
-  // Check if user is admin
-  const isAdmin = (() => {
-    try {
-      const user = localStorage.getItem('user');
-      return user ? JSON.parse(user).is_admin : false;
-    } catch {
-      return false;
-    }
-  })();
+  const preventivoId = parseInt(id || '1', 10);
 
-  // Get current user
-  const currentUser = (() => {
-    try {
-      const user = localStorage.getItem('user');
-      return user ? JSON.parse(user) : null;
-    } catch {
-      return null;
-    }
-  })();
+  // Redirect se ID non valido
+  if (isNaN(preventivoId)) {
+    navigate('/');
+    return null;
+  }
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/login');
-  };
+  const [activeSection, setActiveSection] = useState('dati-commessa');
 
-  // Salva come template
-  const saveTemplateMutation = useMutation({
-    mutationFn: async () => {
-      const params = new URLSearchParams({
-        nome: templateNome,
-        user_id: String(currentUser?.id || 0),
-        is_admin: String(isAdmin),
-        is_public: String(templatePubblico)
-      });
-      if (templateDescrizione) {
-        params.append('descrizione', templateDescrizione);
-      }
-      
-      const res = await fetch(
-        `${API_BASE}/preventivi/${preventivoId}/save-as-template?${params}`,
-        { method: 'POST' }
-      );
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || 'Errore salvataggio');
-      }
-      return res.json();
-    },
-    onSuccess: (data) => {
-      toast.success(`Template "${data.nome}" creato con successo!`);
-      setShowSaveTemplateDialog(false);
-      setTemplateNome('');
-      setTemplateDescrizione('');
-      setTemplatePubblico(false);
-      queryClient.invalidateQueries({ queryKey: ['templates'] });
-    },
-    onError: (error: Error) => {
-      toast.error(error.message);
-    }
-  });
-
-  // Carica preventivo
-  const { data: preventivo, isLoading, refetch: refetchPreventivo } = useQuery({
+  // Query per il preventivo (per avere la categoria)
+  const { data: preventivo } = useQuery({
     queryKey: ['preventivo', preventivoId],
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE}/preventivi/${preventivoId}`);
-      if (!res.ok) throw new Error('Preventivo non trovato');
-      return res.json() as Promise<Preventivo>;
-    },
-    enabled: preventivoId > 0
+    queryFn: () => getPreventivo(preventivoId),
   });
 
-  // Carica dati commessa per data consegna
+  // Query per calcolare progresso
   const { data: datiCommessa } = useQuery({
-    queryKey: ['dati-commessa', preventivoId],
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE}/preventivi/${preventivoId}/dati-commessa`);
-      if (!res.ok) return null;
-      return res.json() as Promise<DatiCommessa>;
-    },
-    enabled: preventivoId > 0
+    queryKey: ['datiCommessa', preventivoId],
+    queryFn: () => getDatiCommessa(preventivoId),
   });
 
-  // Carica lista clienti per mostrare nome
-  const { data: clienti = [] } = useQuery<Cliente[]>({
-    queryKey: ['clienti'],
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE}/clienti`);
-      if (!res.ok) return [];
-      return res.json();
-    }
+  const { data: datiPrincipali } = useQuery({
+    queryKey: ['datiPrincipali', preventivoId],
+    queryFn: () => getDatiPrincipali(preventivoId),
   });
 
-  // Trova nome cliente corrente
-  const clienteCorrente = clienti.find(c => c.id === preventivo?.cliente_id);
-  const nomeClienteDisplay = clienteCorrente?.ragione_sociale || preventivo?.customer_name || 'Cliente non specificato';
-
-  // Aggiorna cliente
-  const updateClienteMutation = useMutation({
-    mutationFn: async (clienteId: number | null) => {
-      const res = await fetch(`${API_BASE}/preventivi/${preventivoId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cliente_id: clienteId })
-      });
-      if (!res.ok) throw new Error('Errore aggiornamento');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['preventivo', preventivoId] });
-      setShowClienteSelector(false);
-      toast.success('Cliente aggiornato');
-    }
+  const { data: normative } = useQuery({
+    queryKey: ['normative', preventivoId],
+    queryFn: () => getNormative(preventivoId),
   });
 
-  const handleClienteChange = (id: number | null) => {
-    updateClienteMutation.mutate(id);
+  const { data: disposizioneVano } = useQuery({
+    queryKey: ['disposizioneVano', preventivoId],
+    queryFn: () => getDisposizioneVano(preventivoId),
+  });
+
+  // Tema basato sulla categoria
+  const rawCategoria = (preventivo as any)?.categoria as string | undefined;
+  const categoria = rawCategoria && rawCategoria in CATEGORY_THEMES 
+    ? rawCategoria as keyof typeof CATEGORY_THEMES 
+    : undefined;
+  const theme = categoria ? CATEGORY_THEMES[categoria] : CATEGORY_THEMES.DEFAULT;
+
+  // Calcola progresso
+  const calcolaProgresso = (): number => {
+    let completati = 0;
+    const sezioni = 4;
+
+    if (datiCommessa?.numero_offerta) completati++;
+    if (datiPrincipali?.numero_fermate && datiPrincipali.numero_fermate > 0) completati++;
+    if (normative?.en_81_20) completati++;
+    if (disposizioneVano?.posizione_quadro_lato) completati++;
+
+    return Math.round((completati / sezioni) * 100);
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
+  const progresso = calcolaProgresso();
 
-  if (!preventivo) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Preventivo non trovato</h2>
-          <button
-            onClick={() => navigate('/preventivi')}
-            className="text-blue-600 hover:underline"
-          >
-            Torna alla lista
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const renderSection = () => {
+    switch (activeSection) {
+      case 'dati-commessa':
+        return <DatiCommessaForm />;
+      
+      case 'dati-principali':
+        return <DatiPrincipaliForm />;
+      
+      case 'normative':
+        return <NormativeForm preventivoId={preventivoId} />;
+      
+      case 'disposizione-vano':
+        return <DisposizioneVanoForm preventivoId={preventivoId} />;
+      
+      case 'argano':
+        return (
+          <div className="p-6 bg-white/70 rounded-lg shadow">
+            <h2 className="text-2xl font-bold mb-4">Argano</h2>
+            <p className="text-gray-500">Sezione in costruzione</p>
+          </div>
+        );
+      
+      case 'info-generale':
+        return (
+          <div className="p-6 bg-white/70 rounded-lg shadow">
+            <h2 className="text-2xl font-bold mb-4">Info Generale</h2>
+            <p className="text-gray-500">Sezione in costruzione</p>
+          </div>
+        );
+      
+      case 'porte':
+        return (
+          <div className="p-6 bg-white/70 rounded-lg shadow">
+            <h2 className="text-2xl font-bold mb-4">Porte</h2>
+            <p className="text-gray-500">Sezione in costruzione</p>
+          </div>
+        );
 
-  const isRicambio = preventivo.tipo_preventivo === 'RICAMBIO';
-  const filteredMenuItems = menuItems.filter(item => !item.adminOnly || isAdmin);
+      case 'materiali':
+        return (
+          <div className="p-6 bg-white/70 rounded-lg shadow">
+            <h2 className="text-2xl font-bold mb-4">Materiali</h2>
+            <MaterialsTable preventivoId={preventivoId} />
+          </div>
+        );
+
+      case 'gestione-articoli':
+        return <GestioneArticoliPage />;
+      case 'gestione-clienti':
+        return (
+          <div className="p-6 bg-white/70 rounded-lg shadow">
+            <h2 className="text-2xl font-bold mb-4">Gestione Clienti</h2>
+            <p className="text-gray-500">Sezione in costruzione</p>
+          </div>
+        );
+      case 'gestione-opzioni':
+        return <GestioneOpzioniPage />;
+      case 'gestione-campi':
+        return <GestioneCampiPage />;
+      case 'gestione-utenti':
+        return <GestioneUtentiPage />;
+      case 'rule-engine':
+        return <RuleEnginePage />;
+
+      default:
+        return null;
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar - solo per COMPLETO */}
-      {!isRicambio && (
-        <aside className="w-64 bg-white border-r flex flex-col h-screen sticky top-0">
-          {/* Logo/Header */}
-          <div className="p-4 border-b">
-            <button
-              onClick={() => navigate('/preventivi')}
-              className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-3"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span className="text-sm">Lista Preventivi</span>
-            </button>
-            <h2 className="font-bold text-gray-900">Configuratore</h2>
-            <p className="text-xs text-gray-500">Elettroquadri S.r.l.</p>
-          </div>
-
-          {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto p-2">
-            {filteredMenuItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setSezioneAttiva(item.id)}
-                className={`
-                  w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 transition-all
-                  ${sezioneAttiva === item.id
-                    ? 'bg-blue-50 text-blue-700 font-medium'
-                    : 'text-gray-600 hover:bg-gray-100'
-                  }
-                  ${item.adminOnly ? 'border-l-2 border-purple-300' : ''}
-                `}
-              >
-                {item.icon}
-                <span className="text-sm">{item.label}</span>
-              </button>
-            ))}
-          </nav>
-
-          {/* User & Actions */}
-          <div className="border-t p-4 space-y-2">
-            {/* Salva come Template */}
-            <button
-              onClick={() => setShowSaveTemplateDialog(true)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-            >
-              <Save className="w-4 h-4" />
-              Salva come Template
-            </button>
-            
-            {/* User info */}
-            {currentUser && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
-                <User className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-700 flex-1 truncate">{currentUser.username}</span>
-                {isAdmin && (
-                  <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">Admin</span>
-                )}
-              </div>
-            )}
-            
-            {/* Logout */}
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              Esci
-            </button>
-          </div>
-        </aside>
-      )}
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-h-screen">
-        {/* Header */}
-        <header className="bg-white border-b sticky top-0 z-10">
-          <div className="px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                {isRicambio && (
-                  <button
-                    onClick={() => navigate('/preventivi')}
-                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
-                  >
-                    <ArrowLeft className="w-5 h-5" />
-                  </button>
-                )}
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h1 className="text-2xl font-bold text-gray-900">
-                      {preventivo.numero_preventivo}
-                    </h1>
-                    <span className={`
-                      px-2 py-1 rounded text-xs font-medium
-                      ${isRicambio ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}
-                    `}>
-                      {preventivo.tipo_preventivo}
-                    </span>
-                  </div>
-                  
-                  {/* CLIENTE - Sempre cliccabile per modifica */}
-                  <div className="relative mt-1">
-                    <button
-                      onClick={() => setShowClienteSelector(!showClienteSelector)}
-                      className="flex items-center gap-1 text-sm text-gray-600 hover:text-blue-600 transition-colors group"
-                    >
-                      <span className={preventivo.cliente_id ? 'text-gray-900 font-medium' : 'text-amber-600'}>
-                        {nomeClienteDisplay}
-                      </span>
-                      <ChevronDown className={`w-4 h-4 transition-transform ${showClienteSelector ? 'rotate-180' : ''}`} />
-                      <span className="text-xs text-gray-400 group-hover:text-blue-500">(modifica)</span>
-                    </button>
-                    
-                    {/* Dropdown cliente */}
-                    {showClienteSelector && (
-                      <>
-                        <div 
-                          className="fixed inset-0 z-30" 
-                          onClick={() => setShowClienteSelector(false)}
-                        />
-                        <div className="absolute top-full left-0 mt-1 w-80 bg-white rounded-lg shadow-lg border z-40 p-3">
-                          <ClienteSelector
-                            value={preventivo.cliente_id}
-                            onChange={handleClienteChange}
-                          />
-                          {preventivo.cliente_id && (
-                            <button
-                              onClick={() => handleClienteChange(null)}
-                              className="mt-2 w-full text-sm text-red-600 hover:bg-red-50 py-2 rounded-lg transition-colors"
-                            >
-                              Rimuovi cliente
-                            </button>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-4">
-                {/* Pulsante Export */}
-                <ExportButtons 
-                  preventivoId={preventivoId} 
-                  numeroPreventivo={preventivo.numero_preventivo} 
-                />
-                
-                <div className="text-right">
-                  <div className="text-sm text-gray-500">Totale</div>
-                  <div className={`text-2xl font-bold ${isRicambio ? 'text-green-600' : 'text-blue-600'}`}>
-                    €{Number(preventivo.total_price_finale || preventivo.total_price || 0).toFixed(2)}
-                  </div>
-                </div>
-                
-                {/* Logout per RICAMBIO (senza sidebar) */}
-                {isRicambio && (
-                  <button
-                    onClick={handleLogout}
-                    className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    title="Esci"
-                  >
-                    <LogOut className="w-5 h-5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </header>
-
-        {/* Content */}
-        <main className="p-6">
-          {isRicambio ? (
-            // Form Ricambi
-            <RicambiForm 
-              preventivoId={preventivoId} 
-              clienteId={preventivo.cliente_id}
-            />
-          ) : (
-            // Forms Completo
-            <div className={sezioneAttiva.startsWith('admin') || sezioneAttiva.startsWith('gestione') ? '' : 'max-w-4xl'}>
-              {sezioneAttiva === 'dati-commessa' && (
-                <DatiCommessaForm />
-              )}
-              {sezioneAttiva === 'dati-principali' && (
-                <DatiPrincipaliForm 
-                  preventivoId={preventivoId} 
-                  isAdmin={isAdmin} 
-                  onDataChange={() => refetchPreventivo()}
-                />
-              )}
-              {sezioneAttiva === 'normative' && (
-                <NormativeForm 
-                  preventivoId={preventivoId} 
-                  isAdmin={isAdmin}
-                  onDataChange={() => refetchPreventivo()}
-                />
-              )}
-              {sezioneAttiva === 'disposizione-vano' && (
-                <DisposizioneVanoForm preventivoId={preventivoId} />
-              )}
-              {sezioneAttiva === 'argano' && (
-                <ArganoForm preventivoId={preventivoId} />
-              )}
-              {sezioneAttiva === 'info-generale' && (
-                <div className="bg-white rounded-lg border p-6">
-                  <h2 className="text-xl font-bold mb-4">Info Generale</h2>
-                  <p className="text-gray-600">Sezione in sviluppo...</p>
-                </div>
-              )}
-              {sezioneAttiva === 'porte' && (
-                <div className="bg-white rounded-lg border p-6">
-                  <h2 className="text-xl font-bold mb-4">Porte</h2>
-                  <p className="text-gray-600">Sezione in sviluppo...</p>
-                </div>
-              )}
-              {sezioneAttiva === 'materiali' && (
-                <MaterialiPage 
-                  preventivoId={preventivoId} 
-                  clienteId={preventivo?.cliente_id}
-                  dataConsegna={datiCommessa?.data_consegna_richiesta}
-                  onDataChange={() => refetchPreventivo()}
-                />
-              )}
-              {sezioneAttiva === 'rule-designer' && isAdmin && (
-                <RuleEnginePage />
-              )}
-              {sezioneAttiva === 'admin' && isAdmin && (
-                <GestioneArticoliPage />
-              )}
-              {sezioneAttiva === 'gestione-opzioni' && isAdmin && (
-                <GestioneOpzioniPage />
-              )}
-              {sezioneAttiva === 'gestione-campi' && isAdmin && (
-                <GestioneCampiPage />
-              )}
-              {sezioneAttiva === 'gestione-utenti' && isAdmin && (
-                <GestioneUtentiPage />
-              )}
-            </div>
-          )}
-        </main>
+    <div className={`flex min-h-screen ${theme.pageBg}`}>
+      {/* Sidebar sinistra */}
+      <div className="w-64 bg-white/80 shadow-lg">
+        {/* Indicatore categoria in cima alla sidebar */}
+        {categoria && (
+          <div
+            className="h-1"
+            style={{ backgroundColor: theme.sidebarAccent }}
+          />
+        )}
+        <Sidebar 
+          activeSection={activeSection as any} 
+          onSectionChange={(section) => setActiveSection(section as string)}
+          progresso={progresso}
+        />
       </div>
 
-      {/* Modal Salva come Template */}
-      {showSaveTemplateDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">Salva come Template</h3>
-              <button
-                onClick={() => setShowSaveTemplateDialog(false)}
-                className="p-1 text-gray-400 hover:text-gray-600 rounded"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nome Template *
-                </label>
-                <input
-                  type="text"
-                  value={templateNome}
-                  onChange={(e) => setTemplateNome(e.target.value)}
-                  placeholder="Es: Ascensore Residenziale 4 Fermate"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Descrizione (opzionale)
-                </label>
-                <textarea
-                  value={templateDescrizione}
-                  onChange={(e) => setTemplateDescrizione(e.target.value)}
-                  placeholder="Breve descrizione del template..."
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                />
-              </div>
-              
-              {isAdmin && (
-                <div className="flex items-center gap-3 p-3 bg-purple-50 rounded-lg">
-                  <input
-                    type="checkbox"
-                    id="templatePubblico"
-                    checked={templatePubblico}
-                    onChange={(e) => setTemplatePubblico(e.target.checked)}
-                    className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
-                  />
-                  <label htmlFor="templatePubblico" className="text-sm text-purple-900">
-                    <span className="font-medium">Template Pubblico</span>
-                    <span className="block text-purple-700">Visibile a tutti gli utenti</span>
-                  </label>
+      {/* Contenuto principale */}
+      <div className="flex-1 p-6">
+        {/* Header con barra progresso e pulsante PDF */}
+        <div className="mb-6">
+          <div className="bg-white/70 backdrop-blur-sm rounded-lg shadow p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex-1">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-4">
+                    <button
+                      onClick={() => navigate('/')}
+                      className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M10 19l-7-7m0 0l7-7m-7 7h18"
+                        />
+                      </svg>
+                      Torna alla Home
+                    </button>
+                    {/* Badge categoria */}
+                    {categoria && (
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${theme.badge}`}>
+                        {categoria}
+                      </span>
+                    )}
+                    <span className="text-sm font-medium text-gray-700">
+                      Progresso Configurazione
+                    </span>
+                  </div>
+                  <span className={`text-sm font-bold ${theme.progressText}`}>
+                    {progresso}%
+                  </span>
                 </div>
-              )}
-            </div>
-            
-            <div className="flex justify-end gap-3 p-4 border-t bg-gray-50 rounded-b-xl">
-              <button
-                onClick={() => setShowSaveTemplateDialog(false)}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
-              >
-                Annulla
-              </button>
-              <button
-                onClick={() => saveTemplateMutation.mutate()}
-                disabled={!templateNome.trim() || saveTemplateMutation.isPending}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {saveTemplateMutation.isPending && (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                )}
-                Salva Template
-              </button>
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div
+                    className={`${theme.progressBar} h-2.5 rounded-full transition-all duration-500`}
+                    style={{ width: `${progresso}%` }}
+                  ></div>
+                </div>
+              </div>
+              <PDFButton 
+                preventivoId={preventivoId} 
+              />
             </div>
           </div>
         </div>
-      )}
+
+        <div className="flex gap-6">
+          {/* Colonna sinistra - Sezione principale */}
+          <div className="flex-1">
+            {/* Editor Nome Cliente - Solo nella sezione dati-commessa */}
+            {activeSection === 'dati-commessa' && (
+              <CustomerNameEditor preventivoId={preventivoId} />
+            )}
+            
+            {renderSection()}
+          </div>
+
+          {/* Colonna destra - Materiali (dinamico) */}
+          {activeSection !== 'materiali' && (
+            <div className="w-96">
+              <MaterialsTable 
+                preventivoId={preventivoId} 
+                className="sticky top-6"
+              />
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
-}
+};

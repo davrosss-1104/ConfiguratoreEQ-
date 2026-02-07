@@ -1,517 +1,372 @@
 import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, FileText, Package, Wrench, Loader2, Trash2, LogOut, User, Copy, Globe, Lock } from 'lucide-react';
-import { TipoPreventivoSelector } from '../components/TipoPreventivoSelector';
-import { ClienteSelector } from '../components/ClienteSelector';
-import { toast } from 'sonner';
+import { preventiviService, getTemplates, type ProductTemplate, type Preventivo } from '@/services/preventivi.service';
 
-const API_BASE = 'http://localhost:8000/api';
+// ==========================================
+// COMPONENTE PRINCIPALE
+// ==========================================
 
-// Get current user from localStorage
-function getCurrentUser() {
-  try {
-    const user = localStorage.getItem('user');
-    return user ? JSON.parse(user) : null;
-  } catch {
-    return null;
-  }
-}
-
-interface Preventivo {
-  id: number;
-  numero_preventivo: string;
-  tipo_preventivo: string;
-  customer_name: string | null;
-  cliente_id: number | null;
-  status: string;
-  total_price: number;
-  created_at: string;
-}
-
-interface Cliente {
-  id: number;
-  codice: string;
-  ragione_sociale: string;
-  sconto_produzione: number;
-  sconto_acquisto: number;
-}
-
-interface Template {
-  id: number;
-  nome: string;
-  descrizione: string | null;
-  is_public: boolean;
-  created_by: number | null;
-  created_at: string;
-}
-
-export default function HomePage() {
+export const HomePage = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [showNewForm, setShowNewForm] = useState(false);
-  const [modalitaCreazione, setModalitaCreazione] = useState<'COMPLETO' | 'RICAMBIO' | 'TEMPLATE'>('COMPLETO');
-  const [clienteId, setClienteId] = useState<number | null>(null);
-  const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
-  
-  const currentUser = getCurrentUser();
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/login');
-  };
-
-  // Carica lista preventivi (filtrati per utente se non admin)
-  const { data: preventivi, isLoading, refetch } = useQuery({
-    queryKey: ['preventivi', currentUser?.id, currentUser?.role],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (currentUser?.id) params.append('user_id', currentUser.id.toString());
-      params.append('is_admin', currentUser?.role === 'admin' ? 'true' : 'false');
-      
-      const res = await fetch(`${API_BASE}/preventivi?${params.toString()}`);
-      if (!res.ok) throw new Error('Errore caricamento');
-      return res.json();
-    }
+  // Query preventivi
+  const { data: preventivi = [], isLoading } = useQuery<Preventivo[]>({
+    queryKey: ['preventivi'],
+    queryFn: () => preventiviService.getPreventivi(),
   });
 
-  // Carica lista template
-  const { data: templates } = useQuery({
-    queryKey: ['templates', currentUser?.id],
-    queryFn: async () => {
-      const url = currentUser?.id 
-        ? `${API_BASE}/templates?user_id=${currentUser.id}`
-        : `${API_BASE}/templates`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('Errore caricamento template');
-      return res.json() as Promise<Template[]>;
-    }
+  // Query templates per la categoria selezionata
+  const { data: templates = [] } = useQuery<ProductTemplate[]>({
+    queryKey: ['templates', selectedCategory],
+    queryFn: () => getTemplates(selectedCategory || undefined),
+    enabled: !!selectedCategory,
   });
 
-  // Crea nuovo preventivo
+  // Mutation per creare preventivo (con o senza template)
   const createMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(`${API_BASE}/preventivi`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          tipo_preventivo: modalitaCreazione === 'TEMPLATE' ? 'COMPLETO' : modalitaCreazione,
-          cliente_id: clienteId,
-          user_id: currentUser?.id  // Chi crea il preventivo
-        })
-      });
-      if (!res.ok) throw new Error('Errore creazione');
-      return res.json();
+    mutationFn: (templateId?: number) =>
+      preventiviService.createPreventivo({
+        status: 'draft',
+        ...(templateId ? { template_id: templateId } : {}),
+      }),
+    onSuccess: (newPreventivo) => {
+      queryClient.invalidateQueries({ queryKey: ['preventivi'] });
+      navigate(`/preventivo/${newPreventivo.id}`);
     },
-    onSuccess: (data) => {
-      navigate(`/preventivi/${data.id}`);
-    }
+    onError: (error) => {
+      console.error('Errore creazione preventivo:', error);
+      alert('Errore nella creazione del preventivo');
+    },
   });
 
-  // Crea preventivo da template
-  const createFromTemplateMutation = useMutation({
-    mutationFn: async (templateId: number) => {
-      const params = new URLSearchParams();
-      if (clienteId) params.append('cliente_id', clienteId.toString());
-      if (currentUser?.id) params.append('user_id', currentUser.id.toString());
-      
-      const res = await fetch(`${API_BASE}/templates/${templateId}/create-preventivo?${params.toString()}`, { method: 'POST' });
-      if (!res.ok) throw new Error('Errore creazione da template');
-      return res.json();
-    },
-    onSuccess: (data) => {
-      toast.success(`Preventivo ${data.numero_preventivo} creato da template "${data.template_usato}"`);
-      navigate(`/preventivi/${data.preventivo_id}`);
-    },
-    onError: () => {
-      toast.error('Errore nella creazione del preventivo');
-    }
-  });
-
-  // Cancella template
-  const deleteTemplateMutation = useMutation({
-    mutationFn: async (templateId: number) => {
-      const res = await fetch(
-        `${API_BASE}/templates/${templateId}?user_id=${currentUser?.id}&is_admin=${currentUser?.is_admin}`,
-        { method: 'DELETE' }
-      );
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || 'Errore cancellazione');
-      }
-      return res.json();
-    },
-    onSuccess: () => {
-      toast.success('Template cancellato');
-      queryClient.invalidateQueries({ queryKey: ['templates'] });
-    },
-    onError: (error: Error) => {
-      toast.error(error.message);
-    }
-  });
-
-  // Cancella preventivo
-  const deleteMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const res = await fetch(`${API_BASE}/preventivi/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Errore cancellazione');
-    },
-    onSuccess: () => {
-      refetch();
-    }
-  });
-
-  const handleClienteChange = (cliente: Cliente | null) => {
-    setSelectedCliente(cliente);
-    setClienteId(cliente?.id || null);
+  const handleSubcategoryClick = (template: ProductTemplate) => {
+    createMutation.mutate(template.id);
   };
 
-  const handleCreate = () => {
-    if (modalitaCreazione === 'TEMPLATE') {
-      if (!selectedTemplateId) {
-        toast.error('Seleziona un template');
-        return;
-      }
-      createFromTemplateMutation.mutate(selectedTemplateId);
-    } else {
-      createMutation.mutate();
-    }
+  const handleCategoryClick = (cat: string) => {
+    setSelectedCategory(prev => prev === cat ? null : cat);
   };
 
-  const canDeleteTemplate = (template: Template) => {
-    // Admin può cancellare tutto
-    if (currentUser?.is_admin) return true;
-    // Utente può cancellare solo i propri template
-    return template.created_by === currentUser?.id;
+  // Colori per categoria
+  const catColors = {
+    RISE: {
+      border: 'border-green-500',
+      borderHover: 'hover:border-green-500',
+      bg: 'bg-green-50',
+      bgHover: 'hover:bg-green-50',
+      text: 'text-green-800',
+      ring: 'ring-green-200',
+      badge: 'bg-green-100 text-green-800 border-green-200',
+      accent: 'bg-green-500',
+      subBorder: 'hover:border-green-400',
+      subBg: 'hover:bg-green-50/50',
+      subText: 'group-hover:text-green-600',
+      subLabel: 'group-hover:text-green-700',
+    },
+    HOME: {
+      border: 'border-amber-500',
+      borderHover: 'hover:border-amber-500',
+      bg: 'bg-amber-50',
+      bgHover: 'hover:bg-amber-50',
+      text: 'text-amber-800',
+      ring: 'ring-amber-200',
+      badge: 'bg-amber-100 text-amber-800 border-amber-200',
+      accent: 'bg-amber-500',
+      subBorder: 'hover:border-amber-400',
+      subBg: 'hover:bg-amber-50/50',
+      subText: 'group-hover:text-amber-600',
+      subLabel: 'group-hover:text-amber-700',
+    },
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto" />
+          <p className="mt-4 text-gray-600">Caricamento...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b shadow-sm">
-        <div className="max-w-6xl mx-auto px-6 py-6">
+      <div className="bg-white shadow">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">
-                Configuratore Preventivi
+                Configuratore Elettroquadri
               </h1>
-              <p className="text-gray-600 mt-1">
-                Elettroquadri S.r.l.
+              <p className="mt-1 text-sm text-gray-500">
+                Sistema di preventivazione automatica
               </p>
             </div>
-            
-            <div className="flex items-center gap-4">
-              {/* Info utente */}
-              {currentUser && (
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <User className="w-4 h-4" />
-                  <span>{currentUser.username}</span>
-                  {currentUser.is_admin && (
-                    <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">Admin</span>
-                  )}
-                </div>
-              )}
-              
-              {/* Pulsante Nuovo Preventivo */}
-              <button
-                onClick={() => setShowNewForm(true)}
-                className="flex items-center gap-2 px-5 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-              >
-                <Plus className="w-5 h-5" />
-                Nuovo Preventivo
-              </button>
-              
-              {/* Pulsante Logout */}
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 px-4 py-3 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                title="Esci"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
-            </div>
+            <button
+              onClick={() => navigate('/admin/templates')}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+              title="Gestione Template"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+              Gestione
+            </button>
           </div>
         </div>
-      </header>
+      </div>
 
-      <div className="max-w-6xl mx-auto px-6 py-8">
-        {/* Form nuovo preventivo */}
-        {showNewForm && (
-          <div className="mb-8 bg-white rounded-xl shadow-lg border p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-6">Nuovo Preventivo</h2>
-            
-            {/* Step 1: Modalità creazione */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                1. Modalità di creazione
-              </label>
-              <div className="grid grid-cols-3 gap-4">
-                {/* Prodotto Completo */}
+      {/* Sezione Creazione Preventivo */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
+          <h2 className="text-lg font-semibold text-gray-800 mb-5">Nuovo Preventivo</h2>
+
+          <div className="flex gap-6">
+            {/* Colonna SX - Categorie principali */}
+            <div className="flex-1">
+              <div className="grid grid-cols-2 gap-4">
+                {/* Pulsantone RISE */}
                 <button
-                  type="button"
-                  onClick={() => {
-                    setModalitaCreazione('COMPLETO');
-                    setSelectedTemplateId(null);
-                  }}
+                  onClick={() => handleCategoryClick('RISE')}
+                  disabled={createMutation.isPending}
                   className={`
-                    p-6 rounded-xl border-2 transition-all text-left
-                    ${modalitaCreazione === 'COMPLETO'
-                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                    group relative flex flex-col items-center justify-center gap-3 p-6 rounded-xl border-2 transition-all duration-200
+                    ${selectedCategory === 'RISE'
+                      ? `${catColors.RISE.border} ${catColors.RISE.bg} ring-2 ${catColors.RISE.ring} shadow-md`
+                      : `border-gray-200 bg-white ${catColors.RISE.borderHover} ${catColors.RISE.bgHover} hover:shadow-md`
                     }
+                    disabled:opacity-50 disabled:cursor-not-allowed
                   `}
                 >
-                  <Package className={`w-10 h-10 mb-3 ${modalitaCreazione === 'COMPLETO' ? 'text-blue-600' : 'text-gray-400'}`} />
-                  <div className={`font-semibold text-lg ${modalitaCreazione === 'COMPLETO' ? 'text-blue-900' : 'text-gray-900'}`}>
-                    Prodotto Completo
-                  </div>
-                  <div className="text-sm text-gray-500 mt-1">
-                    Nuovo impianto da configurare
-                  </div>
+                  <img
+                    src="/icons/equa-rise-secondary-color.svg"
+                    alt="RISE"
+                    className="w-16 h-16 object-contain"
+                  />
+                  {selectedCategory === 'RISE' && (
+                    <div className={`absolute top-2 right-2 w-2.5 h-2.5 rounded-full ${catColors.RISE.accent}`} />
+                  )}
                 </button>
-                
-                {/* Ricambio */}
+
+                {/* Pulsantone HOME */}
                 <button
-                  type="button"
-                  onClick={() => {
-                    setModalitaCreazione('RICAMBIO');
-                    setSelectedTemplateId(null);
-                  }}
+                  onClick={() => handleCategoryClick('HOME')}
+                  disabled={createMutation.isPending}
                   className={`
-                    p-6 rounded-xl border-2 transition-all text-left
-                    ${modalitaCreazione === 'RICAMBIO'
-                      ? 'border-green-500 bg-green-50 ring-2 ring-green-200'
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                    group relative flex flex-col items-center justify-center gap-3 p-6 rounded-xl border-2 transition-all duration-200
+                    ${selectedCategory === 'HOME'
+                      ? `${catColors.HOME.border} ${catColors.HOME.bg} ring-2 ${catColors.HOME.ring} shadow-md`
+                      : `border-gray-200 bg-white ${catColors.HOME.borderHover} ${catColors.HOME.bgHover} hover:shadow-md`
                     }
+                    disabled:opacity-50 disabled:cursor-not-allowed
                   `}
                 >
-                  <Wrench className={`w-10 h-10 mb-3 ${modalitaCreazione === 'RICAMBIO' ? 'text-green-600' : 'text-gray-400'}`} />
-                  <div className={`font-semibold text-lg ${modalitaCreazione === 'RICAMBIO' ? 'text-green-900' : 'text-gray-900'}`}>
-                    Ricambio
-                  </div>
-                  <div className="text-sm text-gray-500 mt-1">
-                    Parti di ricambio da listino
-                  </div>
-                </button>
-                
-                {/* Da Template */}
-                <button
-                  type="button"
-                  onClick={() => setModalitaCreazione('TEMPLATE')}
-                  className={`
-                    p-6 rounded-xl border-2 transition-all text-left
-                    ${modalitaCreazione === 'TEMPLATE'
-                      ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-200'
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                    }
-                  `}
-                >
-                  <Copy className={`w-10 h-10 mb-3 ${modalitaCreazione === 'TEMPLATE' ? 'text-purple-600' : 'text-gray-400'}`} />
-                  <div className={`font-semibold text-lg ${modalitaCreazione === 'TEMPLATE' ? 'text-purple-900' : 'text-gray-900'}`}>
-                    Da Template
-                  </div>
-                  <div className="text-sm text-gray-500 mt-1">
-                    Usa configurazione esistente
-                  </div>
+                  <img
+                    src="/icons/equa-home-secondary-color.svg"
+                    alt="HOME"
+                    className="w-16 h-16 object-contain"
+                  />
+                  {selectedCategory === 'HOME' && (
+                    <div className={`absolute top-2 right-2 w-2.5 h-2.5 rounded-full ${catColors.HOME.accent}`} />
+                  )}
                 </button>
               </div>
             </div>
 
-            {/* Step 2: Selezione Template (solo se TEMPLATE) */}
-            {modalitaCreazione === 'TEMPLATE' && (
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-3">
-                  2. Seleziona Template
-                </label>
-                
-                {templates && templates.length > 0 ? (
-                  <div className="grid gap-3 max-h-64 overflow-y-auto pr-2">
-                    {templates.map((template) => (
-                      <div
-                        key={template.id}
-                        className={`
-                          p-4 rounded-lg border-2 cursor-pointer transition-all
-                          ${selectedTemplateId === template.id
-                            ? 'border-purple-500 bg-purple-50'
-                            : 'border-gray-200 hover:border-gray-300'
-                          }
-                        `}
-                        onClick={() => setSelectedTemplateId(template.id)}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            {template.is_public ? (
-                              <Globe className="w-5 h-5 text-blue-500" title="Template pubblico" />
-                            ) : (
-                              <Lock className="w-5 h-5 text-gray-400" title="Template personale" />
-                            )}
-                            <div>
-                              <div className="font-medium text-gray-900">{template.nome}</div>
-                              {template.descrizione && (
-                                <div className="text-sm text-gray-500">{template.descrizione}</div>
-                              )}
-                            </div>
-                          </div>
-                          
-                          {canDeleteTemplate(template) && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (confirm('Eliminare questo template?')) {
-                                  deleteTemplateMutation.mutate(template.id);
-                                }
-                              }}
-                              className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Elimina template"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg">
-                    <Copy className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                    <p>Nessun template disponibile</p>
-                    <p className="text-sm mt-1">I template verranno creati salvando preventivi esistenti</p>
-                  </div>
-                )}
+            {/* Colonna DX - Azioni rapide */}
+            <div className="flex flex-col gap-3 w-48 shrink-0">
+              <button
+                onClick={() => navigate('/admin/templates')}
+                className="flex items-center gap-2.5 px-4 py-3 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800 transition-all text-sm font-medium"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <line x1="3" y1="9" x2="21" y2="9" />
+                  <line x1="9" y1="9" x2="9" y2="21" />
+                </svg>
+                Template
+              </button>
+              <button
+                onClick={() => navigate('/ricambi')}
+                className="flex items-center gap-2.5 px-4 py-3 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800 transition-all text-sm font-medium"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
+                </svg>
+                Ricambi
+              </button>
+            </div>
+          </div>
+
+          {/* Sotto-categorie (secondo livello) */}
+          {selectedCategory && (
+            <div className="mt-6 pt-6 border-t border-gray-100">
+              <div className="flex items-center gap-2 mb-4">
+                <div className={`w-1.5 h-5 rounded-full ${selectedCategory === 'RISE' ? catColors.RISE.accent : catColors.HOME.accent}`} />
+                <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wider">
+                  Seleziona tipo — {selectedCategory}
+                </h3>
               </div>
-            )}
-            
-            {/* Step 2/3: Cliente */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                {modalitaCreazione === 'TEMPLATE' ? '3' : '2'}. Cliente (opzionale)
-              </label>
-              <ClienteSelector
-                value={clienteId}
-                onChange={handleClienteChange}
-              />
-              {selectedCliente && (
-                <div className="mt-2 text-sm text-gray-600">
-                  Sconto produzione: {selectedCliente.sconto_produzione}% | 
-                  Sconto acquisto: {selectedCliente.sconto_acquisto}%
+
+              {templates.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <p className="text-sm">Nessun template configurato per <strong>{selectedCategory}</strong>.</p>
+                  <button
+                    onClick={() => navigate('/admin/templates')}
+                    className="mt-2 text-sm text-blue-500 hover:text-blue-600 underline"
+                  >
+                    Configura i template
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-4">
+                  {templates.map((template) => {
+                    const colors = selectedCategory === 'RISE' ? catColors.RISE : catColors.HOME;
+                    const iconPath = template.icona
+                      ? `/icons/${template.icona}.svg`
+                      : null;
+
+                    return (
+                      <button
+                        key={template.id}
+                        onClick={() => handleSubcategoryClick(template)}
+                        disabled={createMutation.isPending}
+                        className={`
+                          group flex flex-col items-center gap-2.5 p-5 rounded-xl border-2 border-gray-150 bg-white
+                          ${colors.subBorder} ${colors.subBg} hover:shadow-md
+                          active:scale-[0.98] transition-all duration-150
+                          disabled:opacity-50 disabled:cursor-not-allowed
+                        `}
+                      >
+                        {createMutation.isPending ? (
+                          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-400" />
+                        ) : iconPath ? (
+                          <img
+                            src={iconPath}
+                            alt={template.nome_display}
+                            className="w-20 h-20 object-contain"
+                          />
+                        ) : (
+                          <svg className="w-12 h-12 text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <rect x="2" y="6" width="20" height="14" rx="2" />
+                            <path d="M6 6V4a2 2 0 012-2h8a2 2 0 012 2v2" />
+                            <line x1="12" y1="11" x2="12" y2="15" />
+                            <line x1="10" y1="13" x2="14" y2="13" />
+                          </svg>
+                        )}
+                        <span className={`text-sm font-semibold text-gray-700 ${colors.subLabel} transition-colors text-center`}>
+                          {template.nome_display}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
+          )}
+        </div>
 
-            {/* Pulsanti */}
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowNewForm(false);
-                  setModalitaCreazione('COMPLETO');
-                  setSelectedTemplateId(null);
-                  setClienteId(null);
-                  setSelectedCliente(null);
-                }}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+        {/* Lista preventivi esistenti */}
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800 mb-4">Preventivi Recenti</h2>
+
+          {preventivi.length === 0 ? (
+            <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
+              <svg
+                className="mx-auto h-12 w-12 text-gray-300"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
               >
-                Annulla
-              </button>
-              <button
-                onClick={handleCreate}
-                disabled={createMutation.isPending || createFromTemplateMutation.isPending || (modalitaCreazione === 'TEMPLATE' && !selectedTemplateId)}
-                className={`
-                  px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2
-                  ${modalitaCreazione === 'COMPLETO' ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}
-                  ${modalitaCreazione === 'RICAMBIO' ? 'bg-green-600 hover:bg-green-700 text-white' : ''}
-                  ${modalitaCreazione === 'TEMPLATE' ? 'bg-purple-600 hover:bg-purple-700 text-white' : ''}
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                `}
-              >
-                {(createMutation.isPending || createFromTemplateMutation.isPending) && (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                )}
-                {modalitaCreazione === 'TEMPLATE' ? 'Crea da Template' : 'Crea Preventivo'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Lista preventivi */}
-        <div className="bg-white rounded-xl shadow-lg border overflow-hidden">
-          <div className="px-6 py-4 border-b bg-gray-50">
-            <h2 className="text-lg font-semibold text-gray-900">Preventivi Recenti</h2>
-          </div>
-
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-            </div>
-          ) : preventivi?.length > 0 ? (
-            <div className="divide-y">
-              {preventivi.map((prev: Preventivo) => (
-                <div
-                  key={prev.id}
-                  className="px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors flex items-center justify-between"
-                  onClick={() => navigate(`/preventivi/${prev.id}`)}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className={`
-                      w-10 h-10 rounded-lg flex items-center justify-center
-                      ${prev.tipo_preventivo === 'RICAMBIO' ? 'bg-green-100' : 'bg-blue-100'}
-                    `}>
-                      {prev.tipo_preventivo === 'RICAMBIO' 
-                        ? <Wrench className="w-5 h-5 text-green-600" />
-                        : <Package className="w-5 h-5 text-blue-600" />
-                      }
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-900">{prev.numero_preventivo}</span>
-                        <span className={`
-                          px-2 py-0.5 rounded text-xs font-medium
-                          ${prev.tipo_preventivo === 'RICAMBIO' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}
-                        `}>
-                          {prev.tipo_preventivo}
-                        </span>
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        {prev.customer_name || 'Cliente non specificato'}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-6">
-                    <div className="text-right">
-                      <div className={`font-semibold ${prev.tipo_preventivo === 'RICAMBIO' ? 'text-green-600' : 'text-blue-600'}`}>
-                        €{Number(prev.total_price || 0).toFixed(2)}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {new Date(prev.created_at).toLocaleDateString('it-IT')}
-                      </div>
-                    </div>
-                    
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (confirm('Eliminare questo preventivo?')) {
-                          deleteMutation.mutate(prev.id);
-                        }
-                      }}
-                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                />
+              </svg>
+              <h3 className="mt-3 text-sm font-medium text-gray-600">Nessun preventivo</h3>
+              <p className="mt-1 text-sm text-gray-400">
+                Seleziona una categoria sopra per creare il tuo primo preventivo
+              </p>
             </div>
           ) : (
-            <div className="text-center py-12 text-gray-500">
-              <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-              <p>Nessun preventivo trovato</p>
-              <p className="text-sm mt-1">Clicca su "Nuovo Preventivo" per iniziare</p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {preventivi.map((preventivo) => {
+                const cat = (preventivo as any).categoria as string | undefined;
+                const badgeClass = cat === 'RISE' ? catColors.RISE.badge
+                  : cat === 'HOME' ? catColors.HOME.badge
+                  : '';
+
+                return (
+                  <div
+                    key={preventivo.id}
+                    onClick={() => navigate(`/preventivo/${preventivo.id}`)}
+                    className="bg-white overflow-hidden rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all cursor-pointer group"
+                  >
+                    <div className="px-5 py-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
+                            {preventivo.numero_preventivo}
+                          </h3>
+                          {cat && (
+                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded border ${badgeClass}`}>
+                              {cat}
+                            </span>
+                          )}
+                        </div>
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                            preventivo.status === 'draft'
+                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                              : preventivo.status === 'sent'
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : 'bg-green-50 text-green-700 border border-green-200'
+                          }`}
+                        >
+                          {preventivo.status === 'draft'
+                            ? 'Bozza'
+                            : preventivo.status === 'sent'
+                            ? 'Inviato'
+                            : 'Approvato'}
+                        </span>
+                      </div>
+
+                      {preventivo.customer_name ? (
+                        <p className="text-sm text-gray-600 mb-3">{preventivo.customer_name}</p>
+                      ) : (
+                        <p className="text-sm text-gray-300 italic mb-3">Nessun cliente</p>
+                      )}
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-xl font-bold text-gray-900">
+                          €{preventivo.total_price.toFixed(2)}
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {new Date(preventivo.created_at).toLocaleDateString('it-IT')}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 px-5 py-3 border-t border-gray-100">
+                      <span className="text-sm font-medium text-blue-600 group-hover:text-blue-700">
+                        Apri preventivo →
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
       </div>
     </div>
   );
-}
+};

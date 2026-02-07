@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:8000/api';
 
 interface Opzione {
   id: number;
@@ -148,7 +148,7 @@ export default function GestioneOpzioniPage() {
 
   const fetchGruppi = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/opzioni-dropdown/gruppi`);
+      const response = await fetch(`${API_BASE}/opzioni-dropdown/gruppi`);
       const data = await response.json();
       setGruppi(data);
       setLoading(false);
@@ -160,7 +160,7 @@ export default function GestioneOpzioniPage() {
 
   const fetchOpzioni = async (gruppo: string) => {
     try {
-      const response = await fetch(`${API_BASE}/api/opzioni-dropdown/${gruppo}?solo_attive=false`);
+      const response = await fetch(`${API_BASE}/opzioni-dropdown/${gruppo}?solo_attive=false`);
       const data = await response.json();
       setOpzioni(data);
     } catch (error) {
@@ -185,7 +185,7 @@ export default function GestioneOpzioniPage() {
 
     try {
       // Crea una prima opzione placeholder per creare il gruppo
-      const response = await fetch(`${API_BASE}/api/opzioni-dropdown`, {
+      const response = await fetch(`${API_BASE}/opzioni-dropdown`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -310,7 +310,7 @@ export default function GestioneOpzioniPage() {
     
     // Salva su backend
     try {
-      await fetch(`${API_BASE}/api/opzioni-dropdown/${selectedGruppo}/riordina`, {
+      await fetch(`${API_BASE}/opzioni-dropdown/${selectedGruppo}/riordina`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(ordini),
@@ -343,7 +343,7 @@ export default function GestioneOpzioniPage() {
     if (!editingId) return;
     
     try {
-      const response = await fetch(`${API_BASE}/api/opzioni-dropdown/${editingId}`, {
+      const response = await fetch(`${API_BASE}/opzioni-dropdown/${editingId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editForm),
@@ -364,7 +364,7 @@ export default function GestioneOpzioniPage() {
 
   const handleToggleAttivo = async (opzione: Opzione) => {
     try {
-      await fetch(`${API_BASE}/api/opzioni-dropdown/${opzione.id}`, {
+      await fetch(`${API_BASE}/opzioni-dropdown/${opzione.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ attivo: !opzione.attivo }),
@@ -381,7 +381,7 @@ export default function GestioneOpzioniPage() {
     if (!confirm('Eliminare questa opzione?')) return;
     
     try {
-      const response = await fetch(`${API_BASE}/api/opzioni-dropdown/${id}`, {
+      const response = await fetch(`${API_BASE}/opzioni-dropdown/${id}`, {
         method: 'DELETE',
       });
       
@@ -416,7 +416,7 @@ export default function GestioneOpzioniPage() {
     
     try {
       console.log('Invio richiesta:', JSON.stringify(newOpzione));
-      const response = await fetch(`${API_BASE}/api/opzioni-dropdown`, {
+      const response = await fetch(`${API_BASE}/opzioni-dropdown`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newOpzione),

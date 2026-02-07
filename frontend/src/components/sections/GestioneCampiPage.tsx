@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:8000/api';
 
 interface Campo {
   id: number;
@@ -101,7 +101,7 @@ export default function GestioneCampiPage() {
 
   const fetchSezioni = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/campi-configuratore/sezioni`);
+      const response = await fetch(`${API_BASE}/campi-configuratore/sezioni`);
       const data = await response.json();
       setSezioni(data);
       setLoading(false);
@@ -113,7 +113,7 @@ export default function GestioneCampiPage() {
 
   const fetchCampi = async (sezione: string) => {
     try {
-      const response = await fetch(`${API_BASE}/api/campi-configuratore/${sezione}?solo_attivi=false`);
+      const response = await fetch(`${API_BASE}/campi-configuratore/${sezione}?solo_attivi=false`);
       const data = await response.json();
       setCampi(data);
     } catch (error) {
@@ -123,7 +123,7 @@ export default function GestioneCampiPage() {
 
   const fetchGruppiDropdown = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/opzioni-dropdown/gruppi`);
+      const response = await fetch(`${API_BASE}/opzioni-dropdown/gruppi`);
       const data = await response.json();
       setGruppiDropdown(data.map((g: any) => g.gruppo));
     } catch (error) {
@@ -133,7 +133,7 @@ export default function GestioneCampiPage() {
 
   const fetchJsonSchema = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/campi-configuratore/schema.json`);
+      const response = await fetch(`${API_BASE}/campi-configuratore/schema.json`);
       const data = await response.json();
       setJsonSchema(data);
       setShowJsonPreview(true);
@@ -156,7 +156,7 @@ export default function GestioneCampiPage() {
     if (!editingId) return;
     
     try {
-      const response = await fetch(`${API_BASE}/api/campi-configuratore/${editingId}`, {
+      const response = await fetch(`${API_BASE}/campi-configuratore/${editingId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editForm),
@@ -178,7 +178,7 @@ export default function GestioneCampiPage() {
     const newState = !campo.attivo;
     
     try {
-      const response = await fetch(`${API_BASE}/api/campi-configuratore/${campo.id}`, {
+      const response = await fetch(`${API_BASE}/campi-configuratore/${campo.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ attivo: newState }),
@@ -205,7 +205,7 @@ export default function GestioneCampiPage() {
     const newState = !campo.obbligatorio;
     
     try {
-      const response = await fetch(`${API_BASE}/api/campi-configuratore/${campo.id}`, {
+      const response = await fetch(`${API_BASE}/campi-configuratore/${campo.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ obbligatorio: newState }),
@@ -231,7 +231,7 @@ export default function GestioneCampiPage() {
     const newState = !campo.usabile_regole;
     
     try {
-      const response = await fetch(`${API_BASE}/api/campi-configuratore/${campo.id}`, {
+      const response = await fetch(`${API_BASE}/campi-configuratore/${campo.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ usabile_regole: newState }),
@@ -257,7 +257,7 @@ export default function GestioneCampiPage() {
     if (!confirm('Eliminare questo campo? Le regole che lo usano potrebbero non funzionare più.')) return;
     
     try {
-      const response = await fetch(`${API_BASE}/api/campi-configuratore/${id}`, {
+      const response = await fetch(`${API_BASE}/campi-configuratore/${id}`, {
         method: 'DELETE',
       });
       
@@ -296,7 +296,7 @@ export default function GestioneCampiPage() {
     }
     
     try {
-      const response = await fetch(`${API_BASE}/api/campi-configuratore`, {
+      const response = await fetch(`${API_BASE}/campi-configuratore`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newCampo),
@@ -323,7 +323,7 @@ export default function GestioneCampiPage() {
 
   const downloadJson = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/campi-configuratore/schema.json`);
+      const response = await fetch(`${API_BASE}/campi-configuratore/schema.json`);
       const data = await response.json();
       
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -423,7 +423,7 @@ export default function GestioneCampiPage() {
                     onClick={async () => {
                       const inattivi = campi.filter(c => !c.attivo);
                       for (const campo of inattivi) {
-                        await fetch(`${API_BASE}/api/campi-configuratore/${campo.id}`, {
+                        await fetch(`${API_BASE}/campi-configuratore/${campo.id}`, {
                           method: 'PUT',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ attivo: true }),

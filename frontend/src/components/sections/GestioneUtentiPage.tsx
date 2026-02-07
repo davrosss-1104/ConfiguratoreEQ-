@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:8000/api';
 
 interface Utente {
   id: number;
@@ -41,7 +41,7 @@ export function GestioneUtentiPage() {
 
   const fetchUtenti = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/utenti`);
+      const res = await fetch(`${API_BASE}/utenti`);
       if (res.ok) {
         setUtenti(await res.json());
       }
@@ -88,8 +88,8 @@ export function GestioneUtentiPage() {
       params.append('is_admin', formData.is_admin ? 'true' : 'false');
 
       const url = editingId 
-        ? `${API_BASE}/api/utenti/${editingId}?${params.toString()}`
-        : `${API_BASE}/api/utenti?${params.toString()}`;
+        ? `${API_BASE}/utenti/${editingId}?${params.toString()}`
+        : `${API_BASE}/utenti?${params.toString()}`;
       
       const res = await fetch(url, {
         method: editingId ? 'PUT' : 'POST'
@@ -125,7 +125,7 @@ export function GestioneUtentiPage() {
     if (!confirm('Eliminare questo utente?')) return;
     
     try {
-      const res = await fetch(`${API_BASE}/api/utenti/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/utenti/${id}`, { method: 'DELETE' });
       if (res.ok) {
         toast({ title: '✓ Utente eliminato' });
         fetchUtenti();
@@ -138,7 +138,7 @@ export function GestioneUtentiPage() {
   const handleToggleActive = async (utente: Utente) => {
     try {
       const res = await fetch(
-        `${API_BASE}/api/utenti/${utente.id}?is_active=${!utente.is_active}`,
+        `${API_BASE}/utenti/${utente.id}?is_active=${!utente.is_active}`,
         { method: 'PUT' }
       );
       if (res.ok) {
@@ -153,7 +153,7 @@ export function GestioneUtentiPage() {
   const handleToggleAdmin = async (utente: Utente) => {
     try {
       const res = await fetch(
-        `${API_BASE}/api/utenti/${utente.id}?is_admin=${!utente.is_admin}`,
+        `${API_BASE}/utenti/${utente.id}?is_admin=${!utente.is_admin}`,
         { method: 'PUT' }
       );
       if (res.ok) {

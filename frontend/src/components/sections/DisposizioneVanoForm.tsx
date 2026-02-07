@@ -194,7 +194,7 @@ export default function DisposizioneVanoForm({ preventivoId }: DisposizioneVanoF
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white/70 rounded-lg shadow p-6">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-2">Disposizione Vano</h2>
@@ -226,7 +226,7 @@ export default function DisposizioneVanoForm({ preventivoId }: DisposizioneVanoF
       </div>
 
       {/* Palette elementi */}
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white/70 rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold mb-4">Elementi Disponibili</h3>
         <ElementiPalette 
           elementiPosizionati={elementiPosizionati}
@@ -247,7 +247,7 @@ export default function DisposizioneVanoForm({ preventivoId }: DisposizioneVanoF
       </div>
 
       {/* Pianta Interattiva */}
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white/70 rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold mb-4">Pianta Vano Ascensore</h3>
         <PiantaInterattiva 
           posizioni={posizioni}
@@ -256,7 +256,7 @@ export default function DisposizioneVanoForm({ preventivoId }: DisposizioneVanoF
       </div>
 
       {/* Tabella Sbarchi */}
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white/70 rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold mb-4">Sbarchi per Piano</h3>
         <TabellaSbarchi 
           sbarchi={sbarchi}
@@ -267,7 +267,7 @@ export default function DisposizioneVanoForm({ preventivoId }: DisposizioneVanoF
       </div>
 
       {/* Note */}
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white/70 rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold mb-4">Note Aggiuntive</h3>
         <textarea
           value={note}

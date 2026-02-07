@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { SelectConAggiungi } from './SelectConAggiungi';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:8000/api';
 
 interface Campo {
   id: number;
@@ -57,7 +57,7 @@ export function CampiPersonalizzati({
   const fetchCampi = async () => {
     try {
       const response = await fetch(
-        `${API_BASE}/api/campi-configuratore/${sezione}?solo_attivi=true&include_opzioni=true`
+        `${API_BASE}/campi-configuratore/${sezione}?solo_attivi=true&include_opzioni=true`
       );
       if (response.ok) {
         const data = await response.json();

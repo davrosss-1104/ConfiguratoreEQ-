@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:8000/api';
 
 interface Opzione {
   value: string;
@@ -51,7 +51,7 @@ export function SelectConAggiungi({
 
   const fetchOpzioni = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/opzioni-dropdown/${gruppo}`);
+      const response = await fetch(`${API_BASE}/opzioni-dropdown/${gruppo}`);
       if (response.ok) {
         const data = await response.json();
         if (data.length > 0) {
@@ -84,7 +84,7 @@ export function SelectConAggiungi({
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE}/api/opzioni-dropdown`, {
+      const response = await fetch(`${API_BASE}/opzioni-dropdown`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

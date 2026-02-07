@@ -158,7 +158,7 @@ export function NormativeForm({ preventivoId, isAdmin = false, onDataChange }: N
 
   if (isLoading) {
     return (
-      <div className="p-6 bg-white rounded-lg shadow">
+      <div className="p-6 bg-white/70 rounded-lg shadow">
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
           <span className="ml-3 text-gray-600">Caricamento normative...</span>
@@ -171,7 +171,7 @@ export function NormativeForm({ preventivoId, isAdmin = false, onDataChange }: N
   const en8120HasRule = formData.en_81_20 === '2020';
 
   return (
-    <div className="p-6 bg-white rounded-lg shadow space-y-6">
+    <div className="p-6 bg-white/70 rounded-lg shadow space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Normative</h2>

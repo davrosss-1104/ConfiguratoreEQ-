@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:8000/api';
 
 interface ExportButtonsProps {
   preventivoId: number;
@@ -62,7 +62,7 @@ export function ExportButtons({ preventivoId, numeroPreventivo }: ExportButtonsP
     setShowMenu(false);
     
     try {
-      const response = await fetch(`${API_BASE}/api/preventivi/${preventivoId}/export/${format}`);
+      const response = await fetch(`${API_BASE}/preventivi/${preventivoId}/export/${format}`);
       
       if (!response.ok) {
         const error = await response.json();
@@ -178,7 +178,7 @@ export function ExportButtonsInline({ preventivoId }: ExportButtonsProps) {
     setLoading(format);
     
     try {
-      const response = await fetch(`${API_BASE}/api/preventivi/${preventivoId}/export/${format}`);
+      const response = await fetch(`${API_BASE}/preventivi/${preventivoId}/export/${format}`);
       
       if (!response.ok) {
         const error = await response.json();

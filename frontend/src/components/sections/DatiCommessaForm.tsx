@@ -139,7 +139,7 @@ export function DatiCommessaForm() {
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white/70 rounded-lg shadow p-6">
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
           <span className="ml-3 text-gray-600">Caricamento dati commessa...</span>
@@ -149,8 +149,8 @@ export function DatiCommessaForm() {
   }
 
   return (
-    <div className="bg-white rounded-lg shadow">
-      <div className="px-6 py-4 border-b bg-gray-50">
+    <div className="bg-white/70 rounded-lg shadow">
+      <div className="px-6 py-4 border-b bg-gray-50/70">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-gray-900">Dati Commessa</h2>

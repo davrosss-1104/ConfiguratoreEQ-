@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:8000/api';
 
 export interface Opzione {
   id: number;
@@ -54,7 +54,7 @@ export function useOpzioni(
     }
 
     // Make new request
-    const fetchPromise = fetch(`${API_BASE}/api/opzioni-dropdown/${gruppo}`)
+    const fetchPromise = fetch(`${API_BASE}/opzioni-dropdown/${gruppo}`)
       .then(response => {
         if (!response.ok) throw new Error('Errore caricamento opzioni');
         return response.json();
@@ -111,7 +111,7 @@ export function useOpzioniMultiple(gruppi: string[]) {
             return;
           }
 
-          const response = await fetch(`${API_BASE}/api/opzioni-dropdown/${gruppo}`);
+          const response = await fetch(`${API_BASE}/opzioni-dropdown/${gruppo}`);
           if (!response.ok) throw new Error('Errore');
           
           const data: Opzione[] = await response.json();
@@ -170,7 +170,7 @@ export async function preloadOpzioni() {
     if (opzioniCache.has(gruppo)) return;
     
     try {
-      const response = await fetch(`${API_BASE}/api/opzioni-dropdown/${gruppo}`);
+      const response = await fetch(`${API_BASE}/opzioni-dropdown/${gruppo}`);
       if (response.ok) {
         const data = await response.json();
         opzioniCache.set(gruppo, data);

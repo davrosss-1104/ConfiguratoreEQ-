@@ -1,21 +1,4 @@
-import axios from 'axios';
-
-// Istanza axios con baseURL corretto
-const api = axios.create({
-  baseURL: 'http://localhost:8000/api',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-// Interceptor per errori
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    console.error('API Error:', error.response?.data || error.message);
-    return Promise.reject(error);
-  }
-);
+import { api } from '@/lib/api';
 
 // ==========================================
 // TYPES
@@ -27,29 +10,21 @@ export interface Preventivo {
   status: string;
   total_price: number;
   customer_name?: string;
-  tipo_preventivo?: string;
-  cliente_id?: number;
-  totale_lordo?: number;
-  totale_sconti?: number;
-  totale_netto?: number;
   created_at: string;
   updated_at?: string;
+  template_id?: number;
 }
 
 export interface PreventivoCreate {
   customer_name?: string;
   status?: string;
-  tipo_preventivo?: string;
-  cliente_id?: number;
-  user_id?: number;  // Chi crea il preventivo
+  template_id?: number;
 }
 
 export interface PreventivoUpdate {
   customer_name?: string;
   status?: string;
   total_price?: number;
-  tipo_preventivo?: string;
-  cliente_id?: number;
 }
 
 export interface DatiCommessa {
@@ -152,15 +127,63 @@ export interface MaterialeUpdate {
 }
 
 // ==========================================
+// PRODUCT TEMPLATE TYPES
+// ==========================================
+
+export interface ProductTemplate {
+  id: number;
+  categoria: string;
+  sottocategoria: string;
+  nome_display: string;
+  descrizione?: string;
+  icona?: string;
+  ordine: number;
+  attivo: boolean;
+  template_data?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ProductTemplateCreate {
+  categoria: string;
+  sottocategoria: string;
+  nome_display: string;
+  descrizione?: string;
+  icona?: string;
+  ordine?: number;
+  attivo?: boolean;
+  template_data?: string;
+}
+
+export interface ProductTemplateUpdate {
+  categoria?: string;
+  sottocategoria?: string;
+  nome_display?: string;
+  descrizione?: string;
+  icona?: string;
+  ordine?: number;
+  attivo?: boolean;
+  template_data?: string;
+}
+
+export interface CategorySummary {
+  categoria: string;
+  sottocategorie: {
+    id: number;
+    sottocategoria: string;
+    nome_display: string;
+    descrizione?: string;
+    icona?: string;
+    ordine: number;
+  }[];
+}
+
+// ==========================================
 // PREVENTIVI
 // ==========================================
 
-export const getPreventivi = async (userId?: number, isAdmin?: boolean): Promise<Preventivo[]> => {
-  const params = new URLSearchParams();
-  if (userId) params.append('user_id', userId.toString());
-  params.append('is_admin', isAdmin ? 'true' : 'false');
-  
-  const response = await api.get(`/preventivi?${params.toString()}`);
+export const getPreventivi = async (): Promise<Preventivo[]> => {
+  const response = await api.get('/preventivi');
   return response.data;
 };
 
@@ -299,6 +322,45 @@ export const evaluateRules = async (preventivoId: number): Promise<RuleEvaluatio
 };
 
 // ==========================================
+// PRODUCT TEMPLATES
+// ==========================================
+
+export const getTemplates = async (categoria?: string): Promise<ProductTemplate[]> => {
+  const params = categoria ? { categoria } : {};
+  const response = await api.get('/templates', { params });
+  return response.data;
+};
+
+export const getAllTemplates = async (): Promise<ProductTemplate[]> => {
+  const response = await api.get('/templates/all');
+  return response.data;
+};
+
+export const getTemplate = async (id: number): Promise<ProductTemplate> => {
+  const response = await api.get(`/templates/${id}`);
+  return response.data;
+};
+
+export const createTemplate = async (data: ProductTemplateCreate): Promise<ProductTemplate> => {
+  const response = await api.post('/templates', data);
+  return response.data;
+};
+
+export const updateTemplate = async (id: number, data: ProductTemplateUpdate): Promise<ProductTemplate> => {
+  const response = await api.put(`/templates/${id}`, data);
+  return response.data;
+};
+
+export const deleteTemplate = async (id: number): Promise<void> => {
+  await api.delete(`/templates/${id}`);
+};
+
+export const getCategoriesSummary = async (): Promise<CategorySummary[]> => {
+  const response = await api.get('/templates/categories/summary');
+  return response.data;
+};
+
+// ==========================================
 // SERVICE OBJECT (per compatibilità con HomePage)
 // ==========================================
 
@@ -310,5 +372,12 @@ export const preventiviService = {
   deletePreventivo,
 };
 
-// Export default api instance
-export { api };
+export const templateService = {
+  getTemplates,
+  getAllTemplates,
+  getTemplate,
+  createTemplate,
+  updateTemplate,
+  deleteTemplate,
+  getCategoriesSummary,
+};

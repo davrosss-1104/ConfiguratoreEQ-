@@ -1,324 +1,63 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, Date, ForeignKey, Text, Numeric
+from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from database import Base
 import datetime
 
-
 # ==========================================
-# PARAMETRI SISTEMA
-# ==========================================
-class ParametriSistema(Base):
-    __tablename__ = "parametri_sistema"
-
-    id = Column(Integer, primary_key=True, index=True)
-    chiave = Column(String(100), unique=True, nullable=False, index=True)
-    valore = Column(String(500), nullable=False)
-    descrizione = Column(String(500), nullable=True)
-    tipo_dato = Column(String(50), default="string")
-    gruppo = Column(String(100), nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-
-
-# ==========================================
-# OPZIONI DROPDOWN
-# ==========================================
-class OpzioneDropdown(Base):
-    __tablename__ = "opzioni_dropdown"
-
-    id = Column(Integer, primary_key=True, index=True)
-    gruppo = Column(String(100), nullable=False, index=True)  # es: "tipo_impianto", "forza_motrice"
-    valore = Column(String(200), nullable=False)              # valore salvato nel DB
-    etichetta = Column(String(200), nullable=False)           # testo visualizzato
-    ordine = Column(Integer, default=0)                       # ordinamento
-    attivo = Column(Boolean, default=True)                    # se mostrare l'opzione
-    descrizione = Column(String(500), nullable=True)          # note opzionali
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-
-
-# ==========================================
-# CAMPI CONFIGURATORE (per Rule Designer)
-# ==========================================
-class CampoConfiguratore(Base):
-    """
-    Definisce tutti i campi del modulo d'ordine.
-    Usato da:
-    - Frontend: per costruire form dinamici
-    - Rule Designer: per creare condizioni e azioni
-    - Validazione: per verificare valori ammessi
-    """
-    __tablename__ = "campi_configuratore"
-
-    id = Column(Integer, primary_key=True, index=True)
-    codice = Column(String(100), unique=True, nullable=False, index=True)  # es: "dati_principali.numero_fermate"
-    etichetta = Column(String(200), nullable=False)                         # es: "Numero Fermate"
-    tipo = Column(String(50), nullable=False)                               # "dropdown", "numero", "testo", "booleano"
-    sezione = Column(String(100), nullable=False, index=True)               # es: "dati_principali", "normative", "argano"
-    
-    # Per dropdown
-    gruppo_dropdown = Column(String(100), nullable=True)                    # riferimento a opzioni_dropdown.gruppo
-    
-    # Per numeri
-    unita_misura = Column(String(20), nullable=True)                        # "m", "kg", "kW", "mm", ecc.
-    valore_min = Column(Float, nullable=True)
-    valore_max = Column(Float, nullable=True)
-    valore_default = Column(String(200), nullable=True)                     # valore di default (stringa per flessibilità)
-    
-    # Metadati
-    descrizione = Column(String(500), nullable=True)
-    obbligatorio = Column(Boolean, default=False)
-    ordine = Column(Integer, default=0)
-    attivo = Column(Boolean, default=True)
-    visibile_form = Column(Boolean, default=True)                           # se mostrare nei form
-    usabile_regole = Column(Boolean, default=True)                          # se usabile nel Rule Designer
-    
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-
-
-# ==========================================
-# GRUPPI UTENTI E PERMESSI
-# ==========================================
-class GruppoUtenti(Base):
-    __tablename__ = "gruppi_utenti"
-
-    id = Column(Integer, primary_key=True, index=True)
-    nome = Column(String(100), unique=True, nullable=False)
-    descrizione = Column(String(500), nullable=True)
-    is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
-    utenti = relationship("Utente", back_populates="gruppo")
-    permessi = relationship("PermessoGruppo", back_populates="gruppo", cascade="all, delete-orphan")
-
-
-class PermessoGruppo(Base):
-    __tablename__ = "permessi_gruppi"
-
-    id = Column(Integer, primary_key=True, index=True)
-    gruppo_id = Column(Integer, ForeignKey("gruppi_utenti.id", ondelete="CASCADE"), nullable=False)
-    codice_permesso = Column(String(100), nullable=False)
-    descrizione = Column(String(500), nullable=True)
-
-    gruppo = relationship("GruppoUtenti", back_populates="permessi")
-
-
-# ==========================================
-# UTENTI
-# ==========================================
-class Utente(Base):
-    __tablename__ = "utenti"
-
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(100), unique=True, nullable=False, index=True)
-    password_hash = Column(String(255), nullable=False)
-    nome = Column(String(100), nullable=True)
-    cognome = Column(String(100), nullable=True)
-    email = Column(String(255), nullable=True)
-    gruppo_id = Column(Integer, ForeignKey("gruppi_utenti.id"), nullable=True)
-    is_admin = Column(Boolean, default=False)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    last_login = Column(DateTime, nullable=True)
-
-    gruppo = relationship("GruppoUtenti", back_populates="utenti")
-
-
-# ==========================================
-# TEMPLATE PREVENTIVI
-# ==========================================
-class TemplatePreventivo(Base):
-    __tablename__ = "template_preventivi"
-
-    id = Column(Integer, primary_key=True, index=True)
-    nome = Column(String(255), nullable=False)
-    descrizione = Column(Text, nullable=True)
-    
-    # Chi ha creato il template
-    created_by = Column(Integer, ForeignKey("utenti.id"), nullable=True)
-    
-    # Se True, visibile a tutti (solo admin può creare pubblici)
-    is_public = Column(Boolean, default=False)
-    
-    # Dati del template serializzati in JSON
-    dati_json = Column(Text, nullable=True)
-    
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-    
-    # Relazione con utente creatore
-    creatore = relationship("Utente")
-
-
-# ==========================================
-# CLIENTI (Anagrafica)
-# ==========================================
-class Cliente(Base):
-    __tablename__ = "clienti"
-
-    id = Column(Integer, primary_key=True, index=True)
-    codice = Column(String(50), unique=True, nullable=False, index=True)
-    ragione_sociale = Column(String(255), nullable=False)
-    partita_iva = Column(String(20), nullable=True)
-    codice_fiscale = Column(String(20), nullable=True)
-    indirizzo = Column(String(255), nullable=True)
-    cap = Column(String(10), nullable=True)
-    citta = Column(String(100), nullable=True)
-    provincia = Column(String(5), nullable=True)
-    nazione = Column(String(100), default="Italia")
-    telefono = Column(String(50), nullable=True)
-    email = Column(String(255), nullable=True)
-    pec = Column(String(255), nullable=True)
-    
-    # Sconti personalizzati
-    sconto_globale = Column(Numeric(5, 2), default=0)
-    sconto_produzione = Column(Numeric(5, 2), default=0)
-    sconto_acquisto = Column(Numeric(5, 2), default=0)
-    
-    # Aliquota IVA (default 22%)
-    aliquota_iva = Column(Numeric(5, 2), default=22)
-    
-    # Condizioni commerciali DEFAULT
-    pagamento_default = Column(String(100), nullable=True)
-    imballo_default = Column(String(100), nullable=True)
-    reso_fco_default = Column(String(100), nullable=True)
-    trasporto_default = Column(String(100), nullable=True)
-    destinazione_default = Column(String(255), nullable=True)
-    riferimento_cliente_default = Column(String(100), nullable=True)
-    
-    listino = Column(String(50), nullable=True)
-    
-    note = Column(Text, nullable=True)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-
-    preventivi = relationship("Preventivo", back_populates="cliente")
-
-
-# ==========================================
-# CATEGORIE ARTICOLI
-# ==========================================
-class CategoriaArticolo(Base):
-    __tablename__ = "categorie_articoli"
-
-    id = Column(Integer, primary_key=True, index=True)
-    codice = Column(String(50), unique=True, nullable=False, index=True)
-    nome = Column(String(255), nullable=False)
-    descrizione = Column(Text, nullable=True)
-    ordine = Column(Integer, default=0)
-    is_active = Column(Boolean, default=True)
-
-    articoli = relationship("Articolo", back_populates="categoria")
-
-
-# ==========================================
-# ARTICOLI (Anagrafica prodotti/ricambi)
-# ==========================================
-class Articolo(Base):
-    __tablename__ = "articoli"
-
-    id = Column(Integer, primary_key=True, index=True)
-    codice = Column(String(50), unique=True, nullable=False, index=True)
-    descrizione = Column(String(500), nullable=False)
-    descrizione_estesa = Column(Text, nullable=True)
-    
-    # Tipo articolo: PRODUZIONE o ACQUISTO
-    tipo_articolo = Column(String(20), default="PRODUZIONE")
-    
-    # Categoria
-    categoria_id = Column(Integer, ForeignKey("categorie_articoli.id"), nullable=True)
-    
-    # === COSTI (Step 1) - fino a 4 parametri variabili ===
-    costo_fisso = Column(Numeric(12, 4), default=0)
-    
-    costo_variabile_1 = Column(Numeric(12, 4), default=0)
-    unita_misura_var_1 = Column(String(20), nullable=True)  # es: "metro", "kg"
-    descrizione_var_1 = Column(String(100), nullable=True)  # es: "Lunghezza cavo"
-    
-    costo_variabile_2 = Column(Numeric(12, 4), default=0)
-    unita_misura_var_2 = Column(String(20), nullable=True)
-    descrizione_var_2 = Column(String(100), nullable=True)
-    
-    costo_variabile_3 = Column(Numeric(12, 4), default=0)
-    unita_misura_var_3 = Column(String(20), nullable=True)
-    descrizione_var_3 = Column(String(100), nullable=True)
-    
-    costo_variabile_4 = Column(Numeric(12, 4), default=0)
-    unita_misura_var_4 = Column(String(20), nullable=True)
-    descrizione_var_4 = Column(String(100), nullable=True)
-    
-    rule_id_calcolo = Column(String(100), nullable=True)
-    
-    # === RICARICO (Step 2) ===
-    ricarico_percentuale = Column(Numeric(5, 2), nullable=True)
-    
-    # Unità di misura
-    unita_misura = Column(String(20), default="PZ")
-    
-    # Scorte
-    giacenza = Column(Integer, default=0)
-    scorta_minima = Column(Integer, default=0)
-    
-    # Fornitore
-    fornitore = Column(String(255), nullable=True)
-    codice_fornitore = Column(String(50), nullable=True)
-    
-    # Lead Time (giorni lavorativi)
-    lead_time_giorni = Column(Integer, default=0)  # Tempo approvvigionamento
-    manodopera_giorni = Column(Integer, default=0)  # Tempo lavorazione
-    
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-
-    categoria = relationship("CategoriaArticolo", back_populates="articoli")
-
-
-# ==========================================
-# PREVENTIVO
+# PREVENTIVO (Tabella principale)
 # ==========================================
 class Preventivo(Base):
     __tablename__ = "preventivi"
 
     id = Column(Integer, primary_key=True, index=True)
-    numero_preventivo = Column(String(50), unique=True, nullable=False, index=True)
-    
-    # TIPO: COMPLETO o RICAMBIO
-    tipo_preventivo = Column(String(20), default="COMPLETO")
-    
-    # Cliente
-    cliente_id = Column(Integer, ForeignKey("clienti.id"), nullable=True)
-    customer_name = Column(String(255), nullable=True)
-    
-    # Date
+    numero_preventivo = Column(String, unique=True, nullable=False, index=True)
+    categoria = Column(String, nullable=True)
+    template_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-    data_scadenza = Column(DateTime, nullable=True)
-    
-    # Stato
-    status = Column(String(20), default="draft")
-    
-    # Totali
-    total_price = Column(Numeric(12, 2), default=0)  # Totale listino
-    sconto_cliente = Column(Numeric(5, 2), default=0)  # Sconto da anagrafica cliente
-    sconto_extra_admin = Column(Numeric(5, 2), default=0)  # Sconto extra (solo admin)
-    total_price_finale = Column(Numeric(12, 2), default=0)  # Totale dopo sconti
-    note = Column(Text, nullable=True)
-    
-    created_by = Column(Integer, ForeignKey("utenti.id"), nullable=True)
+    status = Column(String, default="draft")
+    total_price = Column(Float, default=0.0)
+    # Riferimento al template usato per creare questo preventivo
+    template_id = Column(Integer, ForeignKey("product_templates.id", ondelete="SET NULL"), nullable=True)
 
     # Relazioni
-    cliente = relationship("Cliente", back_populates="preventivi")
     dati_commessa = relationship("DatiCommessa", back_populates="preventivo", uselist=False, cascade="all, delete-orphan")
     dati_principali = relationship("DatiPrincipali", back_populates="preventivo", uselist=False, cascade="all, delete-orphan")
     normative = relationship("Normative", back_populates="preventivo", uselist=False, cascade="all, delete-orphan")
     disposizione_vano = relationship("DisposizioneVano", back_populates="preventivo", uselist=False, cascade="all, delete-orphan")
-    argano = relationship("Argano", back_populates="preventivo", uselist=False, cascade="all, delete-orphan")
     porte = relationship("Porte", back_populates="preventivo", uselist=False, cascade="all, delete-orphan")
     materiali = relationship("Materiale", back_populates="preventivo", cascade="all, delete-orphan")
-    righe_ricambio = relationship("RigaRicambio", back_populates="preventivo", cascade="all, delete-orphan")
+    template = relationship("ProductTemplate", back_populates="preventivi")
+
+
+# ==========================================
+# PRODUCT TEMPLATE (Template per categorie prodotto)
+# ==========================================
+class ProductTemplate(Base):
+    __tablename__ = "product_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    categoria = Column(String, nullable=False, index=True)       # "RISE" o "HOME"
+    sottocategoria = Column(String, nullable=False)               # Nome sotto-categoria
+    nome_display = Column(String, nullable=False)                 # Nome mostrato nel pulsante
+    descrizione = Column(String, nullable=True)                   # Descrizione breve
+    icona = Column(String, nullable=True)                         # Nome icona o SVG path
+    ordine = Column(Integer, default=1)                           # Ordine visualizzazione
+    attivo = Column(Boolean, default=True)                        # Attivo/disattivo
+    # JSON con dati da pre-compilare:
+    # {
+    #   "dati_principali": {"tipo_impianto": "...", "tipo_trazione": "...", ...},
+    #   "normative": {"en_81_20": "2020", ...},
+    #   "dati_commessa": {...},
+    #   "disposizione_vano": {...},
+    #   "porte": {...},
+    #   "materiali": [{"codice": "X", "descrizione": "Y", "quantita": 1, "prezzo_unitario": 100.0}, ...]
+    # }
+    template_data = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    preventivi = relationship("Preventivo", back_populates="template")
 
 
 # ==========================================
@@ -330,16 +69,17 @@ class DatiCommessa(Base):
     id = Column(Integer, primary_key=True, index=True)
     preventivo_id = Column(Integer, ForeignKey("preventivi.id", ondelete="CASCADE"), nullable=False, unique=True)
 
-    numero_offerta = Column(String(50), nullable=True)
-    data_offerta = Column(String(20), nullable=True)
-    riferimento_cliente = Column(String(255), nullable=True)
+    numero_offerta = Column(String, nullable=True)
+    data_offerta = Column(String, nullable=True)
+    riferimento_cliente = Column(String, nullable=True)
     quantita = Column(Integer, nullable=True)
-    data_consegna_richiesta = Column(Date, nullable=True)  # Data per calcolo lead time
-    imballo = Column(String(100), nullable=True)
-    reso_fco = Column(String(100), nullable=True)
-    pagamento = Column(String(100), nullable=True)
-    trasporto = Column(String(100), nullable=True)
-    destinazione = Column(String(255), nullable=True)
+    consegna_richiesta = Column(String, nullable=True)
+    prezzo_unitario = Column(Float, nullable=True)
+    imballo = Column(String, nullable=True)
+    reso_fco = Column(String, nullable=True)
+    pagamento = Column(String, nullable=True)
+    trasporto = Column(String, nullable=True)
+    destinazione = Column(String, nullable=True)
 
     preventivo = relationship("Preventivo", back_populates="dati_commessa")
 
@@ -353,16 +93,19 @@ class DatiPrincipali(Base):
     id = Column(Integer, primary_key=True, index=True)
     preventivo_id = Column(Integer, ForeignKey("preventivi.id", ondelete="CASCADE"), nullable=False, unique=True)
 
-    tipo_impianto = Column(String(50), nullable=True)
+    tipo_impianto = Column(String, nullable=True)
     nuovo_impianto = Column(Boolean, nullable=True)
     numero_fermate = Column(Integer, nullable=True)
     numero_servizi = Column(Integer, nullable=True)
     velocita = Column(Float, nullable=True)
     corsa = Column(Float, nullable=True)
-    forza_motrice = Column(String(50), nullable=True)
-    luce = Column(String(50), nullable=True)
-    tensione_manovra = Column(String(50), nullable=True)
-    tensione_freno = Column(String(50), nullable=True)
+    con_locale_macchina = Column(Boolean, nullable=True)
+    posizione_locale_macchina = Column(String, nullable=True)
+    tipo_trazione = Column(String, nullable=True)
+    forza_motrice = Column(String, nullable=True)
+    luce = Column(String, nullable=True)
+    tensione_manovra = Column(String, nullable=True)
+    tensione_freno = Column(String, nullable=True)
 
     preventivo = relationship("Preventivo", back_populates="dati_principali")
 
@@ -376,9 +119,9 @@ class Normative(Base):
     id = Column(Integer, primary_key=True, index=True)
     preventivo_id = Column(Integer, ForeignKey("preventivi.id", ondelete="CASCADE"), nullable=False, unique=True)
 
-    en_81_1 = Column(String(10), nullable=True)
-    en_81_20 = Column(String(10), nullable=True)
-    en_81_21 = Column(String(10), nullable=True)
+    en_81_1 = Column(String, nullable=True)
+    en_81_20 = Column(String, nullable=True)
+    en_81_21 = Column(String, nullable=True)
     en_81_28 = Column(Boolean, default=False)
     en_81_70 = Column(Boolean, default=False)
     en_81_72 = Column(Boolean, default=False)
@@ -400,11 +143,11 @@ class DisposizioneVano(Base):
     id = Column(Integer, primary_key=True, index=True)
     preventivo_id = Column(Integer, ForeignKey("preventivi.id", ondelete="CASCADE"), nullable=False, unique=True)
     
-    posizione_quadro_lato = Column(String(50), nullable=True)
-    posizione_quadro_piano = Column(String(50), nullable=True)
+    posizione_quadro_lato = Column(String, nullable=True)
+    posizione_quadro_piano = Column(String, nullable=True)
     altezza_vano = Column(Float, nullable=True)
-    piano_piu_alto = Column(String(50), nullable=True)
-    piano_piu_basso = Column(String(50), nullable=True)
+    piano_piu_alto = Column(String, nullable=True)
+    piano_piu_basso = Column(String, nullable=True)
     posizioni_elementi = Column(Text, nullable=True)
     sbarchi = Column(Text, nullable=True)
     note = Column(Text, nullable=True)
@@ -421,43 +164,22 @@ class Porte(Base):
     id = Column(Integer, primary_key=True, index=True)
     preventivo_id = Column(Integer, ForeignKey("preventivi.id", ondelete="CASCADE"), nullable=False, unique=True)
 
-    tipo_porte_piano = Column(String(100), nullable=True)
-    tipo_porte_cabina = Column(String(100), nullable=True)
+    tipo_porte_piano = Column(String, nullable=True)
+    tipo_porte_cabina = Column(String, nullable=True)
     numero_accessi = Column(Integer, nullable=True)
-    tipo_operatore = Column(String(100), nullable=True)
-    marca_operatore = Column(String(100), nullable=True)
-    stazionamento_porte = Column(String(100), nullable=True)
-    tipo_apertura = Column(String(100), nullable=True)
+    tipo_operatore = Column(String, nullable=True)
+    marca_operatore = Column(String, nullable=True)
+    stazionamento_porte = Column(String, nullable=True)
+    tipo_apertura = Column(String, nullable=True)
     distanza_minima_accessi = Column(Float, nullable=True)
-    alimentazione_operatore = Column(String(100), nullable=True)
+    alimentazione_operatore = Column(String, nullable=True)
     con_scheda = Column(Boolean, nullable=True)
 
     preventivo = relationship("Preventivo", back_populates="porte")
 
 
 # ==========================================
-# ARGANO
-# ==========================================
-class Argano(Base):
-    __tablename__ = "argano"
-
-    id = Column(Integer, primary_key=True, index=True)
-    preventivo_id = Column(Integer, ForeignKey("preventivi.id", ondelete="CASCADE"), nullable=False, unique=True)
-
-    trazione = Column(String(100), nullable=True)  # Gearless MRL, Geared, Gearless
-    potenza_motore_kw = Column(Numeric(10, 2), nullable=True)
-    corrente_nom_motore_amp = Column(Numeric(10, 2), nullable=True)
-    tipo_vvvf = Column(String(100), nullable=True)
-    vvvf_nel_vano = Column(Boolean, default=False)
-    freno_tensione = Column(String(50), nullable=True)  # Es: 48 Vcc
-    ventilazione_forzata = Column(String(50), nullable=True)  # Es: 24 Vcc
-    tipo_teleruttore = Column(String(100), nullable=True)  # Es: Schneider
-
-    preventivo = relationship("Preventivo", back_populates="argano")
-
-
-# ==========================================
-# MATERIALI (per preventivi COMPLETO)
+# MATERIALI
 # ==========================================
 class Materiale(Base):
     __tablename__ = "materiali"
@@ -465,79 +187,14 @@ class Materiale(Base):
     id = Column(Integer, primary_key=True, index=True)
     preventivo_id = Column(Integer, ForeignKey("preventivi.id", ondelete="CASCADE"), nullable=False)
 
-    codice = Column(String(50), nullable=False)
-    descrizione = Column(String(500), nullable=False)
-    quantita = Column(Numeric(10, 2), nullable=False, default=1)
-    prezzo_unitario = Column(Numeric(12, 4), nullable=False, default=0)
-    prezzo_totale = Column(Numeric(12, 2), nullable=False, default=0)
-    categoria = Column(String(100), nullable=True)
+    codice = Column(String, nullable=False)
+    descrizione = Column(String, nullable=False)
+    quantita = Column(Integer, nullable=False, default=1)
+    prezzo_unitario = Column(Float, nullable=False, default=0.0)
+    prezzo_totale = Column(Float, nullable=False, default=0.0)
+    categoria = Column(String, nullable=True)
     aggiunto_da_regola = Column(Boolean, default=False)
-    regola_id = Column(String(100), nullable=True)
+    regola_id = Column(String, nullable=True)
     note = Column(Text, nullable=True)
-    
-    # Lead Time (giorni lavorativi)
-    lead_time_giorni = Column(Integer, default=0)  # Tempo approvvigionamento
-    manodopera_giorni = Column(Integer, default=0)  # Tempo lavorazione
 
     preventivo = relationship("Preventivo", back_populates="materiali")
-
-
-# ==========================================
-# RIGHE RICAMBIO (per preventivi RICAMBIO)
-# ==========================================
-class RigaRicambio(Base):
-    __tablename__ = "righe_ricambio"
-
-    id = Column(Integer, primary_key=True, index=True)
-    preventivo_id = Column(Integer, ForeignKey("preventivi.id", ondelete="CASCADE"), nullable=False)
-    
-    articolo_id = Column(Integer, ForeignKey("articoli.id"), nullable=True)
-    
-    codice = Column(String(50), nullable=False)
-    descrizione = Column(String(500), nullable=False)
-    tipo_articolo = Column(String(20), default="PRODUZIONE")  # Per sapere quale ricarico/sconto applicare
-    
-    # Quantità e parametri calcolo (fino a 4)
-    quantita = Column(Numeric(10, 2), nullable=False, default=1)
-    
-    parametro_1 = Column(Numeric(10, 2), nullable=True)
-    unita_param_1 = Column(String(20), nullable=True)
-    desc_param_1 = Column(String(100), nullable=True)
-    costo_var_1 = Column(Numeric(12, 4), default=0)
-    
-    parametro_2 = Column(Numeric(10, 2), nullable=True)
-    unita_param_2 = Column(String(20), nullable=True)
-    desc_param_2 = Column(String(100), nullable=True)
-    costo_var_2 = Column(Numeric(12, 4), default=0)
-    
-    parametro_3 = Column(Numeric(10, 2), nullable=True)
-    unita_param_3 = Column(String(20), nullable=True)
-    desc_param_3 = Column(String(100), nullable=True)
-    costo_var_3 = Column(Numeric(12, 4), default=0)
-    
-    parametro_4 = Column(Numeric(10, 2), nullable=True)
-    unita_param_4 = Column(String(20), nullable=True)
-    desc_param_4 = Column(String(100), nullable=True)
-    costo_var_4 = Column(Numeric(12, 4), default=0)
-    
-    # Step 1: Costo base = fisso + Σ(costo_var_i × param_i)
-    costo_fisso = Column(Numeric(12, 4), default=0)
-    costo_base_unitario = Column(Numeric(12, 4), default=0)
-    
-    # Step 2: Ricarico (da articolo o default sistema)
-    ricarico_percentuale = Column(Numeric(5, 2), default=0)
-    prezzo_listino_unitario = Column(Numeric(12, 4), default=0)  # costo × (1 + ricarico%)
-    
-    # Step 3: Sconto cliente (da anagrafica cliente)
-    sconto_cliente = Column(Numeric(5, 2), default=0)
-    prezzo_cliente_unitario = Column(Numeric(12, 4), default=0)  # listino × (1 - sconto%)
-    
-    # Totali riga
-    prezzo_totale_listino = Column(Numeric(12, 2), default=0)  # listino × quantità
-    prezzo_totale_cliente = Column(Numeric(12, 2), default=0)  # cliente × quantità
-    
-    ordine = Column(Integer, default=0)
-    note = Column(Text, nullable=True)
-    
-    preventivo = relationship("Preventivo", back_populates="righe_ricambio")
-    articolo = relationship("Articolo")

@@ -10,7 +10,7 @@ import {
   Package,
   Users,
   ListChecks,
-  Columns3,
+  LayoutList,
   UserCog,
   Settings2,
   ChevronDown,
@@ -124,7 +124,7 @@ export const Sidebar = ({
     {
       id: 'gestione-campi',
       label: 'Gestione Campi',
-      icon: <Columns3 className="h-5 w-5" />,
+      icon: <LayoutList className="h-5 w-5" />,
       adminOnly: true,
     },
     {

@@ -17,7 +17,7 @@ export default function HomePage() {
   const { data: preventivi, isLoading } = useQuery({
     queryKey: ['preventivi'],
     queryFn: async () => {
-      const response = await fetch('http://localhost:8000/api/preventivi');
+      const response = await fetch('http://localhost:8000/preventivi');
       if (!response.ok) throw new Error('Errore caricamento preventivi');
       return response.json();
     },
@@ -25,7 +25,7 @@ export default function HomePage() {
 
   const handleNuovoPreventivo = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/preventivi', {
+      const response = await fetch('http://localhost:8000/preventivi', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
