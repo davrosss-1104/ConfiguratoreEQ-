@@ -1,0 +1,59 @@
+# ==========================================
+# DIPENDENZE
+# ==========================================
+node_modules/
+.venv/
+venv/
+env/
+
+# ==========================================
+# BUILD / OUTPUT
+# ==========================================
+dist/
+build/
+.next/
+*.egg-info/
+
+# ==========================================
+# DATABASE (rigenerabile con reset_db.py)
+# ==========================================
+*.db
+*.sqlite3
+db.sqlite3
+
+# ==========================================
+# CACHE / FILE TEMPORANEI
+# ==========================================
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==========================================
+# ENVIRONMENT / SECRETS
+# ==========================================
+.env
+.env.local
+.env.production
+
+# ==========================================
+# IDE
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ==========================================
+# PDF DOCUMENTAZIONE ELETTROQUADRI
+# (pesanti, non sono codice sorgente)
+# Rimuovi queste righe se vuoi versionarli
+# ==========================================
+*.pdf

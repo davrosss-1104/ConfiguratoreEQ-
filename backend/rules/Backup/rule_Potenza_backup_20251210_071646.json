@@ -1,0 +1,27 @@
+{
+  "id": "Potenza",
+  "name": "Potenza",
+  "description": "Regola importata da Rule Designer - tensioni.tensione_freno",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "tensione_freno",
+      "operator": "greater_than",
+      "value": "48Vcc",
+      "description": "Campo tensioni.tensione_freno > 48Vcc"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "PCB-IO",
+      "descrizione": "Scheda I/O espansione",
+      "quantita": 1,
+      "prezzo_unitario": 133.0,
+      "categoria": "",
+      "unita": "pz",
+      "codice_fonte": "DB_EQ"
+    }
+  ]
+}
