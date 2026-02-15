@@ -24,6 +24,7 @@ class PreventivoUpdate(BaseModel):
     numero_preventivo: Optional[str] = None
     status: Optional[str] = None
     total_price: Optional[float] = None
+    cliente_id: Optional[int] = None
     customer_name: Optional[str] = None
 
 class Preventivo(PreventivoBase):

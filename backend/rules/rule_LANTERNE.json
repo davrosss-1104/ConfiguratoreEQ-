@@ -1,0 +1,26 @@
+{
+  "id": "LANTERNE",
+  "name": "Lanterne di piano",
+  "description": "Lanterne segnalazione direzione ai piani",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 45,
+  "conditions": [
+    {
+      "field": "lanterne",
+      "operator": "equals",
+      "value": "true",
+      "description": "Lanterne richieste"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "LANT-PIANO-DMG",
+      "descrizione": "Lanterna di piano DMG segnalazione rotonda",
+      "quantita": 1,
+      "prezzo_unitario": 42.0,
+      "categoria": "Segnalazione",
+      "note": "Quantità = numero fermate"
+    }
+  ]
+}

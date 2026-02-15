@@ -1,0 +1,45 @@
+{
+  "id": "PRECAB_FUNE_RISTRUTTURAZIONE",
+  "name": "Precablaggio ristrutturazione ascensore fune",
+  "description": "Kit precablaggio per ristrutturazione ascensore a fune",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 30,
+  "conditions": [
+    {
+      "field": "tipo_impianto",
+      "operator": "equals",
+      "value": "ascensore",
+      "description": "Tipo impianto ascensore"
+    },
+    {
+      "field": "nuovo_impianto",
+      "operator": "equals",
+      "value": "false",
+      "description": "Impianto ristrutturazione (non nuovo)"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "KIT-PRECAB-RISTR",
+      "descrizione": "Kit precablaggio ristrutturazione fune",
+      "quantita": 1,
+      "prezzo_unitario": 780.0,
+      "categoria": "Precablaggio"
+    },
+    {
+      "codice": "MORS-TETTO-CAB",
+      "descrizione": "Morsettiera tetto cabina",
+      "quantita": 1,
+      "prezzo_unitario": 45.0,
+      "categoria": "Precablaggio"
+    },
+    {
+      "codice": "BOTT-MANUT",
+      "descrizione": "Bottoniera di manutenzione",
+      "quantita": 1,
+      "prezzo_unitario": 65.0,
+      "categoria": "Precablaggio"
+    }
+  ]
+}

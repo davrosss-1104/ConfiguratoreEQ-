@@ -1,0 +1,25 @@
+{
+  "id": "LOGICA_MP2_PARALLELO",
+  "name": "Logica scheda MP2 Parallelo",
+  "description": "Scheda logica MP2 parallelo - precablato solo cabina",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 20,
+  "conditions": [
+    {
+      "field": "logica_scheda",
+      "operator": "equals",
+      "value": "MP2 Parallelo",
+      "description": "Logica scheda parallelo MP2"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "PCB-MP2-PAR",
+      "descrizione": "Scheda logica MP2 Parallelo",
+      "quantita": 1,
+      "prezzo_unitario": 320.0,
+      "categoria": "Elettronica"
+    }
+  ]
+}

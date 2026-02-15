@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 import json
 import os
 import io
+import math
+import re
 
 from database import engine, SessionLocal
 from models import (
@@ -15,7 +17,7 @@ from models import (
     DisposizioneVano, Porte, Materiale, ProductTemplate,
     Utente, GruppoUtenti, PermessoGruppo,
     Articolo, CategoriaArticoli, Cliente,
-    RigaRicambio, Argano, ParametriSistema
+    RigaRicambio, Argano, ParametriSistema, BomStruttura
 )
 from schemas import (
     PreventivoCreate, PreventivoUpdate, Preventivo as PreventivoSchema,
@@ -64,6 +66,36 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# ==========================================
+# HELPER: Accesso sicuro ai campi Preventivo
+# Nomi reali da models.py: stato, numero, tipo, totale_materiali, totale_netto
+# ==========================================
+def _prev_get(preventivo, *names, default=None):
+    """Cerca il primo attributo esistente tra i nomi forniti"""
+    for name in names:
+        val = getattr(preventivo, name, None)
+        if val is not None:
+            return val
+    return default
+
+def _prev_set(preventivo, value, *names):
+    """Setta il primo attributo esistente tra i nomi forniti"""
+    for name in names:
+        if hasattr(preventivo, name):
+            setattr(preventivo, name, value)
+            return True
+    setattr(preventivo, names[0], value)
+    return False
+
+# Shortcuts - nomi REALI prima, fallback dopo
+def _prev_stato(p):      return _prev_get(p, 'stato', 'status', default='bozza')
+def _prev_numero(p):     return _prev_get(p, 'numero', 'numero_preventivo', default='')
+def _prev_tipo(p):       return _prev_get(p, 'tipo', 'tipo_preventivo', default='')
+def _prev_totale(p):     return _prev_get(p, 'totale_materiali', 'total_price', default=0)
+def _prev_netto(p):      return _prev_get(p, 'totale_netto', 'total_price_finale', default=0)
+def _prev_categoria(p):  return _prev_get(p, 'categoria', default='')
+
 
 # ==========================================
 # RULE ENGINE - VERSIONE MIGLIORATA
@@ -136,74 +168,201 @@ def evaluate_condition(condition: dict, config_data: dict) -> bool:
     
     return result
 
+def build_config_context(preventivo_id: int, db: Session) -> dict:
+    """
+    Costruisce il contesto COMPLETO per la valutazione regole,
+    leggendo da TUTTE le fonti dati del preventivo.
+    
+    Fonti (in ordine di priorita, le ultime sovrascrivono):
+      1. metadati preventivo (tipo, categoria)
+      2. dati_principali (tabella ORM)
+      3. normative (tabella ORM)
+      4. argano (query diretta)
+      5. porte (query diretta)
+      6. disposizione_vano (query diretta)
+      7. valori_configurazione (tabella chiave/valore per campi dinamici)
+    """
+    preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
+    if not preventivo:
+        return {}
+    
+    config_data = {}
+    
+    # 1. Metadati preventivo
+    config_data["preventivo_tipo"] = _prev_tipo(preventivo)
+    config_data["preventivo_categoria"] = _prev_categoria(preventivo)
+    
+    # 1b. Info template prodotto (per regole TEMPLATE_BASE)
+    try:
+        tmpl_id = getattr(preventivo, 'template_id', None)
+        if tmpl_id:
+            tmpl = db.query(ProductTemplate).filter(ProductTemplate.id == tmpl_id).first()
+            if tmpl:
+                config_data["template_id"] = tmpl.id
+                config_data["template_categoria"] = tmpl.categoria
+                config_data["template_sottocategoria"] = tmpl.sottocategoria
+                config_data["template_nome"] = tmpl.nome_display
+    except Exception:
+        pass
+    
+    # 2. Dati principali (query diretta, NO relationship)
+    try:
+        dp = db.query(DatiPrincipali).filter(DatiPrincipali.preventivo_id == preventivo_id).first()
+        if dp:
+            config_data.update({
+                "tipo_impianto": dp.tipo_impianto,
+                "nuovo_impianto": dp.nuovo_impianto,
+                "numero_fermate": dp.numero_fermate,
+                "numero_servizi": dp.numero_servizi,
+                "velocita": dp.velocita,
+                "corsa": dp.corsa,
+                "con_locale_macchina": dp.con_locale_macchina,
+                "posizione_locale_macchina": dp.posizione_locale_macchina,
+                "tipo_trazione": dp.tipo_trazione,
+                "forza_motrice": dp.forza_motrice,
+                "luce": dp.luce,
+                "tensione_manovra": dp.tensione_manovra,
+                "tensione_freno": dp.tensione_freno,
+            })
+    except Exception:
+        pass
+    
+    # 3. Normative (query diretta, NO relationship)
+    try:
+        norm = db.query(Normative).filter(Normative.preventivo_id == preventivo_id).first()
+        if norm:
+            config_data.update({
+                "en_81_1": norm.en_81_1,
+                "en_81_20": norm.en_81_20,
+                "en_81_21": norm.en_81_21,
+                "en_81_28": norm.en_81_28,
+                "en_81_70": norm.en_81_70,
+                "en_81_72": norm.en_81_72,
+                "en_81_73": norm.en_81_73,
+                "a3_95_16": norm.a3_95_16,
+                "dm236_legge13": norm.dm236_legge13,
+                "emendamento_a3": norm.emendamento_a3,
+                "uni_10411_1": norm.uni_10411_1,
+            })
+    except Exception:
+        pass
+    
+    # 4. Argano (non ha relazione ORM, query diretta)
+    try:
+        argano = db.query(Argano).filter(Argano.preventivo_id == preventivo_id).first()
+        if argano:
+            config_data.update({
+                "trazione": argano.trazione,
+                "potenza_motore_kw": argano.potenza_motore_kw,
+                "corrente_nom_motore_amp": argano.corrente_nom_motore_amp,
+                "tipo_vvvf": argano.tipo_vvvf,
+                "vvvf_nel_vano": argano.vvvf_nel_vano,
+                "freno_tensione": argano.freno_tensione,
+                "ventilazione_forzata": argano.ventilazione_forzata,
+                "tipo_teleruttore": argano.tipo_teleruttore,
+            })
+    except Exception:
+        pass
+    
+    # 5. Porte (query diretta, leggi tutti gli attributi)
+    try:
+        porte = db.query(Porte).filter(Porte.preventivo_id == preventivo_id).first()
+        if porte:
+            skip = {'id', 'preventivo_id', 'preventivo', 'metadata', 'registry',
+                    '_sa_instance_state', '_sa_class_manager'}
+            for col in porte.__table__.columns:
+                if col.name not in ('id', 'preventivo_id'):
+                    val = getattr(porte, col.name, None)
+                    if val is not None:
+                        config_data[col.name] = val
+    except Exception:
+        pass
+    
+    # 6. Disposizione vano (query diretta)
+    try:
+        dv = db.query(DisposizioneVano).filter(
+            DisposizioneVano.preventivo_id == preventivo_id
+        ).first()
+        if dv:
+            for col in dv.__table__.columns:
+                if col.name not in ('id', 'preventivo_id'):
+                    val = getattr(dv, col.name, None)
+                    if val is not None:
+                        config_data[col.name] = val
+    except Exception:
+        pass
+    
+    # 7. Valori configurazione (tabella chiave/valore, massima priorita)
+    try:
+        result = db.execute(
+            text("SELECT codice_campo, valore FROM valori_configurazione WHERE preventivo_id = :pid"),
+            {"pid": preventivo_id}
+        )
+        for row in result.fetchall():
+            campo, valore = row[0], row[1]
+            if campo and valore is not None:
+                config_data[campo] = valore
+    except Exception:
+        pass  # Tabella potrebbe non esistere
+    
+    # Pulizia: rimuovi None
+    config_data = {k: v for k, v in config_data.items() if v is not None}
+    
+    return config_data
+
+
 def evaluate_rules(preventivo_id: int, db: Session):
-    """Valuta tutte le regole per un preventivo e aggiunge/rimuove materiali"""
+    """
+    Valuta le regole JSON per un preventivo.
+    
+    1. Costruisce contesto da TUTTE le sezioni (ORM + valori_configurazione + JSON)
+    2. Carica regole da file JSON (./rules/)
+    3. Per ogni regola: valuta condizioni → se tutte OK → aggiunge materiali
+    4. Rimuove materiali orfani (regole non piu attive)
+    
+    Returns: dict con risultato valutazione
+    """
     db.expire_all()
     
     preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
     if not preventivo:
         return {"error": "Preventivo non trovato"}
     
-    # Raccogli tutti i dati di configurazione
-    config_data = {}
+    # 1. Costruisci contesto completo
+    config_data = build_config_context(preventivo_id, db)
     
-    # 1. Dati dalle tabelle specifiche (legacy)
-    if preventivo.dati_principali:
-        dp = preventivo.dati_principali
-        config_data.update({
-            "tipo_impianto": dp.tipo_impianto,
-            "nuovo_impianto": dp.nuovo_impianto,
-            "numero_fermate": dp.numero_fermate,
-            "numero_servizi": dp.numero_servizi,
-            "velocita": dp.velocita,
-            "corsa": dp.corsa,
-            "con_locale_macchina": dp.con_locale_macchina,
-            "posizione_locale_macchina": dp.posizione_locale_macchina,
-            "tipo_trazione": dp.tipo_trazione,
-            "forza_motrice": dp.forza_motrice,
-            "luce": dp.luce,
-            "tensione_manovra": dp.tensione_manovra,
-            "tensione_freno": dp.tensione_freno,
-        })
-    
-    if preventivo.normative:
-        norm = preventivo.normative
-        config_data.update({
-            "en_81_1": norm.en_81_1,
-            "en_81_20": norm.en_81_20,
-            "en_81_21": norm.en_81_21,
-            "en_81_28": norm.en_81_28,
-            "en_81_70": norm.en_81_70,
-            "en_81_72": norm.en_81_72,
-            "en_81_73": norm.en_81_73,
-            "a3_95_16": norm.a3_95_16,
-            "dm236_legge13": norm.dm236_legge13,
-            "emendamento_a3": norm.emendamento_a3,
-            "uni_10411_1": norm.uni_10411_1,
-        })
-    
-    # 2. Dati dalla configurazione JSON dinamica (sovrascrivono se duplicati)
-    if preventivo.configurazione and isinstance(preventivo.configurazione, dict):
-        for sezione, valori in preventivo.configurazione.items():
-            if isinstance(valori, dict):
-                config_data.update(valori)
-    
-    # Carica regole
+    # 2. Carica regole da file JSON
     rules = load_rules()
+    
+    if not rules:
+        return {
+            "status": "warning",
+            "message": "Nessuna regola trovata in ./rules/",
+            "materiali_aggiunti": 0,
+            "materiali_rimossi": 0,
+            "regole_attive": [],
+            "context_keys": list(config_data.keys())
+        }
+    
+    # 3. Valuta regole
     active_rules = set()
     materials_to_add = []
     
     for rule in rules:
+        if not rule.get("enabled", True):
+            continue
+        
         rule_id = rule.get("id", "unknown")
         conditions = rule.get("conditions", [])
-        all_conditions_met = True
         
+        # Valuta tutte le condizioni (AND implicito)
+        all_met = True
         for condition in conditions:
             if not evaluate_condition(condition, config_data):
-                all_conditions_met = False
+                all_met = False
                 break
         
-        if all_conditions_met:
+        if all_met and conditions:
             active_rules.add(rule_id)
             for material in rule.get("materials", []):
                 materials_to_add.append({
@@ -212,23 +371,24 @@ def evaluate_rules(preventivo_id: int, db: Session):
                     "descrizione": material.get("descrizione"),
                     "quantita": material.get("quantita", 1),
                     "prezzo_unitario": material.get("prezzo_unitario", 0.0),
-                    "categoria": material.get("categoria", "Materiale Automatico")
+                    "categoria": material.get("categoria", "Materiale Automatico"),
+                    "note": material.get("note", ""),
                 })
     
-    # Rimuovi materiali di regole non piu attive
-    existing_materials = db.query(Materiale).filter(
+    # 4. Rimozione orfani: materiali da regole non piu attive
+    materiali_rimossi = 0
+    existing_auto = db.query(Materiale).filter(
         Materiale.preventivo_id == preventivo_id,
         Materiale.aggiunto_da_regola == True
     ).all()
     
-    removed_count = 0
-    for material in existing_materials:
-        if material.regola_id not in active_rules:
-            db.delete(material)
-            removed_count += 1
+    for mat in existing_auto:
+        if mat.regola_id and mat.regola_id not in active_rules:
+            db.delete(mat)
+            materiali_rimossi += 1
     
-    # Aggiungi nuovi materiali (evita duplicati)
-    added_count = 0
+    # 5. Aggiungi nuovi materiali (evita duplicati)
+    materiali_aggiunti = 0
     for mat_data in materials_to_add:
         existing = db.query(Materiale).filter(
             Materiale.preventivo_id == preventivo_id,
@@ -237,39 +397,194 @@ def evaluate_rules(preventivo_id: int, db: Session):
         ).first()
         
         if not existing:
-            prezzo_totale = mat_data["quantita"] * mat_data["prezzo_unitario"]
-            new_material = Materiale(
+            qta = mat_data["quantita"]
+            prezzo = mat_data["prezzo_unitario"]
+            nuovo = Materiale(
                 preventivo_id=preventivo_id,
                 codice=mat_data["codice"],
                 descrizione=mat_data["descrizione"],
-                quantita=mat_data["quantita"],
-                prezzo_unitario=mat_data["prezzo_unitario"],
-                prezzo_totale=prezzo_totale,
+                quantita=qta,
+                prezzo_unitario=prezzo,
+                prezzo_totale=qta * prezzo,
                 categoria=mat_data["categoria"],
                 aggiunto_da_regola=True,
-                regola_id=mat_data["rule_id"]
+                regola_id=mat_data["rule_id"],
+                note=mat_data.get("note", ""),
             )
-            db.add(new_material)
-            added_count += 1
+            db.add(nuovo)
+            materiali_aggiunti += 1
     
-    db.commit()
-    
-    # Aggiorna totale preventivo
-    all_materials = db.query(Materiale).filter(
-        Materiale.preventivo_id == preventivo_id
-    ).all()
-    
-    totale = sum(m.prezzo_totale for m in all_materials)
-    preventivo.total_price = totale
-    db.commit()
+    # 6. Ricalcola totale preventivo
+    if materiali_aggiunti > 0 or materiali_rimossi > 0:
+        db.commit()
+        tutti_materiali = db.query(Materiale).filter(
+            Materiale.preventivo_id == preventivo_id
+        ).all()
+        totale_calc = sum(m.prezzo_totale or 0 for m in tutti_materiali)
+        _prev_set(preventivo, totale_calc, "totale_materiali", "total_price")
+        db.commit()
     
     return {
-        "active_rules": list(active_rules),
-        "materials_added": added_count,
-        "materials_removed": removed_count,
-        "total_materials": len(all_materials),
-        "total_price": totale
+        "status": "ok",
+        "materiali_aggiunti": materiali_aggiunti,
+        "materiali_rimossi": materiali_rimossi,
+        "regole_attive": list(active_rules),
+        "regole_totali": len(rules),
+        "context_keys": list(config_data.keys()),
     }
+
+
+def safe_evaluate_rules(preventivo_id: int, db: Session):
+    """Wrapper che non crasha mai - logga errori ma non blocca il chiamante"""
+    try:
+        return evaluate_rules(preventivo_id, db)
+    except Exception as e:
+        import traceback
+        print(f"[RULE ENGINE ERROR] preventivo {preventivo_id}: {e}")
+        traceback.print_exc()
+        return {"error": str(e)}
+
+
+
+# ============================================================
+# ORDINI E BOM - FUNZIONI HELPER
+# ============================================================
+
+def calcola_lead_time(preventivo_id: int, db: Session) -> int:
+    conn = db.get_bind().raw_connection()
+    cursor = conn.cursor()
+    materiali = db.query(Materiale).filter(Materiale.preventivo_id == preventivo_id).all()
+    if not materiali:
+        return 15
+    max_lt = 0
+    for mat in materiali:
+        cursor.execute("SELECT lead_time_produzione, lead_time_acquisto, tipo FROM articoli_bom WHERE codice = ?", (mat.codice,))
+        row = cursor.fetchone()
+        if row:
+            lt = row[0] if row[2] in ("MASTER", "SEMILAVORATO") else row[1]
+            max_lt = max(max_lt, lt or 0)
+    return max_lt + 5 + 3
+
+
+def esplodi_bom_ricorsiva(cursor, codice_padre, qta_padre, contesto, ordine_id,
+                           livello=0, percorso="", risultati=None):
+    if risultati is None:
+        risultati = []
+    if livello > 10:
+        return risultati
+
+    cursor.execute(
+        "SELECT bs.figlio_codice, bs.quantita, bs.formula_quantita, bs.condizione_esistenza, "
+        "ab.descrizione, ab.tipo, ab.categoria, ab.costo_fisso, ab.costo_variabile, "
+        "ab.unita_misura, ab.lead_time_produzione, ab.lead_time_acquisto, "
+        "ab.parametro1_nome, ab.parametro2_nome, ab.parametro3_nome "
+        "FROM bom_struttura bs "
+        "JOIN articoli_bom ab ON ab.codice = bs.figlio_codice "
+        "WHERE bs.padre_codice = ? ORDER BY bs.posizione",
+        (codice_padre,)
+    )
+    figli = cursor.fetchall()
+
+    if not figli:
+        # LEAF
+        cursor.execute(
+            "SELECT descrizione, tipo, categoria, costo_fisso, costo_variabile, "
+            "unita_misura, lead_time_produzione, lead_time_acquisto, "
+            "parametro1_nome, parametro2_nome, parametro3_nome "
+            "FROM articoli_bom WHERE codice = ?",
+            (codice_padre,)
+        )
+        art = cursor.fetchone()
+        if art:
+            costo_unit = (art[3] or 0) + (art[4] or 0)
+            param_vals = {}
+            for i, pname in enumerate(art[8:11]):
+                if pname:
+                    val = contesto.get(pname, contesto.get(pname.upper(), ""))
+                    param_vals[f"parametro{i+1}_nome"] = pname
+                    param_vals[f"parametro{i+1}_valore"] = str(val) if val else ""
+            risultati.append({
+                "ordine_id": ordine_id, "codice": codice_padre,
+                "descrizione": art[0], "tipo": art[1], "categoria": art[2],
+                "quantita": qta_padre, "unita_misura": art[5] or "PZ",
+                "costo_unitario": costo_unit, "costo_totale": costo_unit * qta_padre,
+                "padre_codice": percorso.split(" > ")[-2] if " > " in percorso else None,
+                "livello_esplosione": livello, "percorso": percorso,
+                "lead_time_giorni": art[6] if art[1] != "ACQUISTO" else art[7],
+                **param_vals
+            })
+        return risultati
+
+    for figlio in figli:
+        (f_cod, f_qta, f_formula, f_cond, f_desc, f_tipo, f_cat,
+         f_cf, f_cv, f_um, f_lt_p, f_lt_a, f_p1, f_p2, f_p3) = figlio
+
+        if f_cond and not _valuta_condizione_bom(f_cond, contesto):
+            continue
+
+        qta = f_qta
+        if f_formula:
+            qta_calc = _calcola_formula(f_formula, contesto)
+            if qta_calc is not None:
+                qta = qta_calc
+
+        qta_tot = qta * qta_padre
+        nuovo_percorso = f"{percorso} > {f_cod}" if percorso else f_cod
+
+        if f_tipo == "ACQUISTO":
+            costo_unit = (f_cf or 0) + (f_cv or 0)
+            param_vals = {}
+            for i, pname in enumerate([f_p1, f_p2, f_p3]):
+                if pname:
+                    val = contesto.get(pname, contesto.get(pname.upper(), ""))
+                    param_vals[f"parametro{i+1}_nome"] = pname
+                    param_vals[f"parametro{i+1}_valore"] = str(val) if val else ""
+            risultati.append({
+                "ordine_id": ordine_id, "codice": f_cod,
+                "descrizione": f_desc, "tipo": f_tipo, "categoria": f_cat,
+                "quantita": qta_tot, "unita_misura": f_um or "PZ",
+                "costo_unitario": costo_unit, "costo_totale": costo_unit * qta_tot,
+                "padre_codice": codice_padre,
+                "livello_esplosione": livello + 1, "percorso": nuovo_percorso,
+                "lead_time_giorni": f_lt_a or 0, **param_vals
+            })
+        else:
+            esplodi_bom_ricorsiva(cursor, f_cod, qta_tot, contesto, ordine_id,
+                                  livello + 1, nuovo_percorso, risultati)
+    return risultati
+
+
+def _valuta_condizione_bom(condizione, contesto):
+    try:
+        expr = condizione
+        for match in re.finditer(r'\[(\w+)\]', condizione):
+            campo = match.group(1)
+            valore = contesto.get(campo, contesto.get(campo.upper(), ""))
+            if isinstance(valore, (int, float)):
+                expr = expr.replace(f"[{campo}]", str(valore))
+            else:
+                expr = expr.replace(f"[{campo}]", f"'{valore}'" if valore else "''")
+        return bool(eval(expr))
+    except:
+        return True
+
+
+def _calcola_formula(formula, contesto):
+    try:
+        expr = formula
+        for match in re.finditer(r'\[(\w+)\]', formula):
+            campo = match.group(1)
+            valore = contesto.get(campo, contesto.get(campo.upper(), 0))
+            try:
+                valore = float(valore)
+            except (ValueError, TypeError):
+                valore = 0
+            expr = expr.replace(f"[{campo}]", str(valore))
+        return max(1, math.ceil(eval(expr)))
+    except:
+        return None
+
+
 
 # ==========================================
 # AUTH
@@ -362,9 +677,9 @@ def create_preventivo(data: PreventivoCreate, db: Session = Depends(get_db)):
             .first()
         )
         
-        if last_preventivo and "/" in last_preventivo.numero_preventivo:
+        if last_preventivo and "/" in (_prev_numero(last_preventivo)):
             try:
-                last_number = int(last_preventivo.numero_preventivo.split("/")[1])
+                last_number = int((_prev_numero(last_preventivo)).split("/")[1])
                 new_number = last_number + 1
             except (ValueError, IndexError):
                 new_number = 1
@@ -442,9 +757,14 @@ def create_preventivo(data: PreventivoCreate, db: Session = Depends(get_db)):
         
         db.commit()
         all_materials = db.query(Materiale).filter(Materiale.preventivo_id == preventivo.id).all()
-        preventivo.total_price = sum(m.prezzo_totale for m in all_materials)
+        totale_calc = sum(m.prezzo_totale for m in all_materials)
+        _prev_set(preventivo, totale_calc, "totale_materiali", "total_price")
         db.commit()
         db.refresh(preventivo)
+    
+    # Valuta regole (incluse TEMPLATE_BASE) per aggiungere articoli base automatici
+    safe_evaluate_rules(preventivo.id, db)
+    db.refresh(preventivo)
     
     return preventivo
 
@@ -478,7 +798,7 @@ def delete_preventivo(preventivo_id: int, db: Session = Depends(get_db)):
 # ==========================================
 # DATI COMMESSA
 # ==========================================
-@app.get("/preventivi/{preventivo_id}/dati-commessa", response_model=DatiCommessaSchema)
+@app.get("/preventivi/{preventivo_id}/dati-commessa")
 def get_dati_commessa(preventivo_id: int, db: Session = Depends(get_db)):
     dati = db.query(DatiCommessa).filter(DatiCommessa.preventivo_id == preventivo_id).first()
     if not dati:
@@ -486,20 +806,63 @@ def get_dati_commessa(preventivo_id: int, db: Session = Depends(get_db)):
         db.add(dati)
         db.commit()
         db.refresh(dati)
-    return dati
+    # Ritorna dict manuale per evitare errori schema
+    result = {}
+    for col in dati.__table__.columns:
+        result[col.name] = getattr(dati, col.name, None)
+    return result
 
-@app.put("/preventivi/{preventivo_id}/dati-commessa", response_model=DatiCommessaSchema)
+@app.put("/preventivi/{preventivo_id}/dati-commessa")
 def update_dati_commessa(preventivo_id: int, data: DatiCommessaUpdate, db: Session = Depends(get_db)):
-    dati = db.query(DatiCommessa).filter(DatiCommessa.preventivo_id == preventivo_id).first()
-    if not dati:
-        dati = DatiCommessa(preventivo_id=preventivo_id)
-        db.add(dati)
-    for key, value in data.dict(exclude_unset=True).items():
-        setattr(dati, key, value)
+    try:
+        dati = db.query(DatiCommessa).filter(DatiCommessa.preventivo_id == preventivo_id).first()
+        if not dati:
+            dati = DatiCommessa(preventivo_id=preventivo_id)
+            db.add(dati)
+        update_data = data.dict(exclude_unset=True)
+        print(f"[DATI COMMESSA] PUT preventivo_id={preventivo_id}, fields={list(update_data.keys())}")
+        # Salva campi dati_commessa
+        cliente_id_value = update_data.pop('cliente_id', None)
+        for key, value in update_data.items():
+            if hasattr(dati, key):
+                setattr(dati, key, value)
+            else:
+                print(f"[DATI COMMESSA] WARNING: campo '{key}' non esiste nel modello DatiCommessa")
+        
+        # Se presente cliente_id, aggiorna direttamente il preventivo
+        if cliente_id_value is not None:
+            preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
+            if preventivo:
+                preventivo.cliente_id = cliente_id_value
+                print(f"[DATI COMMESSA] Aggiornato cliente_id={cliente_id_value} sul preventivo {preventivo_id}")
+        
+        db.commit()
+        db.refresh(dati)
+        safe_evaluate_rules(preventivo_id, db)
+        # Ritorna dict manuale per evitare errori schema
+        result = {}
+        for col in dati.__table__.columns:
+            result[col.name] = getattr(dati, col.name, None)
+        return result
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Errore salvataggio dati commessa: {str(e)}")
+    
+# ============================================================
+# FILE: main.py — DELETE CLIENTE (aggiungere dopo PUT /clienti/{id})
+# ============================================================
+
+@app.delete("/clienti/{cliente_id}")
+def delete_cliente(cliente_id: int, db: Session = Depends(get_db)):
+    """Disattiva un cliente (soft delete)"""
+    cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    if not cliente:
+        raise HTTPException(404, "Cliente non trovato")
+    cliente.is_active = False
     db.commit()
-    db.refresh(dati)
-    evaluate_rules(preventivo_id, db)
-    return dati
+    return {"status": "ok"}
 
 # ==========================================
 # DATI PRINCIPALI
@@ -524,7 +887,7 @@ def update_dati_principali(preventivo_id: int, data: DatiPrincipaliUpdate, db: S
         setattr(dati, key, value)
     db.commit()
     db.refresh(dati)
-    evaluate_rules(preventivo_id, db)
+    safe_evaluate_rules(preventivo_id, db)
     return dati
 
 # ==========================================
@@ -550,7 +913,7 @@ def update_normative(preventivo_id: int, data: NormativeUpdate, db: Session = De
         setattr(normative, key, value)
     db.commit()
     db.refresh(normative)
-    evaluate_rules(preventivo_id, db)
+    safe_evaluate_rules(preventivo_id, db)
     return normative
 
 # ==========================================
@@ -619,6 +982,7 @@ def update_porte(preventivo_id: int, data: PorteUpdate, db: Session = Depends(ge
         setattr(porte, key, value)
     db.commit()
     db.refresh(porte)
+    safe_evaluate_rules(preventivo_id, db)
     return porte
 
 # ==========================================
@@ -662,6 +1026,9 @@ def update_argano(preventivo_id: int, data: dict, db: Session = Depends(get_db))
     
     db.commit()
     db.refresh(argano)
+
+    safe_evaluate_rules(preventivo_id, db)    # <-- AGGIUNGI QUESTA RIGA
+
     return {
         "id": argano.id,
         "preventivo_id": argano.preventivo_id,
@@ -674,58 +1041,6 @@ def update_argano(preventivo_id: int, data: dict, db: Session = Depends(get_db))
         "ventilazione_forzata": argano.ventilazione_forzata,
         "tipo_teleruttore": argano.tipo_teleruttore
     }
-
-# ==========================================
-# CONFIGURAZIONE DINAMICA (per sezioni da DB)
-# ==========================================
-@app.get("/preventivi/{preventivo_id}/configurazione")
-def get_configurazione_completa(preventivo_id: int, db: Session = Depends(get_db)):
-    """Ritorna tutta la configurazione JSON del preventivo"""
-    preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
-    if not preventivo:
-        raise HTTPException(status_code=404, detail="Preventivo non trovato")
-    return preventivo.configurazione or {}
-
-
-@app.get("/preventivi/{preventivo_id}/configurazione/{sezione}")
-def get_configurazione_sezione(preventivo_id: int, sezione: str, db: Session = Depends(get_db)):
-    """Ritorna i dati di una sezione specifica dalla configurazione JSON"""
-    preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
-    if not preventivo:
-        raise HTTPException(status_code=404, detail="Preventivo non trovato")
-    config = preventivo.configurazione or {}
-    return config.get(sezione, {})
-
-
-@app.put("/preventivi/{preventivo_id}/configurazione/{sezione}")
-def update_configurazione_sezione(preventivo_id: int, sezione: str, data: dict, db: Session = Depends(get_db)):
-    """Salva i dati di una sezione nella configurazione JSON e rivaluta le regole"""
-    preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
-    if not preventivo:
-        raise HTTPException(status_code=404, detail="Preventivo non trovato")
-    
-    config = preventivo.configurazione or {}
-    if not isinstance(config, dict):
-        config = {}
-    
-    # Aggiorna solo la sezione specificata
-    config[sezione] = data.get("valori", data)
-    preventivo.configurazione = config
-    
-    # Forza il detect della modifica JSON (SQLAlchemy)
-    from sqlalchemy.orm.attributes import flag_modified
-    flag_modified(preventivo, "configurazione")
-    
-    db.commit()
-    
-    # Rivaluta regole
-    try:
-        result = evaluate_rules(preventivo_id, db)
-    except Exception as e:
-        print(f"Errore evaluate_rules: {e}")
-        result = {}
-    
-    return {"status": "ok", "sezione": sezione, "rules_result": result}
 
 
 # ==========================================
@@ -753,7 +1068,8 @@ def create_materiale(preventivo_id: int, data: MaterialeCreate, db: Session = De
     preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
     if preventivo:
         all_materials = db.query(Materiale).filter(Materiale.preventivo_id == preventivo_id).all()
-        preventivo.total_price = sum(m.prezzo_totale for m in all_materials)
+        totale_calc = sum(m.prezzo_totale for m in all_materials)
+        _prev_set(preventivo, totale_calc, "totale_materiali", "total_price")
         db.commit()
     return materiale
 
@@ -776,7 +1092,8 @@ def update_materiale(preventivo_id: int, materiale_id: int, data: MaterialeUpdat
     preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
     if preventivo:
         all_materials = db.query(Materiale).filter(Materiale.preventivo_id == preventivo_id).all()
-        preventivo.total_price = sum(m.prezzo_totale for m in all_materials)
+        totale_calc = sum(m.prezzo_totale for m in all_materials)
+        _prev_set(preventivo, totale_calc, "totale_materiali", "total_price")
         db.commit()
     return materiale
 
@@ -791,7 +1108,8 @@ def delete_materiale(preventivo_id: int, materiale_id: int, db: Session = Depend
     preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
     if preventivo:
         all_materials = db.query(Materiale).filter(Materiale.preventivo_id == preventivo_id).all()
-        preventivo.total_price = sum(m.prezzo_totale for m in all_materials)
+        totale_calc = sum(m.prezzo_totale for m in all_materials)
+        _prev_set(preventivo, totale_calc, "totale_materiali", "total_price")
         db.commit()
     return {"message": "Materiale eliminato"}
 
@@ -900,15 +1218,16 @@ def update_sconto_admin(preventivo_id: int, data: dict, db: Session = Depends(ge
     
     # Ricalcola prezzo finale
     sconto_totale = (preventivo.sconto_cliente or 0) + (preventivo.sconto_extra_admin or 0)
-    if preventivo.total_price:
-        preventivo.total_price_finale = preventivo.total_price * (1 - sconto_totale / 100)
+    if _prev_totale(preventivo):
+        totale_netto_calc = _prev_totale(preventivo) * (1 - sconto_totale / 100)
+        _prev_set(preventivo, totale_netto_calc, 'totale_netto', 'total_price_finale')
     
     preventivo.updated_at = datetime.now()
     db.commit()
     db.refresh(preventivo)
     return {
         "sconto_extra_admin": preventivo.sconto_extra_admin,
-        "total_price_finale": preventivo.total_price_finale
+        "total_price_finale": _prev_netto(preventivo)
     }
 
 # ==========================================
@@ -916,26 +1235,39 @@ def update_sconto_admin(preventivo_id: int, data: dict, db: Session = Depends(ge
 # ==========================================
 @app.get("/preventivi/{preventivo_id}/export/{formato}")
 def export_preventivo(preventivo_id: int, formato: str, db: Session = Depends(get_db)):
-    """Esporta preventivo in formato PDF o DOCX"""
+    """Esporta preventivo in formato JSON, DOCX o XLSX"""
     preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
     if not preventivo:
         raise HTTPException(status_code=404, detail="Preventivo non trovato")
     
-    # Raccogli tutti i dati
     dati_commessa = db.query(DatiCommessa).filter(DatiCommessa.preventivo_id == preventivo_id).first()
     dati_principali = db.query(DatiPrincipali).filter(DatiPrincipali.preventivo_id == preventivo_id).first()
     normative_data = db.query(Normative).filter(Normative.preventivo_id == preventivo_id).first()
     materiali = db.query(Materiale).filter(Materiale.preventivo_id == preventivo_id).all()
+    argano_data = None
+    try:
+        argano_data = db.query(Argano).filter(Argano.preventivo_id == preventivo_id).first()
+    except Exception:
+        pass
+    cliente = None
+    try:
+        cid = getattr(preventivo, 'cliente_id', None)
+        if cid:
+            cliente = db.query(Cliente).filter(Cliente.id == cid).first()
+    except Exception:
+        pass
     
-    if formato.lower() == "json":
-        # Export JSON
+    fmt = formato.lower()
+    filename_base = f"preventivo_{_prev_numero(preventivo).replace('/', '_')}"
+    
+    if fmt == "json":
         return {
             "preventivo": {
                 "id": preventivo.id,
-                "numero_preventivo": preventivo.numero_preventivo,
-                "status": preventivo.status,
-                "total_price": preventivo.total_price,
-                "customer_name": preventivo.customer_name,
+                "numero_preventivo": _prev_numero(preventivo),
+                "status": _prev_stato(preventivo),
+                "total_price": _prev_totale(preventivo),
+                "customer_name": getattr(preventivo, 'customer_name', ''),
                 "created_at": str(preventivo.created_at) if preventivo.created_at else None,
             },
             "dati_commessa": {k: v for k, v in (dati_commessa.__dict__.items() if dati_commessa else {}) if not k.startswith('_')},
@@ -947,62 +1279,123 @@ def export_preventivo(preventivo_id: int, formato: str, db: Session = Depends(ge
             } for m in materiali]
         }
     
-    elif formato.lower() in ["pdf", "docx"]:
+    elif fmt in ("docx", "pdf"):
         try:
-            from docx import Document
-            from docx.shared import Inches, Pt
-            from docx.enum.text import WD_ALIGN_PARAGRAPH
-            
-            doc = Document()
-            doc.add_heading(f'Preventivo {preventivo.numero_preventivo}', level=1)
-            
-            if preventivo.customer_name:
-                doc.add_paragraph(f'Cliente: {preventivo.customer_name}')
-            if dati_commessa and dati_commessa.data_offerta:
-                doc.add_paragraph(f'Data: {dati_commessa.data_offerta}')
-            
-            doc.add_heading('Materiali', level=2)
-            if materiali:
-                table = doc.add_table(rows=1, cols=5)
-                table.style = 'Table Grid'
-                headers = table.rows[0].cells
-                headers[0].text = 'Codice'
-                headers[1].text = 'Descrizione'
-                headers[2].text = 'QtÃ '
-                headers[3].text = 'Prezzo Unit.'
-                headers[4].text = 'Totale'
-                
-                for m in materiali:
-                    row = table.add_row().cells
-                    row[0].text = m.codice or ''
-                    row[1].text = m.descrizione or ''
-                    row[2].text = str(m.quantita)
-                    row[3].text = f'â‚¬{m.prezzo_unitario:.2f}'
-                    row[4].text = f'â‚¬{m.prezzo_totale:.2f}'
-            
-            doc.add_paragraph(f'\nTotale: â‚¬{preventivo.total_price:.2f}')
-            
-            buffer = io.BytesIO()
-            doc.save(buffer)
-            buffer.seek(0)
-            
-            if formato.lower() == "docx":
-                return StreamingResponse(
-                    buffer,
-                    media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    headers={"Content-Disposition": f"attachment; filename=preventivo_{preventivo.numero_preventivo.replace('/', '_')}.docx"}
-                )
-            else:
-                # PDF: restituisce il docx per ora, il frontend gestisce la conversione
-                return StreamingResponse(
-                    buffer,
-                    media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    headers={"Content-Disposition": f"attachment; filename=preventivo_{preventivo.numero_preventivo.replace('/', '_')}.docx"}
-                )
-        except ImportError:
-            raise HTTPException(status_code=500, detail="python-docx non installato. Installa con: pip install python-docx")
+            from export_utils import genera_docx_preventivo
+            buf = genera_docx_preventivo(preventivo, dati_commessa, dati_principali, normative_data, argano_data, materiali, cliente)
+            return StreamingResponse(buf,
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                headers={"Content-Disposition": f'attachment; filename="{filename_base}.docx"'})
+        except ImportError as e:
+            raise HTTPException(status_code=500, detail=f"Dipendenza mancante: {e}. Installa: pip install python-docx")
     
-    raise HTTPException(status_code=400, detail=f"Formato '{formato}' non supportato. Usa: json, pdf, docx")
+    elif fmt in ("xlsx", "excel", "xls"):
+        try:
+            from export_utils import genera_xlsx_preventivo
+            buf = genera_xlsx_preventivo(preventivo, dati_commessa, dati_principali, normative_data, argano_data, materiali, cliente)
+            return StreamingResponse(buf,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f'attachment; filename="{filename_base}.xlsx"'})
+        except ImportError as e:
+            raise HTTPException(status_code=500, detail=f"Dipendenza mancante: {e}. Installa: pip install openpyxl")
+    
+    raise HTTPException(status_code=400, detail=f"Formato '{formato}' non supportato. Usa: json, docx, xlsx")
+
+
+@app.get("/ordini/{ordine_id}/export/{formato}")
+def export_ordine(ordine_id: int, formato: str, db: Session = Depends(get_db)):
+    """Esporta ordine in formato JSON, DOCX o XLSX (include BOM esplosa e lista acquisti)"""
+    conn = db.get_bind().raw_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM ordini WHERE id = ?", (ordine_id,))
+    r = cursor.fetchone()
+    if not r:
+        raise HTTPException(status_code=404, detail="Ordine non trovato")
+    cols = [desc[0] for desc in cursor.description]
+    ordine_data = dict(zip(cols, r))
+    
+    if ordine_data.get('cliente_id'):
+        try:
+            cl = db.query(Cliente).filter(Cliente.id == ordine_data['cliente_id']).first()
+            ordine_data['cliente'] = cl.ragione_sociale if cl else ''
+        except Exception:
+            ordine_data['cliente'] = ''
+    
+    materiali = []
+    if ordine_data.get('preventivo_id'):
+        materiali = db.query(Materiale).filter(
+            Materiale.preventivo_id == ordine_data['preventivo_id']
+        ).order_by(Materiale.ordine).all()
+    
+    esplosi = []
+    try:
+        cursor.execute("SELECT * FROM esplosi WHERE ordine_id = ? ORDER BY tipo, categoria, codice", (ordine_id,))
+        ecols = [d[0] for d in cursor.description]
+        esplosi = [dict(zip(ecols, row)) for row in cursor.fetchall()]
+    except Exception:
+        pass
+    
+    lista_acquisti = None
+    try:
+        cursor.execute(
+            "SELECT e.codice, e.descrizione, e.quantita, e.unita_misura, e.costo_unitario, e.costo_totale, "
+            "ab.fornitore, ab.codice_fornitore, ab.lead_time_acquisto "
+            "FROM esplosi e LEFT JOIN articoli_bom ab ON ab.codice = e.codice "
+            "WHERE e.ordine_id = ? AND e.tipo = 'ACQUISTO' ORDER BY ab.fornitore, e.codice",
+            (ordine_id,)
+        )
+        fornitori = {}
+        for row in cursor.fetchall():
+            f = row[6] or "Non assegnato"
+            if f not in fornitori:
+                fornitori[f] = {"articoli": [], "totale": 0}
+            fornitori[f]["articoli"].append({
+                "codice": row[0], "descrizione": row[1], "quantita": row[2],
+                "unita": row[3], "costo_unitario": row[4], "costo_totale": row[5],
+                "codice_fornitore": row[7], "lead_time_giorni": row[8]
+            })
+            fornitori[f]["totale"] += row[5] or 0
+        if fornitori:
+            lista_acquisti = {"fornitori": {n: {"totale": round(d["totale"], 2), "articoli": d["articoli"]} for n, d in fornitori.items()}}
+    except Exception:
+        pass
+    
+    fmt = formato.lower()
+    num_ordine = ordine_data.get('numero_ordine', str(ordine_id)).replace('/', '_')
+    
+    if fmt == "json":
+        return {
+            "ordine": ordine_data,
+            "materiali": [{"codice": m.codice, "descrizione": m.descrizione,
+                "quantita": m.quantita, "prezzo_unitario": m.prezzo_unitario,
+                "prezzo_totale": m.prezzo_totale} for m in materiali],
+            "esplosi": esplosi,
+            "lista_acquisti": lista_acquisti
+        }
+    
+    elif fmt in ("docx", "pdf"):
+        try:
+            from export_utils import genera_docx_ordine
+            buf = genera_docx_ordine(ordine_data, materiali, esplosi, lista_acquisti)
+            return StreamingResponse(buf,
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                headers={"Content-Disposition": f'attachment; filename="ordine_{num_ordine}.docx"'})
+        except ImportError as e:
+            raise HTTPException(status_code=500, detail=f"Dipendenza mancante: {e}. Installa: pip install python-docx")
+    
+    elif fmt in ("xlsx", "excel", "xls"):
+        try:
+            from export_utils import genera_xlsx_ordine
+            buf = genera_xlsx_ordine(ordine_data, materiali, esplosi, lista_acquisti)
+            return StreamingResponse(buf,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f'attachment; filename="ordine_{num_ordine}.xlsx"'})
+        except ImportError as e:
+            raise HTTPException(status_code=500, detail=f"Dipendenza mancante: {e}. Installa: pip install openpyxl")
+    
+    raise HTTPException(status_code=400, detail=f"Formato '{formato}' non supportato. Usa: json, docx, xlsx")
+
 
 # ==========================================
 # PRODUCT TEMPLATES
@@ -1096,6 +1489,111 @@ def delete_template(template_id: int, db: Session = Depends(get_db)):
 @app.post("/preventivi/{preventivo_id}/evaluate-rules")
 def evaluate_rules_endpoint(preventivo_id: int, db: Session = Depends(get_db)):
     return evaluate_rules(preventivo_id, db)
+
+# ==========================================
+# REGOLE JSON - CRUD su file in ./rules/
+# ==========================================
+RULES_DIR = "./rules"
+
+@app.get("/regole")
+def get_regole():
+    """Lista tutte le regole JSON"""
+    rules = load_rules()
+    return sorted(rules, key=lambda r: r.get("priority", 99))
+
+@app.get("/regole/{rule_id}")
+def get_regola(rule_id: str):
+    """Ottieni una regola per ID"""
+    rules = load_rules()
+    for r in rules:
+        if r.get("id") == rule_id:
+            return r
+    raise HTTPException(status_code=404, detail=f"Regola {rule_id} non trovata")
+
+@app.post("/regole")
+def create_regola(data: dict):
+    """Crea una nuova regola JSON"""
+    rule_id = data.get("id")
+    if not rule_id:
+        raise HTTPException(status_code=400, detail="Campo 'id' obbligatorio")
+    
+    os.makedirs(RULES_DIR, exist_ok=True)
+    filepath = os.path.join(RULES_DIR, f"{rule_id}.json")
+    if os.path.exists(filepath):
+        raise HTTPException(status_code=409, detail=f"Regola {rule_id} esiste gia")
+    
+    # Assicura campi obbligatori
+    data.setdefault("enabled", True)
+    data.setdefault("priority", 50)
+    data.setdefault("conditions", [])
+    data.setdefault("materials", [])
+    data.setdefault("version", "1.0")
+    
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    
+    return {"status": "created", "id": rule_id}
+
+@app.put("/regole/{rule_id}")
+def update_regola(rule_id: str, data: dict):
+    """Aggiorna una regola JSON esistente"""
+    os.makedirs(RULES_DIR, exist_ok=True)
+    filepath = os.path.join(RULES_DIR, f"{rule_id}.json")
+    
+    data["id"] = rule_id  # Forza ID consistente
+    data.setdefault("enabled", True)
+    data.setdefault("priority", 50)
+    data.setdefault("conditions", [])
+    data.setdefault("materials", [])
+    
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    
+    return {"status": "updated", "id": rule_id}
+
+@app.delete("/regole/{rule_id}")
+def delete_regola(rule_id: str):
+    """Elimina una regola JSON"""
+    filepath = os.path.join(RULES_DIR, f"{rule_id}.json")
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail=f"Regola {rule_id} non trovata")
+    os.remove(filepath)
+    return {"status": "deleted", "id": rule_id}
+
+@app.get("/regole-campi-disponibili")
+def get_campi_disponibili(db: Session = Depends(get_db)):
+    """Lista tutti i campi utilizzabili nelle condizioni delle regole"""
+    campi = []
+    # Campi da template prodotto (per regole TEMPLATE_BASE)
+    for c, label in [("template_categoria", "Template Categoria (RISE/HOME)"),
+                     ("template_sottocategoria", "Template Sottocategoria (GL/GR/OL...)"),
+                     ("template_nome", "Template Nome Display"),
+                     ("template_id", "Template ID")]:
+        campi.append({"field": c, "source": "template", "label": label})
+    # Campi da preventivo
+    for c in ["preventivo_tipo", "preventivo_categoria"]:
+        campi.append({"field": c, "source": "preventivo", "label": c.replace("_", " ").title()})
+    # Campi da dati_principali
+    for c in ["tipo_impianto", "nuovo_impianto", "numero_fermate", "numero_servizi",
+              "velocita", "corsa", "con_locale_macchina", "posizione_locale_macchina",
+              "tipo_trazione", "forza_motrice", "luce", "tensione_manovra", "tensione_freno"]:
+        campi.append({"field": c, "source": "dati_principali", "label": c.replace("_", " ").title()})
+    # Campi da normative
+    for c in ["en_81_1", "en_81_20", "en_81_21", "en_81_28", "en_81_70",
+              "en_81_72", "en_81_73", "a3_95_16", "dm236_legge13", "emendamento_a3"]:
+        campi.append({"field": c, "source": "normative", "label": c.replace("_", " ").upper()})
+    # Campi da argano
+    for c in ["trazione", "potenza_motore_kw", "corrente_nom_motore_amp",
+              "tipo_vvvf", "vvvf_nel_vano", "freno_tensione", "ventilazione_forzata", "tipo_teleruttore"]:
+        campi.append({"field": c, "source": "argano", "label": c.replace("_", " ").title()})
+    # Campi dinamici da campi_configuratore
+    try:
+        result = db.execute(text("SELECT codice, etichetta, sezione FROM campi_configuratore WHERE attivo=1"))
+        for row in result.fetchall():
+            campi.append({"field": row[0], "source": f"dinamico/{row[2]}", "label": row[1]})
+    except Exception:
+        pass
+    return campi
 
 # ==========================================
 # ARTICOLI
@@ -1234,6 +1732,174 @@ def calcola_prezzo_articolo(data: dict, db: Session = Depends(get_db)):
         "prezzo_listino": round(prezzo_listino, 4),
         "prezzo_cliente": round(prezzo_cliente, 4)
     }
+
+# --- BOM: Distinta Base ---
+
+@app.get("/bom/counts")
+def get_bom_counts(db: Session = Depends(get_db)):
+    """Conta i figli per ogni articolo padre"""
+    rows = db.execute(text(
+        "SELECT articolo_padre_id, COUNT(*) as cnt FROM bom_struttura GROUP BY articolo_padre_id"
+    )).fetchall()
+    return {row[0]: row[1] for row in rows}
+
+
+@app.get("/bom/{articolo_padre_id}")
+def get_bom(articolo_padre_id: int, db: Session = Depends(get_db)):
+    """Lista componenti di un articolo padre"""
+    righe = db.query(BomStruttura).filter(
+        BomStruttura.articolo_padre_id == articolo_padre_id
+    ).order_by(BomStruttura.ordine, BomStruttura.id).all()
+
+    result = []
+    for r in righe:
+        figlio = db.query(Articolo).filter(Articolo.id == r.articolo_figlio_id).first()
+        result.append({
+            "id": r.id,
+            "articolo_padre_id": r.articolo_padre_id,
+            "articolo_figlio_id": r.articolo_figlio_id,
+            "articolo_figlio": {
+                "id": figlio.id, "codice": figlio.codice,
+                "descrizione": figlio.descrizione,
+                "tipo_articolo": figlio.tipo_articolo,
+                "costo_fisso": figlio.costo_fisso,
+                "unita_misura": figlio.unita_misura,
+                "fornitore": getattr(figlio, 'fornitore', None),
+                "is_active": figlio.is_active,
+            } if figlio else None,
+            "quantita": r.quantita,
+            "formula_quantita": r.formula_quantita,
+            "unita_misura": r.unita_misura,
+            "condizione_esistenza": r.condizione_esistenza,
+            "note": r.note,
+            "ordine": r.ordine,
+        })
+    return result
+
+
+@app.post("/bom")
+def create_bom_riga(data: dict, db: Session = Depends(get_db)):
+    """Aggiunge un componente alla distinta"""
+    padre_id = data.get("articolo_padre_id")
+    figlio_id = data.get("articolo_figlio_id")
+
+    if not padre_id or not figlio_id:
+        raise HTTPException(400, "articolo_padre_id e articolo_figlio_id obbligatori")
+
+    if padre_id == figlio_id:
+        raise HTTPException(400, "Un articolo non può contenere sé stesso")
+
+    # Controlla duplicati
+    exists = db.query(BomStruttura).filter(
+        BomStruttura.articolo_padre_id == padre_id,
+        BomStruttura.articolo_figlio_id == figlio_id,
+    ).first()
+    if exists:
+        raise HTTPException(400, "Questo componente è già nella distinta")
+
+    # Protezione loop: il figlio non può essere un antenato del padre
+    def is_ancestor(potential_ancestor_id, target_id, visited=None):
+        if visited is None:
+            visited = set()
+        if potential_ancestor_id in visited:
+            return False
+        visited.add(potential_ancestor_id)
+        parents = db.query(BomStruttura.articolo_padre_id).filter(
+            BomStruttura.articolo_figlio_id == target_id
+        ).all()
+        for (pid,) in parents:
+            if pid == potential_ancestor_id:
+                return True
+            if is_ancestor(potential_ancestor_id, pid, visited):
+                return True
+        return False
+
+    if is_ancestor(figlio_id, padre_id):
+        raise HTTPException(400, "Riferimento circolare: questo componente è un antenato dell'articolo padre")
+
+    # Prossimo ordine
+    max_ord = db.query(BomStruttura).filter(
+        BomStruttura.articolo_padre_id == padre_id
+    ).count()
+
+    riga = BomStruttura(
+        articolo_padre_id=padre_id,
+        articolo_figlio_id=figlio_id,
+        quantita=data.get("quantita", 1),
+        formula_quantita=data.get("formula_quantita"),
+        unita_misura=data.get("unita_misura", "PZ"),
+        condizione_esistenza=data.get("condizione_esistenza"),
+        note=data.get("note"),
+        ordine=max_ord + 1,
+    )
+    db.add(riga)
+    db.commit()
+    db.refresh(riga)
+    return {"id": riga.id, "status": "ok"}
+
+
+@app.put("/bom/{riga_id}")
+def update_bom_riga(riga_id: int, data: dict, db: Session = Depends(get_db)):
+    """Aggiorna una riga della distinta"""
+    riga = db.query(BomStruttura).filter(BomStruttura.id == riga_id).first()
+    if not riga:
+        raise HTTPException(404, "Riga BOM non trovata")
+
+    for key in ["quantita", "formula_quantita", "unita_misura", "condizione_esistenza", "note", "ordine"]:
+        if key in data:
+            setattr(riga, key, data[key])
+
+    db.commit()
+    return {"id": riga.id, "status": "ok"}
+
+
+@app.delete("/bom/{riga_id}")
+def delete_bom_riga(riga_id: int, db: Session = Depends(get_db)):
+    """Rimuove una riga dalla distinta"""
+    riga = db.query(BomStruttura).filter(BomStruttura.id == riga_id).first()
+    if not riga:
+        raise HTTPException(404, "Riga BOM non trovata")
+    db.delete(riga)
+    db.commit()
+    return {"status": "ok"}
+
+
+@app.post("/bom/duplica")
+def duplica_bom(data: dict, db: Session = Depends(get_db)):
+    """Duplica l'intera BOM da un articolo sorgente a un articolo destinazione"""
+    source_id = data.get("source_articolo_id")
+    target_id = data.get("target_articolo_id")
+
+    if not source_id or not target_id:
+        raise HTTPException(400, "source_articolo_id e target_articolo_id obbligatori")
+
+    if source_id == target_id:
+        raise HTTPException(400, "Sorgente e destinazione devono essere diversi")
+
+    # Elimina BOM esistente della destinazione
+    db.query(BomStruttura).filter(BomStruttura.articolo_padre_id == target_id).delete()
+
+    # Copia righe
+    righe_source = db.query(BomStruttura).filter(
+        BomStruttura.articolo_padre_id == source_id
+    ).order_by(BomStruttura.ordine).all()
+
+    for r in righe_source:
+        nuova = BomStruttura(
+            articolo_padre_id=target_id,
+            articolo_figlio_id=r.articolo_figlio_id,
+            quantita=r.quantita,
+            formula_quantita=r.formula_quantita,
+            unita_misura=r.unita_misura,
+            condizione_esistenza=r.condizione_esistenza,
+            note=r.note,
+            ordine=r.ordine,
+        )
+        db.add(nuova)
+
+    db.commit()
+    return {"status": "ok", "righe_duplicate": len(righe_source)}
+
 
 # ==========================================
 # CATEGORIE ARTICOLI
@@ -1949,6 +2615,424 @@ def delete_campo(campo_id: int, db: Session = Depends(get_db)):
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/preventivi/{preventivo_id}/configurazione/{sezione}")
+def get_valori_sezione(preventivo_id: int, sezione: str, db: Session = Depends(get_db)):
+    """Leggi tutti i valori di una sezione dinamica per un preventivo"""
+    try:
+        result = db.execute(
+            text("""
+                SELECT codice_campo, valore 
+                FROM valori_configurazione 
+                WHERE preventivo_id = :pid AND sezione = :sez
+            """),
+            {"pid": preventivo_id, "sez": sezione}
+        )
+        valori = {row[0]: row[1] for row in result.fetchall()}
+        return {"preventivo_id": preventivo_id, "sezione": sezione, "valori": valori}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/preventivi/{preventivo_id}/configurazione/{sezione}")
+def save_valori_sezione(preventivo_id: int, sezione: str, data: dict, db: Session = Depends(get_db)):
+    """
+    Salva tutti i valori di una sezione dinamica (upsert).
+    
+    Body: {"valori": {"codice_campo1": "valore1", "codice_campo2": "valore2"}}
+    """
+    try:
+        valori = data.get("valori", {})
+        
+        for codice_campo, valore in valori.items():
+            # UPSERT: aggiorna se esiste, inserisci se no
+            existing = db.execute(
+                text("""
+                    SELECT id FROM valori_configurazione 
+                    WHERE preventivo_id = :pid AND sezione = :sez AND codice_campo = :campo
+                """),
+                {"pid": preventivo_id, "sez": sezione, "campo": codice_campo}
+            ).fetchone()
+            
+            if existing:
+                db.execute(
+                    text("""
+                        UPDATE valori_configurazione 
+                        SET valore = :val, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = :id
+                    """),
+                    {"val": str(valore) if valore is not None else None, "id": existing[0]}
+                )
+            else:
+                db.execute(
+                    text("""
+                        INSERT INTO valori_configurazione (preventivo_id, sezione, codice_campo, valore)
+                        VALUES (:pid, :sez, :campo, :val)
+                    """),
+                    {"pid": preventivo_id, "sez": sezione, "campo": codice_campo,
+                     "val": str(valore) if valore is not None else None}
+                )
+        
+        db.commit()
+        
+        # Trigger rule engine dopo salvataggio
+        result = safe_evaluate_rules(preventivo_id, db)
+        
+        return {
+            "status": "ok",
+            "sezione": sezione,
+            "campi_salvati": len(valori),
+            "rules_result": result
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/preventivi/{preventivo_id}/configurazione")
+def get_tutti_valori_configurazione(preventivo_id: int, db: Session = Depends(get_db)):
+    """Leggi tutti i valori di tutte le sezioni dinamiche per un preventivo"""
+    try:
+        result = db.execute(
+            text("""
+                SELECT sezione, codice_campo, valore 
+                FROM valori_configurazione 
+                WHERE preventivo_id = :pid
+                ORDER BY sezione, codice_campo
+            """),
+            {"pid": preventivo_id}
+        )
+        
+        sezioni = {}
+        for row in result.fetchall():
+            sezione, campo, valore = row[0], row[1], row[2]
+            if sezione not in sezioni:
+                sezioni[sezione] = {}
+            sezioni[sezione][campo] = valore
+        
+        return {"preventivo_id": preventivo_id, "sezioni": sezioni}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/preventivi/{preventivo_id}/configurazione/{sezione}")
+def delete_valori_sezione(preventivo_id: int, sezione: str, db: Session = Depends(get_db)):
+    """Elimina tutti i valori di una sezione per un preventivo"""
+    try:
+        db.execute(
+            text("DELETE FROM valori_configurazione WHERE preventivo_id = :pid AND sezione = :sez"),
+            {"pid": preventivo_id, "sez": sezione}
+        )
+        db.commit()
+        return {"status": "ok", "sezione": sezione}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# RULE ENGINE - DEBUG CONTEXT
+# ==========================================
+
+@app.get("/preventivi/{preventivo_id}/rule-context")
+def get_rule_context(preventivo_id: int, db: Session = Depends(get_db)):
+    """Debug: mostra il contesto completo che il rule engine usa per valutare."""
+    preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
+    if not preventivo:
+        raise HTTPException(status_code=404, detail="Preventivo non trovato")
+    
+    context = build_config_context(preventivo_id, db)
+    rules = load_rules()
+    
+    # Mostra anche quali regole matcherebbero
+    matching = []
+    for rule in rules:
+        if not rule.get("enabled", True):
+            continue
+        conditions = rule.get("conditions", [])
+        all_met = all(evaluate_condition(c, context) for c in conditions) if conditions else False
+        matching.append({
+            "id": rule.get("id"),
+            "name": rule.get("name"),
+            "match": all_met,
+            "conditions_detail": [
+                {
+                    "field": c.get("field"),
+                    "operator": c.get("operator"),
+                    "expected": c.get("value"),
+                    "actual": context.get(c.get("field")),
+                    "result": evaluate_condition(c, context)
+                }
+                for c in conditions
+            ]
+        })
+    
+    return {
+        "preventivo_id": preventivo_id,
+        "context": context,
+        "context_keys_count": len(context),
+        "rules_total": len(rules),
+        "rules_matching": sum(1 for r in matching if r["match"]),
+        "rules_detail": matching
+    }
+
+
+# ============================================================
+# ORDINI E BOM - ENDPOINT
+# ============================================================
+
+@app.post("/preventivi/{preventivo_id}/conferma")
+def api_conferma_preventivo(preventivo_id: int, db: Session = Depends(get_db)):
+    preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
+    if not preventivo:
+        raise HTTPException(status_code=404, detail="Preventivo non trovato")
+    if _prev_stato(preventivo) not in ("draft", "bozza", "inviato", None):
+        raise HTTPException(status_code=400, detail=f"Stato attuale: {_prev_stato(preventivo)}")
+
+    try:
+        try:
+            lead_time = calcola_lead_time(preventivo_id, db)
+        except Exception:
+            lead_time = 15
+
+        _prev_set(preventivo, "confermato", 'stato', 'status')
+        db.commit()
+
+        anno = datetime.now().year
+        conn = db.get_bind().raw_connection()
+        cursor = conn.cursor()
+        
+        # Auto-crea/aggiorna tabella ordini
+        # Drop e ricrea se esiste con schema vecchio (cliente_id NOT NULL)
+        try:
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='ordini'")
+            row = cursor.fetchone()
+            if row and 'NOT NULL' in (row[0] or '') and 'cliente_id' in (row[0] or ''):
+                cursor.execute("DROP TABLE ordini")
+                conn.commit()
+        except Exception:
+            pass
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ordini (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                numero_ordine TEXT UNIQUE NOT NULL,
+                preventivo_id INTEGER,
+                cliente_id INTEGER DEFAULT NULL,
+                stato TEXT DEFAULT 'confermato',
+                tipo_impianto TEXT,
+                configurazione_json TEXT,
+                totale_materiali REAL DEFAULT 0,
+                totale_netto REAL DEFAULT 0,
+                lead_time_giorni INTEGER DEFAULT 15,
+                data_consegna_prevista TEXT,
+                bom_esplosa INTEGER DEFAULT 0,
+                data_esplosione_bom TEXT,
+                created_by TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.commit()
+
+        cursor.execute("SELECT COUNT(*) FROM ordini WHERE numero_ordine LIKE ?", (f"ORD-{anno}-%",))
+        count = cursor.fetchone()[0]
+        numero_ordine = f"ORD-{anno}-{count + 1:04d}"
+
+        materiali = db.query(Materiale).filter(Materiale.preventivo_id == preventivo_id).all()
+        totale = _prev_totale(preventivo) or sum(m.prezzo_totale or 0 for m in materiali)
+        config_snap = json.dumps({
+            "preventivo": _prev_numero(preventivo),
+            "materiali": [{"codice": m.codice, "descrizione": m.descrizione,
+                           "quantita": m.quantita, "prezzo_totale": m.prezzo_totale} for m in materiali]
+        }, ensure_ascii=False)
+
+        cursor.execute(
+            "INSERT INTO ordini (numero_ordine, preventivo_id, cliente_id, stato, tipo_impianto, "
+            "configurazione_json, totale_materiali, totale_netto, lead_time_giorni, "
+            "data_consegna_prevista, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (numero_ordine, preventivo_id, getattr(preventivo, 'cliente_id', 0) or 0, "confermato",
+             _prev_tipo(preventivo), config_snap, totale,
+             _prev_netto(preventivo) or totale, lead_time,
+             (datetime.now() + timedelta(days=lead_time)).isoformat(), "admin")
+        )
+        ordine_id = cursor.lastrowid
+        conn.commit()
+
+        return {
+            "status": "confermato", "preventivo_id": preventivo_id,
+            "ordine_id": ordine_id, "numero_ordine": numero_ordine,
+            "lead_time_giorni": lead_time,
+            "data_consegna_prevista": (datetime.now() + timedelta(days=lead_time)).isoformat(),
+            "totale": totale
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Errore conferma: {str(e)}")
+
+
+@app.get("/ordini")
+def api_get_ordini(db: Session = Depends(get_db)):
+    conn = db.get_bind().raw_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT o.id, o.numero_ordine, o.preventivo_id, o.stato, o.tipo_impianto, "
+        "o.totale_materiali, o.lead_time_giorni, o.data_consegna_prevista, "
+        "o.bom_esplosa, o.created_at, c.ragione_sociale "
+        "FROM ordini o LEFT JOIN clienti c ON c.id = o.cliente_id "
+        "ORDER BY o.created_at DESC"
+    )
+    return [{"id": r[0], "numero_ordine": r[1], "preventivo_id": r[2], "stato": r[3],
+             "tipo_impianto": r[4], "totale_materiali": r[5], "lead_time_giorni": r[6],
+             "data_consegna_prevista": r[7], "bom_esplosa": bool(r[8]),
+             "created_at": r[9], "cliente": r[10]} for r in cursor.fetchall()]
+
+
+@app.get("/ordini/{ordine_id}")
+def api_get_ordine(ordine_id: int, db: Session = Depends(get_db)):
+    conn = db.get_bind().raw_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM ordini WHERE id = ?", (ordine_id,))
+    r = cursor.fetchone()
+    if not r:
+        raise HTTPException(status_code=404, detail="Ordine non trovato")
+    cols = [desc[0] for desc in cursor.description]
+    return dict(zip(cols, r))
+
+
+@app.post("/ordini/{ordine_id}/esplodi-bom")
+def api_esplodi_bom(ordine_id: int, db: Session = Depends(get_db)):
+    conn = db.get_bind().raw_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, preventivo_id FROM ordini WHERE id = ?", (ordine_id,))
+    ordine = cursor.fetchone()
+    if not ordine:
+        raise HTTPException(status_code=404, detail="Ordine non trovato")
+
+    preventivo_id = ordine[1]
+    preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
+
+    # Costruisci contesto usando build_config_context (stesso usato da regole)
+    contesto = build_config_context(preventivo_id, db)
+    if not contesto.get("numero_fermate") and not contesto.get("NUM_FERMATE"):
+        contesto.update({"NUM_FERMATE": 6, "CORSA": 18, "TIPO_DISPLAY": "LCD",
+                         "TIPO_PORTE": "Automatiche", "TENSIONE": "400V", "POTENZA_KW": 7.5})
+
+    contesto_norm = {}
+    for k, v in contesto.items():
+        contesto_norm[k] = v
+        contesto_norm[k.upper()] = v
+
+    cursor.execute("DELETE FROM esplosi WHERE ordine_id = ?", (ordine_id,))
+
+    materiali = db.query(Materiale).filter(Materiale.preventivo_id == preventivo_id).all()
+    if not materiali:
+        raise HTTPException(status_code=400, detail="Nessun materiale nel preventivo")
+
+    tutti = []
+    for mat in materiali:
+        tutti.extend(esplodi_bom_ricorsiva(cursor, mat.codice, mat.quantita,
+                                            contesto_norm, ordine_id, 0, mat.codice, []))
+
+    aggregati = {}
+    for esp in tutti:
+        cod = esp["codice"]
+        if cod in aggregati:
+            aggregati[cod]["quantita"] += esp["quantita"]
+            aggregati[cod]["costo_totale"] += esp["costo_totale"]
+        else:
+            aggregati[cod] = esp.copy()
+
+    for esp in aggregati.values():
+        cursor.execute(
+            "INSERT INTO esplosi (ordine_id, codice, descrizione, tipo, categoria, "
+            "quantita, unita_misura, costo_unitario, costo_totale, padre_codice, "
+            "livello_esplosione, percorso, lead_time_giorni, "
+            "parametro1_nome, parametro1_valore, parametro2_nome, parametro2_valore) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (ordine_id, esp["codice"], esp.get("descrizione"), esp.get("tipo"), esp.get("categoria"),
+             esp["quantita"], esp.get("unita_misura", "PZ"), esp.get("costo_unitario", 0),
+             esp.get("costo_totale", 0), esp.get("padre_codice"), esp.get("livello_esplosione", 0),
+             esp.get("percorso"), esp.get("lead_time_giorni", 0),
+             esp.get("parametro1_nome"), esp.get("parametro1_valore"),
+             esp.get("parametro2_nome"), esp.get("parametro2_valore"))
+        )
+
+    cursor.execute("UPDATE ordini SET bom_esplosa=1, data_esplosione_bom=?, stato='in_produzione' WHERE id=?",
+                   (datetime.now().isoformat(), ordine_id))
+    conn.commit()
+
+    costo_tot = sum(e.get("costo_totale", 0) for e in aggregati.values())
+    max_lt = max((e.get("lead_time_giorni", 0) for e in aggregati.values()), default=0)
+
+    return {
+        "ordine_id": ordine_id,
+        "componenti_master": len(materiali),
+        "componenti_esplosi": len(tutti),
+        "componenti_aggregati": len(aggregati),
+        "costo_totale_componenti": round(costo_tot, 2),
+        "lead_time_max_giorni": max_lt,
+        "dettaglio": [{"codice": e["codice"], "descrizione": e.get("descrizione"),
+                       "tipo": e.get("tipo"), "quantita": e["quantita"],
+                       "unita": e.get("unita_misura"), "costo_totale": round(e.get("costo_totale", 0), 2)}
+                      for e in sorted(aggregati.values(), key=lambda x: x.get("categoria", ""))]
+    }
+
+
+@app.get("/ordini/{ordine_id}/esplosi")
+def api_get_esplosi(ordine_id: int, tipo: str = None, db: Session = Depends(get_db)):
+    conn = db.get_bind().raw_connection()
+    cursor = conn.cursor()
+    q = "SELECT * FROM esplosi WHERE ordine_id = ?"
+    params = [ordine_id]
+    if tipo:
+        q += " AND tipo = ?"
+        params.append(tipo)
+    q += " ORDER BY categoria, codice"
+    cursor.execute(q, params)
+    cols = [d[0] for d in cursor.description]
+    esplosi = [dict(zip(cols, r)) for r in cursor.fetchall()]
+    totale = sum(e.get("costo_totale", 0) or 0 for e in esplosi)
+    return {"ordine_id": ordine_id, "totale_componenti": len(esplosi),
+            "costo_totale": round(totale, 2), "esplosi": esplosi}
+
+
+@app.get("/ordini/{ordine_id}/lista-acquisti")
+def api_lista_acquisti(ordine_id: int, db: Session = Depends(get_db)):
+    conn = db.get_bind().raw_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT e.codice, e.descrizione, e.quantita, e.unita_misura, e.costo_unitario, e.costo_totale, "
+        "ab.fornitore, ab.codice_fornitore, ab.lead_time_acquisto "
+        "FROM esplosi e LEFT JOIN articoli_bom ab ON ab.codice = e.codice "
+        "WHERE e.ordine_id = ? AND e.tipo = 'ACQUISTO' ORDER BY ab.fornitore, e.codice",
+        (ordine_id,)
+    )
+    fornitori = {}
+    for r in cursor.fetchall():
+        f = r[6] or "Non assegnato"
+        if f not in fornitori:
+            fornitori[f] = {"articoli": [], "totale": 0}
+        fornitori[f]["articoli"].append({"codice": r[0], "descrizione": r[1], "quantita": r[2],
+            "unita": r[3], "costo_unitario": r[4], "costo_totale": r[5],
+            "codice_fornitore": r[7], "lead_time_giorni": r[8]})
+        fornitori[f]["totale"] += r[5] or 0
+    return {
+        "ordine_id": ordine_id, "num_fornitori": len(fornitori),
+        "costo_totale_acquisti": round(sum(f["totale"] for f in fornitori.values()), 2),
+        "fornitori": {n: {"num_articoli": len(d["articoli"]), "totale": round(d["totale"], 2),
+                          "articoli": d["articoli"]} for n, d in fornitori.items()}
+    }
+
+
+@app.get("/preventivi/{preventivo_id}/lead-time")
+def api_lead_time(preventivo_id: int, db: Session = Depends(get_db)):
+    lt = calcola_lead_time(preventivo_id, db)
+    return {"preventivo_id": preventivo_id, "lead_time_giorni": lt}
 
 # ==========================================
 # STARTUP

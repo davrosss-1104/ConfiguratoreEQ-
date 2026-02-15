@@ -26,6 +26,8 @@ import {
   Power,
   Lock,
   CircleDot,
+  ClipboardList,
+  GitBranch,
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000';
@@ -52,6 +54,8 @@ const ICON_MAP: Record<string, React.ReactNode> = {
   Cpu: <Cpu className="h-5 w-5" />,
   Power: <Power className="h-5 w-5" />,
   Lock: <Lock className="h-5 w-5" />,
+  'GitBranch': <GitBranch className="h-5 w-5" />,
+  ClipboardList: <ClipboardList className="h-5 w-5" />,
 };
 
 const DEFAULT_ICON = <CircleDot className="h-5 w-5" />;
@@ -129,9 +133,15 @@ export const Sidebar = ({
     sezioniConfigurazione.push({ id: 'materiali', label: 'Materiali', icon: <Package className="h-5 w-5" /> });
   }
 
+  // "Ordine & BOM" sempre visibile in fondo
+  if (!sezioniConfigurazione.find(s => s.id === 'ordine')) {
+    sezioniConfigurazione.push({ id: 'ordine', label: 'Ordine & BOM', icon: <ClipboardList className="h-5 w-5" /> });
+  }
+
   // Admin menu (hardcoded)
   const adminMenuItems = [
     { id: 'gestione-articoli', label: 'Gestione Articoli', icon: <Package className="h-5 w-5" /> },
+    { id: 'gestione_bom', label: 'Gestione BOM', icon: <GitBranch className="h-5 w-5" /> },
     { id: 'gestione-clienti', label: 'Gestione Clienti', icon: <Users className="h-5 w-5" /> },
     { id: 'gestione-opzioni', label: 'Gestione Opzioni', icon: <ListChecks className="h-5 w-5" /> },
     { id: 'gestione-campi', label: 'Gestione Campi', icon: <LayoutList className="h-5 w-5" /> },

@@ -1,0 +1,39 @@
+{
+  "id": "QUADRO_GEARLESS_MRL",
+  "name": "Quadro manovra Gearless MRL",
+  "description": "Quadro completo per impianti Gearless senza locale macchina",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 10,
+  "conditions": [
+    {
+      "field": "tipo_trazione",
+      "operator": "equals",
+      "value": "Gearless MRL",
+      "description": "Trazione Gearless MRL"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "QUADRO_QM_GL_001",
+      "descrizione": "Quadro manovra Gearless completo",
+      "quantita": 1,
+      "prezzo_unitario": 2850.0,
+      "categoria": "Quadri Elettrici"
+    },
+    {
+      "codice": "INVERTER_GL_400V",
+      "descrizione": "Inverter Gearless 400V",
+      "quantita": 1,
+      "prezzo_unitario": 1650.0,
+      "categoria": "Quadri Elettrici"
+    },
+    {
+      "codice": "ENC-ABS-001",
+      "descrizione": "Encoder assoluto per trazione MRL",
+      "quantita": 1,
+      "prezzo_unitario": 420.0,
+      "categoria": "Componenti Trazione"
+    }
+  ]
+}

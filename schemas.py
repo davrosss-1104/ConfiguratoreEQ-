@@ -182,6 +182,7 @@ class PreventivoCreate(PreventivoBase):
 
 class PreventivoUpdate(BaseModel):
     stato: Optional[str] = None
+    cliente_id: Optional[int] = None
     nome_commessa: Optional[str] = None
     indirizzo_cantiere: Optional[str] = None
     referente_cantiere: Optional[str] = None

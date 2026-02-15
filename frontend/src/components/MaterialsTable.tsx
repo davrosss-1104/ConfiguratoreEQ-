@@ -129,8 +129,12 @@ export const MaterialsTable = ({
                           {material.descrizione}
                         </p>
                         {isAutomatic && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                            Auto
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
+                            material.regola_id?.startsWith('TEMPLATE_BASE')
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-green-100 text-green-800'
+                          }`}>
+                            {material.regola_id?.startsWith('TEMPLATE_BASE') ? 'Template' : 'Auto'}
                           </span>
                         )}
                         {isHighlighted && (

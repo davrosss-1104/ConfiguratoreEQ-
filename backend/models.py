@@ -1,7 +1,10 @@
 from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, ForeignKey, Text, Numeric
+from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from database import Base
 import datetime
+
+
 
 # ==========================================
 # GRUPPI UTENTI
@@ -380,6 +383,25 @@ class Materiale(Base):
 
     preventivo = relationship("Preventivo", back_populates="materiali")
 
+class ValoreConfigurazione(Base):
+    """Valori compilati per sezioni dinamiche del configuratore"""
+    __tablename__ = "valori_configurazione"
+
+    id = Column(Integer, primary_key=True, index=True)
+    preventivo_id = Column(Integer, ForeignKey("preventivi.id"), nullable=False, index=True)
+    sezione = Column(String(100), nullable=False, index=True)
+    codice_campo = Column(String(100), nullable=False)
+    valore = Column(Text)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Indice composito per query efficienti
+    __table_args__ = (
+        # Un solo valore per (preventivo, sezione, campo)
+        # UniqueConstraint evita duplicati
+        {"sqlite_autoincrement": True},
+    )
 
 # ==========================================
 # RIGHE RICAMBIO
@@ -428,3 +450,19 @@ class RigaRicambio(Base):
     note = Column(Text, nullable=True)
 
     preventivo = relationship("Preventivo", back_populates="righe_ricambio")
+
+class BomStruttura(Base):
+    """Relazioni padre-figlio tra articoli per la distinta base"""
+    __tablename__ = "bom_struttura"
+
+    id = Column(Integer, primary_key=True, index=True)
+    articolo_padre_id = Column(Integer, nullable=False, index=True)
+    articolo_figlio_id = Column(Integer, nullable=False, index=True)
+    quantita = Column(Float, default=1.0)
+    formula_quantita = Column(String(200))
+    unita_misura = Column(String(20), default="PZ")
+    condizione_esistenza = Column(String(500))
+    note = Column(Text)
+    ordine = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
