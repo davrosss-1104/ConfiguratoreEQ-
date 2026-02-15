@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, Lock, User, Zap } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://localhost:8000';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');

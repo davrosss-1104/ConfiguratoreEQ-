@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Sidebar } from '@/components/Sidebar';
@@ -6,7 +6,6 @@ import { DatiCommessaForm } from "@/components/sections/DatiCommessaForm";
 import { DatiPrincipaliForm } from "@/components/sections/DatiPrincipaliForm";
 import { NormativeForm } from "@/components/sections/NormativeForm";
 import DisposizioneVanoForm from "@/components/sections/DisposizioneVanoForm";
-import DynamicSectionForm from "@/components/sections/DynamicSectionForm";
 import { MaterialsTable } from "@/components/MaterialsTable";
 import { CustomerNameEditor } from "@/components/CustomerNameEditor";
 import { getDatiCommessa, getDatiPrincipali, getNormative, getDisposizioneVano, getPreventivo } from '@/services/preventivi.service';
@@ -17,16 +16,6 @@ import GestioneCampiPage from '@/components/sections/GestioneCampiPage';
 import GestioneSezioniPage from '@/components/sections/GestioneSezioniPage';
 import { GestioneUtentiPage } from '@/components/sections/GestioneUtentiPage';
 import RuleEnginePage from '@/components/sections/RuleEnginePage';
-
-const API_BASE = 'http://localhost:8000';
-
-// Sezioni con form dedicato (hardcoded) - usano le tabelle specifiche
-const SEZIONI_CON_FORM_DEDICATO = [
-  'dati_commessa',
-  'dati_principali',
-  'normative',
-  'disposizione_vano',
-];
 
 // Colori sfondo per categoria
 const CATEGORY_THEMES = {
@@ -53,39 +42,18 @@ const CATEGORY_THEMES = {
   },
 } as const;
 
-interface SezioneInfo {
-  codice: string;
-  etichetta: string;
-}
-
 export const PreventivoPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const preventivoId = parseInt(id || '1', 10);
 
+  // Redirect se ID non valido
   if (isNaN(preventivoId)) {
     navigate('/');
     return null;
   }
 
-  const [activeSection, setActiveSection] = useState('dati_commessa');
-  const [sezioniMap, setSezioniMap] = useState<Record<string, SezioneInfo>>({});
-
-  // Carica mappa sezioni per avere le etichette
-  useEffect(() => {
-    fetch(`${API_BASE}/sezioni-configuratore`)
-      .then(res => res.ok ? res.json() : [])
-      .then(data => {
-        if (Array.isArray(data)) {
-          const map: Record<string, SezioneInfo> = {};
-          data.forEach((s: any) => {
-            map[s.codice] = { codice: s.codice, etichetta: s.etichetta };
-          });
-          setSezioniMap(map);
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const [activeSection, setActiveSection] = useState('dati-commessa');
 
   // Query per il preventivo (per avere la categoria)
   const { data: preventivo } = useQuery({
@@ -125,25 +93,63 @@ export const PreventivoPage = () => {
   const calcolaProgresso = (): number => {
     let completati = 0;
     const sezioni = 4;
+
     if (datiCommessa?.numero_offerta) completati++;
     if (datiPrincipali?.numero_fermate && datiPrincipali.numero_fermate > 0) completati++;
     if (normative?.en_81_20) completati++;
     if (disposizioneVano?.posizione_quadro_lato) completati++;
+
     return Math.round((completati / sezioni) * 100);
   };
 
   const progresso = calcolaProgresso();
 
-  // Etichetta sezione per DynamicSectionForm
-  const getSezioneName = (codice: string): string => {
-    if (sezioniMap[codice]) return sezioniMap[codice].etichetta;
-    // Fallback: codice -> label leggibile
-    return codice.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-  };
-
   const renderSection = () => {
-    // ---- SEZIONI ADMIN (usano trattini, gestite esplicitamente) ----
     switch (activeSection) {
+      case 'dati-commessa':
+        return <DatiCommessaForm />;
+      
+      case 'dati-principali':
+        return <DatiPrincipaliForm />;
+      
+      case 'normative':
+        return <NormativeForm preventivoId={preventivoId} />;
+      
+      case 'disposizione-vano':
+        return <DisposizioneVanoForm preventivoId={preventivoId} />;
+      
+      case 'argano':
+        return (
+          <div className="p-6 bg-white/70 rounded-lg shadow">
+            <h2 className="text-2xl font-bold mb-4">Argano</h2>
+            <p className="text-gray-500">Sezione in costruzione</p>
+          </div>
+        );
+      
+      case 'info-generale':
+        return (
+          <div className="p-6 bg-white/70 rounded-lg shadow">
+            <h2 className="text-2xl font-bold mb-4">Info Generale</h2>
+            <p className="text-gray-500">Sezione in costruzione</p>
+          </div>
+        );
+      
+      case 'porte':
+        return (
+          <div className="p-6 bg-white/70 rounded-lg shadow">
+            <h2 className="text-2xl font-bold mb-4">Porte</h2>
+            <p className="text-gray-500">Sezione in costruzione</p>
+          </div>
+        );
+
+      case 'materiali':
+        return (
+          <div className="p-6 bg-white/70 rounded-lg shadow">
+            <h2 className="text-2xl font-bold mb-4">Materiali</h2>
+            <MaterialsTable preventivoId={preventivoId} />
+          </div>
+        );
+
       case 'gestione-articoli':
         return <GestioneArticoliPage />;
       case 'gestione-clienti':
@@ -163,44 +169,9 @@ export const PreventivoPage = () => {
         return <GestioneUtentiPage />;
       case 'rule-engine':
         return <RuleEnginePage />;
-    }
 
-    // ---- SEZIONI CONFIGURAZIONE (usano underscore) ----
-    switch (activeSection) {
-      // Form dedicati (tabelle specifiche)
-      case 'dati_commessa':
-        return <DatiCommessaForm />;
-      case 'dati_principali':
-        return <DatiPrincipaliForm />;
-      case 'normative':
-        return <NormativeForm preventivoId={preventivoId} />;
-      case 'disposizione_vano':
-        return <DisposizioneVanoForm preventivoId={preventivoId} />;
-
-      // Materiali (pagina speciale)
-      case 'materiali':
-        return (
-          <div className="p-6 bg-white/70 rounded-lg shadow">
-            <h2 className="text-2xl font-bold mb-4">Materiali</h2>
-            <MaterialsTable preventivoId={preventivoId} />
-          </div>
-        );
-
-      // TUTTE LE ALTRE SEZIONI -> form dinamico da DB
       default:
-        if (SEZIONI_CON_FORM_DEDICATO.includes(activeSection)) {
-          return null; // Non dovrebbe mai succedere
-        }
-        return (
-          <DynamicSectionForm
-            preventivoId={preventivoId}
-            sezioneCode={activeSection}
-            sezioneName={getSezioneName(activeSection)}
-            onDataChange={() => {
-              // Potrebbe servire per aggiornare totali/regole
-            }}
-          />
-        );
+        return null;
     }
   };
 
@@ -208,12 +179,16 @@ export const PreventivoPage = () => {
     <div className={`flex min-h-screen ${theme.pageBg}`}>
       {/* Sidebar sinistra */}
       <div className="w-64 bg-white/80 shadow-lg">
+        {/* Indicatore categoria in cima alla sidebar */}
         {categoria && (
-          <div className="h-1" style={{ backgroundColor: theme.sidebarAccent }} />
+          <div
+            className="h-1"
+            style={{ backgroundColor: theme.sidebarAccent }}
+          />
         )}
         <Sidebar 
-          activeSection={activeSection} 
-          onSectionChange={(section) => setActiveSection(section)}
+          activeSection={activeSection as any} 
+          onSectionChange={(section) => setActiveSection(section as string)}
           progresso={progresso}
         />
       </div>
@@ -231,11 +206,22 @@ export const PreventivoPage = () => {
                       onClick={() => navigate('/')}
                       className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M10 19l-7-7m0 0l7-7m-7 7h18"
+                        />
                       </svg>
                       Torna alla Home
                     </button>
+                    {/* Badge categoria */}
                     {categoria && (
                       <span className={`text-xs font-bold px-2 py-0.5 rounded ${theme.badge}`}>
                         {categoria}
@@ -256,7 +242,9 @@ export const PreventivoPage = () => {
                   ></div>
                 </div>
               </div>
-              <PDFButton preventivoId={preventivoId} />
+              <PDFButton 
+                preventivoId={preventivoId} 
+              />
             </div>
           </div>
         </div>
@@ -264,14 +252,16 @@ export const PreventivoPage = () => {
         <div className="flex gap-6">
           {/* Colonna sinistra - Sezione principale */}
           <div className="flex-1">
-            {activeSection === 'dati_commessa' && (
+            {/* Editor Nome Cliente - Solo nella sezione dati-commessa */}
+            {activeSection === 'dati-commessa' && (
               <CustomerNameEditor preventivoId={preventivoId} />
             )}
+            
             {renderSection()}
           </div>
 
-          {/* Colonna destra - Materiali (solo su sezioni configurazione) */}
-          {activeSection !== 'materiali' && !activeSection.startsWith('gestione-') && activeSection !== 'rule-engine' && (
+          {/* Colonna destra - Materiali (dinamico) */}
+          {activeSection !== 'materiali' && (
             <div className="w-96">
               <MaterialsTable 
                 preventivoId={preventivoId} 

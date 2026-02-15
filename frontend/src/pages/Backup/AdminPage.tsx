@@ -5,7 +5,7 @@ import {
   Save, X, ChevronDown, ChevronRight, Loader2
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://localhost:8000';
 
 // ==========================================
 // TYPES

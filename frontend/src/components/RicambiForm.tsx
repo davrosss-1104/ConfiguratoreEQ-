@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Search, Plus, Trash2, Calculator, Package, Loader2, Percent, Lock } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://localhost:8000';
 
 // ==========================================
 // TYPES

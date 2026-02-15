@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { RicambiForm } from '@/components/RicambiForm';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://localhost:8000';
 
 export const RicambiPage = () => {
   const navigate = useNavigate();

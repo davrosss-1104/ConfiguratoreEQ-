@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://localhost:8000';
 
 interface Utente {
   id: number;

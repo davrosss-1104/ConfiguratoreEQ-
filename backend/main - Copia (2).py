@@ -1547,7 +1547,6 @@ def _ensure_sezioni_table(db):
                 ordine INTEGER DEFAULT 0,
                 attivo INTEGER DEFAULT 1,
                 product_template_id INTEGER,
-                product_template_ids TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP
             )
@@ -1555,63 +1554,30 @@ def _ensure_sezioni_table(db):
         db.commit()
     except:
         pass
-    # Migrazione: aggiungi colonna se manca (tabella gia' esistente)
-    try:
-        db.execute(text("SELECT product_template_ids FROM sezioni_configuratore LIMIT 1"))
-    except:
-        try:
-            db.execute(text("ALTER TABLE sezioni_configuratore ADD COLUMN product_template_ids TEXT"))
-            db.commit()
-        except:
-            pass
 
 
 @app.get("/sezioni-configuratore")
 def get_sezioni_configuratore_list(db: Session = Depends(get_db)):
-    """Lista tutte le sezioni con info prodotti associati e conteggio campi"""
+    """Lista tutte le sezioni con info prodotto associato e conteggio campi"""
     _ensure_sezioni_table(db)
     try:
-        import json as _json
         result = db.execute(text("""
             SELECT s.id, s.codice, s.etichetta, s.descrizione, s.icona,
-                   s.ordine, s.attivo, s.product_template_id, s.product_template_ids,
+                   s.ordine, s.attivo, s.product_template_id,
+                   pt.categoria, pt.sottocategoria, pt.nome_display,
                    (SELECT COUNT(*) FROM campi_configuratore c WHERE c.sezione = s.codice) as num_campi,
                    (SELECT COUNT(*) FROM campi_configuratore c WHERE c.sezione = s.codice AND c.attivo = 1) as num_campi_attivi
             FROM sezioni_configuratore s
+            LEFT JOIN product_templates pt ON s.product_template_id = pt.id
             ORDER BY s.ordine, s.etichetta
         """))
-        rows = result.fetchall()
-        
-        # Carica tutti i product_templates per risolvere i nomi
-        pt_result = db.execute(text("SELECT id, categoria, sottocategoria, nome_display FROM product_templates"))
-        pt_map = {r[0]: {"categoria": r[1], "sottocategoria": r[2], "nome_display": r[3]} for r in pt_result.fetchall()}
-        
-        sezioni = []
-        for r in rows:
-            # Risolvi prodotti associati
-            pt_ids = []
-            if r[8]:  # product_template_ids (JSON array)
-                try:
-                    pt_ids = _json.loads(r[8])
-                except:
-                    pt_ids = []
-            elif r[7]:  # fallback: vecchio product_template_id singolo
-                pt_ids = [r[7]]
-            
-            prodotti = [pt_map[pid] for pid in pt_ids if pid in pt_map]
-            
-            sezioni.append({
-                "id": r[0], "codice": r[1], "etichetta": r[2],
-                "descrizione": r[3], "icona": r[4], "ordine": r[5],
-                "attivo": bool(r[6]),
-                "product_template_ids": pt_ids,
-                "prodotti": prodotti,
-                # Backward compat
-                "product_template_id": pt_ids[0] if pt_ids else None,
-                "prodotto": prodotti[0] if prodotti else None,
-                "num_campi": r[9], "num_campi_attivi": r[10]
-            })
-        return sezioni
+        return [{
+            "id": r[0], "codice": r[1], "etichetta": r[2],
+            "descrizione": r[3], "icona": r[4], "ordine": r[5],
+            "attivo": bool(r[6]), "product_template_id": r[7],
+            "prodotto": {"categoria": r[8], "sottocategoria": r[9], "nome_display": r[10]} if r[7] else None,
+            "num_campi": r[11], "num_campi_attivi": r[12]
+        } for r in result.fetchall()]
     except Exception as e:
         print(f"Errore get_sezioni: {e}")
         return []
@@ -1639,30 +1605,17 @@ def get_sezione_detail(sezione_id: int, db: Session = Depends(get_db)):
     """Dettaglio sezione con campi associati"""
     _ensure_sezioni_table(db)
     try:
-        import json as _json
         result = db.execute(text("""
             SELECT s.id, s.codice, s.etichetta, s.descrizione, s.icona,
-                   s.ordine, s.attivo, s.product_template_id, s.product_template_ids
+                   s.ordine, s.attivo, s.product_template_id,
+                   pt.categoria, pt.sottocategoria, pt.nome_display
             FROM sezioni_configuratore s
+            LEFT JOIN product_templates pt ON s.product_template_id = pt.id
             WHERE s.id = :id
         """), {"id": sezione_id})
         r = result.fetchone()
         if not r:
             raise HTTPException(status_code=404, detail="Sezione non trovata")
-        
-        # Risolvi prodotti
-        pt_ids = []
-        if r[8]:
-            try: pt_ids = _json.loads(r[8])
-            except: pt_ids = []
-        elif r[7]:
-            pt_ids = [r[7]]
-        
-        prodotti = []
-        if pt_ids:
-            pt_result = db.execute(text("SELECT id, categoria, sottocategoria, nome_display FROM product_templates"))
-            pt_map = {pr[0]: {"categoria": pr[1], "sottocategoria": pr[2], "nome_display": pr[3]} for pr in pt_result.fetchall()}
-            prodotti = [pt_map[pid] for pid in pt_ids if pid in pt_map]
         
         campi_result = db.execute(text("""
             SELECT id, codice, etichetta, tipo, sezione, gruppo_dropdown, ordine, attivo,
@@ -1681,11 +1634,8 @@ def get_sezione_detail(sezione_id: int, db: Session = Depends(get_db)):
         return {
             "id": r[0], "codice": r[1], "etichetta": r[2],
             "descrizione": r[3], "icona": r[4], "ordine": r[5],
-            "attivo": bool(r[6]),
-            "product_template_ids": pt_ids,
-            "prodotti": prodotti,
-            "product_template_id": pt_ids[0] if pt_ids else None,
-            "prodotto": prodotti[0] if prodotti else None,
+            "attivo": bool(r[6]), "product_template_id": r[7],
+            "prodotto": {"categoria": r[8], "sottocategoria": r[9], "nome_display": r[10]} if r[7] else None,
             "campi": campi
         }
     except HTTPException:
@@ -1699,22 +1649,14 @@ def create_sezione_configuratore(data: dict, db: Session = Depends(get_db)):
     """Crea una nuova sezione"""
     _ensure_sezioni_table(db)
     try:
-        import json as _json
         existing = db.execute(text("SELECT id FROM sezioni_configuratore WHERE codice = :c"), {"c": data["codice"]}).fetchone()
         if existing:
-            raise HTTPException(status_code=400, detail=f"Codice '{data['codice']}' gia' esistente")
-        
-        # Gestisci product_template_ids (array) o fallback a product_template_id (singolo)
-        pt_ids_json = None
-        if "product_template_ids" in data and data["product_template_ids"]:
-            pt_ids_json = _json.dumps(data["product_template_ids"])
-        elif "product_template_id" in data and data["product_template_id"]:
-            pt_ids_json = _json.dumps([data["product_template_id"]])
+            raise HTTPException(status_code=400, detail=f"Codice '{data['codice']}' già esistente")
         
         max_ord = db.execute(text("SELECT COALESCE(MAX(ordine), -1) FROM sezioni_configuratore")).fetchone()[0]
         db.execute(text("""
-            INSERT INTO sezioni_configuratore (codice, etichetta, descrizione, icona, ordine, attivo, product_template_ids)
-            VALUES (:codice, :etichetta, :descrizione, :icona, :ordine, :attivo, :pt_ids)
+            INSERT INTO sezioni_configuratore (codice, etichetta, descrizione, icona, ordine, attivo, product_template_id)
+            VALUES (:codice, :etichetta, :descrizione, :icona, :ordine, :attivo, :pt_id)
         """), {
             "codice": data["codice"],
             "etichetta": data.get("etichetta", data["codice"]),
@@ -1722,7 +1664,7 @@ def create_sezione_configuratore(data: dict, db: Session = Depends(get_db)):
             "icona": data.get("icona", "Settings"),
             "ordine": data.get("ordine", max_ord + 1),
             "attivo": 1 if data.get("attivo", True) else 0,
-            "pt_ids": pt_ids_json
+            "pt_id": data.get("product_template_id")
         })
         db.commit()
         new_id = db.execute(text("SELECT id FROM sezioni_configuratore WHERE codice = :c"), {"c": data["codice"]}).fetchone()[0]
@@ -1738,14 +1680,13 @@ def update_sezione_configuratore(sezione_id: int, data: dict, db: Session = Depe
     """Aggiorna una sezione"""
     _ensure_sezioni_table(db)
     try:
-        import json as _json
         existing = db.execute(text("SELECT id, codice FROM sezioni_configuratore WHERE id = :id"), {"id": sezione_id}).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Sezione non trovata")
         old_codice = existing[1]
         
         field_map = {"codice": "codice", "etichetta": "etichetta", "descrizione": "descrizione",
-                     "icona": "icona", "ordine": "ordine", "attivo": "attivo"}
+                     "icona": "icona", "ordine": "ordine", "attivo": "attivo", "product_template_id": "product_template_id"}
         fields, params = [], {"id": sezione_id}
         for key, col in field_map.items():
             if key in data:
@@ -1754,13 +1695,6 @@ def update_sezione_configuratore(sezione_id: int, data: dict, db: Session = Depe
                     val = 1 if val else 0
                 fields.append(f"{col}=:{col}")
                 params[col] = val
-        
-        # Gestisci product_template_ids
-        if "product_template_ids" in data:
-            pt_ids = data["product_template_ids"]
-            pt_ids_json = _json.dumps(pt_ids) if pt_ids else None
-            fields.append("product_template_ids=:pt_ids")
-            params["pt_ids"] = pt_ids_json
         
         if fields:
             fields.append("updated_at=CURRENT_TIMESTAMP")

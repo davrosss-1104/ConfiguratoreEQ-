@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Search, User, Building, X, Loader2 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://localhost:8000';
 
 interface Cliente {
   id: number;

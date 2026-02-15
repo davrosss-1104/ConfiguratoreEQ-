@@ -7,7 +7,7 @@ interface CustomerNameEditorProps {
   currentName?: string;
 }
 
-const API_BASE = "http://localhost:8000/api";
+const API_BASE = "http://localhost:8000";
 
 export function CustomerNameEditor({ preventivoId, currentName = '' }: CustomerNameEditorProps) {
   const [customerName, setCustomerName] = useState(currentName);

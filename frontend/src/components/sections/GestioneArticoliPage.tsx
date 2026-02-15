@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://localhost:8000';
 
 interface Articolo {
   id: number;

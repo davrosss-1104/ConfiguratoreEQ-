@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -6,8 +6,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Calendar, Loader2, Clock } from "lucide-react";
-
-const API_BASE = 'http://localhost:8000/api';
+import { ClienteSelector } from "../ClienteSelector";
+const API_BASE = 'http://localhost:8000';
 
 // Schema validazione
 const datiCommessaSchema = z.object({
@@ -33,7 +33,9 @@ export function DatiCommessaForm() {
   const preventivoId = parseInt(id || "0", 10);
   const queryClient = useQueryClient();
   const isInitialized = useRef(false);
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [clienteId, setClienteId] = useState<number | null>(null);
+  const saveTimeoutNodeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Carica preventivo
   const { data: preventivo } = useQuery({
@@ -192,12 +194,23 @@ export function DatiCommessaForm() {
               />
             </div>
 
-            <div>
-              <label className={labelClass}>Riferimento Cliente</label>
-              <input
-                {...form.register("riferimento_cliente")}
-                placeholder="Riferimento interno cliente"
-                className={inputClass}
+            <div className="md:col-span-2">
+              <label className={labelClass}>Cliente</label>
+              <ClienteSelector
+                value={clienteId}
+                onChange={(id: number | null, cliente?: any) => {
+                  setClienteId(id);
+                  if (cliente) {
+                    form.setValue("riferimento_cliente", cliente.ragione_sociale);
+                    // Auto-fill condizioni commerciali dai default del cliente
+                    if ((cliente as any).pagamento_default) form.setValue("pagamento", (cliente as any).pagamento_default);
+                    if ((cliente as any).imballo_default) form.setValue("imballo", (cliente as any).imballo_default);
+                    if ((cliente as any).reso_fco_default) form.setValue("reso_fco", (cliente as any).reso_fco_default);
+                    if ((cliente as any).trasporto_default) form.setValue("trasporto", (cliente as any).trasporto_default);
+                    if ((cliente as any).destinazione_default) form.setValue("destinazione", (cliente as any).destinazione_default);
+                  }
+                }}
+                placeholder="Cerca cliente per nome, codice o P.IVA..."
               />
             </div>
 

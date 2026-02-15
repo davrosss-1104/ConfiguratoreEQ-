@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://localhost:8000';
 
 interface Campo {
   id: number;

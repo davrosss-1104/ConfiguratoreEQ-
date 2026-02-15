@@ -55,7 +55,7 @@ export function SelectConAggiungi({
       if (response.ok) {
         const data = await response.json();
         if (data.length > 0) {
-          setOpzioni(data.map((o: any) => ({ value: o.valore, label: o.label || o.etichetta || o.valore })));
+          setOpzioni(data.map((o: any) => ({ value: o.valore, label: o.etichetta })));
         }
       }
     } catch (err) {
@@ -76,7 +76,7 @@ export function SelectConAggiungi({
 
     // Controlla duplicato
     if (opzioni.some(o => o.value === formattedValue)) {
-      setError('Valore giÃ  esistente');
+      setError('Valore già esistente');
       return;
     }
 

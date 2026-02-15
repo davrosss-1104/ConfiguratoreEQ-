@@ -11,59 +11,69 @@ import {
   type ProductTemplateUpdate,
 } from '@/services/preventivi.service';
 
-const API_BASE = 'http://localhost:8000';
-
 // ==========================================
 // COSTANTI
 // ==========================================
 const CATEGORIES = ['RISE', 'HOME'] as const;
 
-// Fallback se API sezioni non risponde
-const FALLBACK_SECTIONS = [
-  { codice: 'dati_principali', etichetta: 'Dati Principali' },
-  { codice: 'normative', etichetta: 'Normative' },
-  { codice: 'porte', etichetta: 'Porte' },
-];
+const AVAILABLE_FIELDS: Record<string, { label: string; fields: { key: string; label: string; type: string; options?: string[] }[] }> = {
+  dati_principali: {
+    label: 'Dati Principali',
+    fields: [
+      { key: 'tipo_impianto', label: 'Tipo Impianto', type: 'select', options: ['elettrico', 'oleodinamico', 'piattaforma'] },
+      { key: 'nuovo_impianto', label: 'Nuovo Impianto', type: 'boolean' },
+      { key: 'tipo_trazione', label: 'Tipo Trazione', type: 'select', options: ['geared', 'gearless', 'hydraulic'] },
+      { key: 'numero_fermate', label: 'Numero Fermate', type: 'number' },
+      { key: 'numero_servizi', label: 'Numero Servizi', type: 'number' },
+      { key: 'velocita', label: 'Velocità (m/s)', type: 'number' },
+      { key: 'corsa', label: 'Corsa (m)', type: 'number' },
+      { key: 'con_locale_macchina', label: 'Con Locale Macchina', type: 'boolean' },
+      { key: 'posizione_locale_macchina', label: 'Posizione Locale Macchina', type: 'text' },
+      { key: 'forza_motrice', label: 'Forza Motrice', type: 'text' },
+      { key: 'luce', label: 'Luce', type: 'text' },
+      { key: 'tensione_manovra', label: 'Tensione Manovra', type: 'text' },
+      { key: 'tensione_freno', label: 'Tensione Freno', type: 'text' },
+    ],
+  },
+  normative: {
+    label: 'Normative',
+    fields: [
+      { key: 'en_81_1', label: 'EN 81-1', type: 'select', options: ['1998', '2010'] },
+      { key: 'en_81_20', label: 'EN 81-20', type: 'select', options: ['2014', '2020'] },
+      { key: 'en_81_21', label: 'EN 81-21', type: 'select', options: ['2018'] },
+      { key: 'en_81_28', label: 'EN 81-28', type: 'boolean' },
+      { key: 'en_81_70', label: 'EN 81-70', type: 'boolean' },
+      { key: 'en_81_72', label: 'EN 81-72', type: 'boolean' },
+      { key: 'en_81_73', label: 'EN 81-73', type: 'boolean' },
+      { key: 'a3_95_16', label: 'A3 95/16', type: 'boolean' },
+      { key: 'dm236_legge13', label: 'DM 236 Legge 13', type: 'boolean' },
+      { key: 'emendamento_a3', label: 'Emendamento A3', type: 'boolean' },
+      { key: 'uni_10411_1', label: 'UNI 10411-1', type: 'boolean' },
+    ],
+  },
+  porte: {
+    label: 'Porte',
+    fields: [
+      { key: 'tipo_porte_piano', label: 'Tipo Porte Piano', type: 'text' },
+      { key: 'tipo_porte_cabina', label: 'Tipo Porte Cabina', type: 'text' },
+      { key: 'numero_accessi', label: 'Numero Accessi', type: 'number' },
+      { key: 'tipo_operatore', label: 'Tipo Operatore', type: 'text' },
+      { key: 'marca_operatore', label: 'Marca Operatore', type: 'text' },
+      { key: 'tipo_apertura', label: 'Tipo Apertura', type: 'text' },
+    ],
+  },
+};
 
 // ==========================================
-// INTERFACCE
+// INTERFACCE INTERNE
 // ==========================================
-interface SezioneAPI {
-  id: number;
-  codice: string;
-  etichetta: string;
-  ordine: number;
-  attivo: boolean;
-}
-
-interface CampoDB {
-  id: number;
-  codice: string;
-  label: string;
-  tipo: string;        // testo, numero, booleano, dropdown, data
-  sezione: string;
-  gruppo_opzioni?: string;
-  ordine: number;
-  attivo: boolean;
-  obbligatorio: boolean;
-  unita_misura?: string;
-  valore_min?: number;
-  valore_max?: number;
-  valore_default?: string;
-  descrizione?: string;
-  visibile_form: boolean;
-  usabile_regole: boolean;
-}
-
-interface OpzioneDB {
-  id: number;
-  valore: string;
-  label: string;
-  ordine: number;
-}
-
 interface TemplateDataParsed {
-  [key: string]: any;
+  dati_principali?: Record<string, any>;
+  normative?: Record<string, any>;
+  dati_commessa?: Record<string, any>;
+  disposizione_vano?: Record<string, any>;
+  porte?: Record<string, any>;
+  materiali?: { codice: string; descrizione: string; quantita: number; prezzo_unitario: number }[];
 }
 
 interface EditingTemplate {
@@ -97,69 +107,9 @@ export const AdminTemplatesPage = () => {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<EditingTemplate | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
-  const [activeSection, setActiveSection] = useState<string>('');
+  const [activeSection, setActiveSection] = useState<string>('dati_principali');
 
-  // ---- Sezioni e campi dinamici ----
-  const [sezioni, setSezioni] = useState<SezioneAPI[]>([]);
-  const [campiPerSezione, setCampiPerSezione] = useState<Record<string, CampoDB[]>>({});
-  const [opzioniPerGruppo, setOpzioniPerGruppo] = useState<Record<string, OpzioneDB[]>>({});
-  const [loadingCampi, setLoadingCampi] = useState(false);
-
-  // Carica sezioni all'avvio
-  useEffect(() => {
-    fetch(`${API_BASE}/sezioni-configuratore`)
-      .then(res => res.ok ? res.json() : [])
-      .then(data => {
-        if (Array.isArray(data) && data.length > 0) {
-          const attive = data.filter((s: SezioneAPI) => s.attivo);
-          setSezioni(attive);
-          if (attive.length > 0 && !activeSection) {
-            setActiveSection(attive[0].codice);
-          }
-        } else {
-          setSezioni(FALLBACK_SECTIONS.map((s, i) => ({ id: i, codice: s.codice, etichetta: s.etichetta, ordine: i, attivo: true })));
-          if (!activeSection) setActiveSection(FALLBACK_SECTIONS[0].codice);
-        }
-      })
-      .catch(() => {
-        setSezioni(FALLBACK_SECTIONS.map((s, i) => ({ id: i, codice: s.codice, etichetta: s.etichetta, ordine: i, attivo: true })));
-        if (!activeSection) setActiveSection(FALLBACK_SECTIONS[0].codice);
-      });
-  }, []);
-
-  // Carica campi quando cambia la sezione attiva
-  useEffect(() => {
-    if (!activeSection || activeSection === 'materiali') return;
-    // Se gia' caricati, skip
-    if (campiPerSezione[activeSection]) return;
-
-    setLoadingCampi(true);
-    fetch(`${API_BASE}/campi-configuratore/${activeSection}?solo_attivi=true`)
-      .then(res => res.ok ? res.json() : [])
-      .then(async (campi: CampoDB[]) => {
-        setCampiPerSezione(prev => ({ ...prev, [activeSection]: campi }));
-
-        // Carica opzioni per i campi dropdown
-        const gruppi = [...new Set(campi.filter(c => c.tipo === 'dropdown' && c.gruppo_opzioni).map(c => c.gruppo_opzioni!))];
-        const nuoveOpzioni: Record<string, OpzioneDB[]> = {};
-        
-        await Promise.all(gruppi.map(async (gruppo) => {
-          if (opzioniPerGruppo[gruppo]) return; // gia' caricato
-          try {
-            const res = await fetch(`${API_BASE}/opzioni-dropdown/${gruppo}`);
-            if (res.ok) nuoveOpzioni[gruppo] = await res.json();
-          } catch {}
-        }));
-
-        if (Object.keys(nuoveOpzioni).length > 0) {
-          setOpzioniPerGruppo(prev => ({ ...prev, ...nuoveOpzioni }));
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoadingCampi(false));
-  }, [activeSection]);
-
-  // Query templates
+  // Query
   const { data: templates = [], isLoading } = useQuery<ProductTemplate[]>({
     queryKey: ['templates-all'],
     queryFn: getAllTemplates,
@@ -214,6 +164,7 @@ export const AdminTemplatesPage = () => {
 
   const handleSave = () => {
     if (!editing) return;
+
     const payload = {
       categoria: editing.categoria,
       sottocategoria: editing.sottocategoria,
@@ -224,6 +175,7 @@ export const AdminTemplatesPage = () => {
       attivo: editing.attivo,
       template_data: JSON.stringify(editing.templateData),
     };
+
     if (editing.id) {
       updateMut.mutate({ id: editing.id, data: payload });
     } else {
@@ -238,7 +190,7 @@ export const AdminTemplatesPage = () => {
       templateData: {
         ...editing.templateData,
         [section]: {
-          ...(editing.templateData[section] as Record<string, any> || {}),
+          ...(editing.templateData[section as keyof TemplateDataParsed] as Record<string, any> || {}),
           [key]: value,
         },
       },
@@ -247,7 +199,7 @@ export const AdminTemplatesPage = () => {
 
   const removeField = (section: string, key: string) => {
     if (!editing) return;
-    const sectionData = { ...(editing.templateData[section] as Record<string, any> || {}) };
+    const sectionData = { ...(editing.templateData[section as keyof TemplateDataParsed] as Record<string, any> || {}) };
     delete sectionData[key];
     setEditing({
       ...editing,
@@ -286,96 +238,13 @@ export const AdminTemplatesPage = () => {
     templates: templates.filter(t => t.categoria === cat).sort((a, b) => a.ordine - b.ordine),
   }));
 
-  // Tab sezioni: filtra via "materiali" e sezioni non utili per template default
-  const sezioniTab = sezioni.filter(s => s.codice !== 'materiali' && s.codice !== 'dati_commessa');
-
-  // Campi della sezione attiva
-  const campiSezioneAttiva = campiPerSezione[activeSection] || [];
-
-  // ==========================================
-  // RENDER CAMPO DINAMICO (per template defaults)
-  // ==========================================
-  const renderCampoTemplate = (campo: CampoDB) => {
-    const sectionData = (editing?.templateData[activeSection] as Record<string, any>) || {};
-    const isActive = campo.codice in sectionData;
-    const value = sectionData[campo.codice];
-
-    return (
-      <div
-        key={campo.codice}
-        className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
-          isActive ? 'border-blue-200 bg-blue-50/30' : 'border-gray-100 bg-gray-50/50'
-        }`}
-      >
-        <input
-          type="checkbox"
-          checked={isActive}
-          onChange={(e) => {
-            if (e.target.checked) {
-              let defaultVal: any = '';
-              if (campo.tipo === 'booleano') defaultVal = false;
-              else if (campo.tipo === 'numero') defaultVal = campo.valore_default ? parseFloat(campo.valore_default) : 0;
-              else if (campo.valore_default) defaultVal = campo.valore_default;
-              setField(activeSection, campo.codice, defaultVal);
-            } else {
-              removeField(activeSection, campo.codice);
-            }
-          }}
-          className="rounded border-gray-300"
-        />
-        <label className="text-sm font-medium text-gray-700 w-44 shrink-0">
-          {campo.label}
-          {campo.unita_misura && <span className="text-gray-400 ml-1">({campo.unita_misura})</span>}
-        </label>
-        {isActive && (
-          <div className="flex-1">
-            {campo.tipo === 'booleano' ? (
-              <select
-                value={value ? 'true' : 'false'}
-                onChange={(e) => setField(activeSection, campo.codice, e.target.value === 'true')}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="true">Si</option>
-                <option value="false">No</option>
-              </select>
-            ) : campo.tipo === 'dropdown' && campo.gruppo_opzioni ? (
-              <select
-                value={value || ''}
-                onChange={(e) => setField(activeSection, campo.codice, e.target.value)}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">-- Seleziona --</option>
-                {(opzioniPerGruppo[campo.gruppo_opzioni] || []).map(opt => (
-                  <option key={opt.valore} value={opt.valore}>{opt.label}</option>
-                ))}
-              </select>
-            ) : campo.tipo === 'numero' ? (
-              <input
-                type="number"
-                value={value ?? ''}
-                onChange={(e) => setField(activeSection, campo.codice, parseFloat(e.target.value) || 0)}
-                min={campo.valore_min}
-                max={campo.valore_max}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            ) : (
-              <input
-                type="text"
-                value={value || ''}
-                onChange={(e) => setField(activeSection, campo.codice, e.target.value)}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
-
   // ==========================================
   // RENDER - FORM EDITING
   // ==========================================
   if (editing) {
+    const sectionData = (editing.templateData[activeSection as keyof TemplateDataParsed] as Record<string, any>) || {};
+    const sectionConfig = AVAILABLE_FIELDS[activeSection];
+
     return (
       <div className="min-h-screen bg-gray-50">
         {/* Header form */}
@@ -392,7 +261,10 @@ export const AdminTemplatesPage = () => {
               </h1>
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setEditing(null)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">
+              <button
+                onClick={() => setEditing(null)}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
+              >
                 Annulla
               </button>
               <button
@@ -516,38 +388,32 @@ export const AdminTemplatesPage = () => {
               </div>
             </div>
 
-            {/* Colonna DX - Configurazione campi (DINAMICA) */}
+            {/* Colonna DX - Configurazione campi */}
             <div className="col-span-2">
               <div className="bg-white rounded-xl border border-gray-200">
-                {/* Tabs sezioni - DINAMICHE da DB */}
-                <div className="flex border-b border-gray-200 overflow-x-auto">
-                  {sezioniTab.map((sez) => {
-                    const sectionData = editing.templateData[sez.codice];
-                    const count = sectionData && typeof sectionData === 'object' && !Array.isArray(sectionData) 
-                      ? Object.keys(sectionData).length : 0;
-                    return (
-                      <button
-                        key={sez.codice}
-                        onClick={() => setActiveSection(sez.codice)}
-                        className={`px-5 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
-                          activeSection === sez.codice
-                            ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50'
-                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        {sez.etichetta}
-                        {count > 0 && (
-                          <span className="ml-1.5 inline-flex items-center justify-center w-5 h-5 text-xs bg-blue-100 text-blue-600 rounded-full">
-                            {count}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                  {/* Tab Materiali (sempre presente) */}
+                {/* Tabs sezioni */}
+                <div className="flex border-b border-gray-200">
+                  {Object.entries(AVAILABLE_FIELDS).map(([key, config]) => (
+                    <button
+                      key={key}
+                      onClick={() => setActiveSection(key)}
+                      className={`px-5 py-3 text-sm font-medium transition-colors ${
+                        activeSection === key
+                          ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50'
+                          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      {config.label}
+                      {editing.templateData[key as keyof TemplateDataParsed] && Object.keys(editing.templateData[key as keyof TemplateDataParsed] as any || {}).length > 0 && (
+                        <span className="ml-1.5 inline-flex items-center justify-center w-5 h-5 text-xs bg-blue-100 text-blue-600 rounded-full">
+                          {Object.keys(editing.templateData[key as keyof TemplateDataParsed] as any || {}).length}
+                        </span>
+                      )}
+                    </button>
+                  ))}
                   <button
                     onClick={() => setActiveSection('materiali')}
-                    className={`px-5 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
+                    className={`px-5 py-3 text-sm font-medium transition-colors ${
                       activeSection === 'materiali'
                         ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50'
                         : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
@@ -564,28 +430,79 @@ export const AdminTemplatesPage = () => {
 
                 {/* Contenuto sezione */}
                 <div className="p-5">
-                  {activeSection !== 'materiali' ? (
+                  {activeSection !== 'materiali' && sectionConfig ? (
                     <div className="space-y-3">
                       <p className="text-sm text-gray-400 mb-4">
                         Seleziona i campi da pre-compilare e imposta i valori predefiniti.
                       </p>
-                      {loadingCampi ? (
-                        <div className="text-center py-8">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
-                          <p className="text-sm text-gray-400 mt-2">Caricamento campi...</p>
-                        </div>
-                      ) : campiSezioneAttiva.length === 0 ? (
-                        <div className="text-center py-8 text-gray-300 text-sm">
-                          Nessun campo configurato per questa sezione.
-                          <br />
-                          <span className="text-xs">Vai in Gestione Campi per aggiungerne.</span>
-                        </div>
-                      ) : (
-                        campiSezioneAttiva.map(renderCampoTemplate)
-                      )}
+                      {sectionConfig.fields.map((field) => {
+                        const isActive = field.key in sectionData;
+                        const value = sectionData[field.key];
+                        return (
+                          <div
+                            key={field.key}
+                            className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+                              isActive ? 'border-blue-200 bg-blue-50/30' : 'border-gray-100 bg-gray-50/50'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isActive}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  const defaultVal = field.type === 'boolean' ? false : field.type === 'number' ? 0 : '';
+                                  setField(activeSection, field.key, defaultVal);
+                                } else {
+                                  removeField(activeSection, field.key);
+                                }
+                              }}
+                              className="rounded border-gray-300"
+                            />
+                            <label className="text-sm font-medium text-gray-700 w-44 shrink-0">
+                              {field.label}
+                            </label>
+                            {isActive && (
+                              <div className="flex-1">
+                                {field.type === 'boolean' ? (
+                                  <select
+                                    value={value ? 'true' : 'false'}
+                                    onChange={(e) => setField(activeSection, field.key, e.target.value === 'true')}
+                                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  >
+                                    <option value="true">Sì</option>
+                                    <option value="false">No</option>
+                                  </select>
+                                ) : field.type === 'select' ? (
+                                  <select
+                                    value={value || ''}
+                                    onChange={(e) => setField(activeSection, field.key, e.target.value)}
+                                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  >
+                                    <option value="">-- Seleziona --</option>
+                                    {field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                  </select>
+                                ) : field.type === 'number' ? (
+                                  <input
+                                    type="number"
+                                    value={value ?? ''}
+                                    onChange={(e) => setField(activeSection, field.key, parseFloat(e.target.value) || 0)}
+                                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  />
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={value || ''}
+                                    onChange={(e) => setField(activeSection, field.key, e.target.value)}
+                                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  />
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  ) : (
-                    /* ---- TAB MATERIALI (invariato) ---- */
+                  ) : activeSection === 'materiali' ? (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between mb-4">
                         <p className="text-sm text-gray-400">
@@ -608,14 +525,15 @@ export const AdminTemplatesPage = () => {
                         </div>
                       ) : (
                         <div className="space-y-2">
+                          {/* Header */}
                           <div className="grid grid-cols-12 gap-2 px-3 text-xs font-semibold text-gray-500 uppercase">
                             <div className="col-span-3">Codice</div>
                             <div className="col-span-4">Descrizione</div>
-                            <div className="col-span-2">Quantita</div>
+                            <div className="col-span-2">Quantità</div>
                             <div className="col-span-2">Prezzo Unit.</div>
                             <div className="col-span-1"></div>
                           </div>
-                          {editing.templateData.materiali.map((mat: any, idx: number) => (
+                          {editing.templateData.materiali.map((mat, idx) => (
                             <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-gray-50 rounded-lg p-2">
                               <div className="col-span-3">
                                 <input
@@ -669,7 +587,7 @@ export const AdminTemplatesPage = () => {
                         </div>
                       )}
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -684,6 +602,7 @@ export const AdminTemplatesPage = () => {
   // ==========================================
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Header */}
       <div className="bg-white shadow">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -761,7 +680,7 @@ export const AdminTemplatesPage = () => {
                             <div className="flex items-start justify-between mb-3">
                               <div>
                                 <h3 className="font-semibold text-gray-900">{t.nome_display}</h3>
-                                <p className="text-xs text-gray-400 mt-0.5">{t.sottocategoria} - Ordine: {t.ordine}</p>
+                                <p className="text-xs text-gray-400 mt-0.5">{t.sottocategoria} · Ordine: {t.ordine}</p>
                               </div>
                               {!t.attivo && (
                                 <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Disattivo</span>
@@ -772,7 +691,7 @@ export const AdminTemplatesPage = () => {
                             )}
                             <div className="flex gap-3 text-xs text-gray-400">
                               <span>{fieldCount} campi pre-compilati</span>
-                              <span>-</span>
+                              <span>·</span>
                               <span>{matCount} materiali</span>
                             </div>
                           </div>
@@ -790,7 +709,7 @@ export const AdminTemplatesPage = () => {
                                   onClick={() => deleteMut.mutate(t.id)}
                                   className="text-xs font-medium text-red-600 hover:text-red-700"
                                 >
-                                  Si, elimina
+                                  Sì, elimina
                                 </button>
                                 <button
                                   onClick={() => setDeleteConfirm(null)}

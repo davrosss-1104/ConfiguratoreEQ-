@@ -6,7 +6,7 @@ import { useEffect, useState, useRef } from 'react';
 import { toast } from 'sonner';
 import { Zap, Loader2 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://localhost:8000';
 
 const arganoSchema = z.object({
   trazione: z.string().optional(),

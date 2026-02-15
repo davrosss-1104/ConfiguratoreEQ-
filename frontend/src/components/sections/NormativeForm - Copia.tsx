@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { SelectConAggiungi } from './SelectConAggiungi';
 import { CampiPersonalizzati } from './CampiPersonalizzati';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://localhost:8000';
 
 interface NormativeFormProps {
   preventivoId: number;

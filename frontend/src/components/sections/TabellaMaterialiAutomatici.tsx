@@ -18,7 +18,7 @@ interface Materiale {
   regola_id?: string;
 }
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://localhost:8000';
 
 export function TabellaMaterialiAutomatici({ preventivoId }: TabellaMaterialiAutomaticiProps) {
   // Query per caricare materiali

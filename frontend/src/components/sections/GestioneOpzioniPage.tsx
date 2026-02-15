@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://localhost:8000';
 
 interface Opzione {
   id: number;
@@ -135,6 +135,18 @@ export default function GestioneOpzioniPage() {
 
   // Mappatura gruppi → sezioni (per organizzazione visiva)
   const [gruppiSezione, setGruppiSezione] = useState<Record<string, string>>(loadGruppiSezione);
+
+  const saveGruppoSezione = (codice: string, sezione: string) => {
+    const updated = { ...gruppiSezione, [codice]: sezione };
+    setGruppiSezione(updated);
+    try {
+      const custom: Record<string, string> = {};
+      for (const [k, v] of Object.entries(updated)) {
+        if (DEFAULT_GRUPPI_SEZIONE[k] !== v) custom[k] = v;
+      }
+      localStorage.setItem('gruppi_sezione_custom', JSON.stringify(custom));
+    } catch (e) {}
+  };
 
   useEffect(() => {
     fetchGruppi();
@@ -442,9 +454,9 @@ export default function GestioneOpzioniPage() {
   };
 
   // Render gruppo item
-  const renderGruppoItem = (g: GruppoInfo) => (
+  const renderGruppoItem = (g: GruppoInfo, index: number) => (
     <div
-      key={g.gruppo}
+      key={`${g.gruppo}-${index}`}
       className={`px-4 py-3 cursor-pointer transition-colors ${
         selectedGruppo === g.gruppo 
           ? 'bg-blue-50 border-l-4 border-blue-500' 
