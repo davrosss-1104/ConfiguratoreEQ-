@@ -1735,46 +1735,171 @@ def calcola_prezzo_articolo(data: dict, db: Session = Depends(get_db)):
 
 # --- BOM: Distinta Base ---
 
+def _detect_bom_schema(db: Session) -> str:
+    """
+    Rileva se bom_struttura usa lo schema vecchio (padre_codice/figlio_codice TEXT)
+    o quello nuovo (articolo_padre_id/articolo_figlio_id INT).
+    """
+    try:
+        conn = db.get_bind().raw_connection()
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(bom_struttura)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'articolo_padre_id' in columns and 'articolo_figlio_id' in columns:
+            return 'id'
+        return 'codice'
+    except Exception:
+        return 'id'
+
+
 @app.get("/bom/counts")
 def get_bom_counts(db: Session = Depends(get_db)):
     """Conta i figli per ogni articolo padre"""
-    rows = db.execute(text(
-        "SELECT articolo_padre_id, COUNT(*) as cnt FROM bom_struttura GROUP BY articolo_padre_id"
-    )).fetchall()
-    return {row[0]: row[1] for row in rows}
+    schema = _detect_bom_schema(db)
+    conn = db.get_bind().raw_connection()
+    cursor = conn.cursor()
+
+    if schema == 'id':
+        rows = db.execute(text(
+            "SELECT articolo_padre_id, COUNT(*) as cnt FROM bom_struttura GROUP BY articolo_padre_id"
+        )).fetchall()
+        return {row[0]: row[1] for row in rows}
+    else:
+        # Schema vecchio: padre_codice → mappa a ID articolo dalla tabella articoli
+        cursor.execute(
+            "SELECT bs.padre_codice, COUNT(*) as cnt "
+            "FROM bom_struttura bs GROUP BY bs.padre_codice"
+        )
+        counts_by_codice = {row[0]: row[1] for row in cursor.fetchall()}
+        if not counts_by_codice:
+            return {}
+
+        # Mappa codice → articoli.id
+        result = {}
+        placeholders = ','.join(['?'] * len(counts_by_codice))
+        cursor.execute(
+            f"SELECT id, codice FROM articoli WHERE codice IN ({placeholders})",
+            list(counts_by_codice.keys())
+        )
+        for row in cursor.fetchall():
+            art_id, codice = row[0], row[1]
+            if codice in counts_by_codice:
+                result[art_id] = counts_by_codice[codice]
+        return result
 
 
 @app.get("/bom/{articolo_padre_id}")
 def get_bom(articolo_padre_id: int, db: Session = Depends(get_db)):
     """Lista componenti di un articolo padre"""
-    righe = db.query(BomStruttura).filter(
-        BomStruttura.articolo_padre_id == articolo_padre_id
-    ).order_by(BomStruttura.ordine, BomStruttura.id).all()
+    schema = _detect_bom_schema(db)
 
-    result = []
-    for r in righe:
-        figlio = db.query(Articolo).filter(Articolo.id == r.articolo_figlio_id).first()
-        result.append({
-            "id": r.id,
-            "articolo_padre_id": r.articolo_padre_id,
-            "articolo_figlio_id": r.articolo_figlio_id,
-            "articolo_figlio": {
-                "id": figlio.id, "codice": figlio.codice,
-                "descrizione": figlio.descrizione,
-                "tipo_articolo": figlio.tipo_articolo,
-                "costo_fisso": figlio.costo_fisso,
-                "unita_misura": figlio.unita_misura,
-                "fornitore": getattr(figlio, 'fornitore', None),
-                "is_active": figlio.is_active,
-            } if figlio else None,
-            "quantita": r.quantita,
-            "formula_quantita": r.formula_quantita,
-            "unita_misura": r.unita_misura,
-            "condizione_esistenza": r.condizione_esistenza,
-            "note": r.note,
-            "ordine": r.ordine,
-        })
-    return result
+    if schema == 'id':
+        # ── Schema nuovo: SQLAlchemy con articolo_padre_id/articolo_figlio_id ──
+        righe = db.query(BomStruttura).filter(
+            BomStruttura.articolo_padre_id == articolo_padre_id
+        ).order_by(BomStruttura.ordine, BomStruttura.id).all()
+
+        result = []
+        for r in righe:
+            figlio = db.query(Articolo).filter(Articolo.id == r.articolo_figlio_id).first()
+            result.append({
+                "id": r.id,
+                "articolo_padre_id": r.articolo_padre_id,
+                "articolo_figlio_id": r.articolo_figlio_id,
+                "articolo_figlio": {
+                    "id": figlio.id, "codice": figlio.codice,
+                    "descrizione": figlio.descrizione,
+                    "tipo_articolo": figlio.tipo_articolo,
+                    "costo_fisso": figlio.costo_fisso,
+                    "unita_misura": figlio.unita_misura,
+                    "fornitore": getattr(figlio, 'fornitore', None),
+                    "is_active": figlio.is_active,
+                } if figlio else None,
+                "quantita": r.quantita,
+                "formula_quantita": r.formula_quantita,
+                "unita_misura": r.unita_misura,
+                "condizione_esistenza": r.condizione_esistenza,
+                "note": r.note,
+                "ordine": r.ordine,
+            })
+        return result
+
+    else:
+        # ── Schema vecchio: padre_codice/figlio_codice (TEXT) ──
+        # 1. Trova il codice dell'articolo padre dalla tabella articoli
+        articolo_padre = db.query(Articolo).filter(Articolo.id == articolo_padre_id).first()
+        if not articolo_padre:
+            return []
+
+        conn = db.get_bind().raw_connection()
+        cursor = conn.cursor()
+
+        # 2. Query bom_struttura con padre_codice
+        cursor.execute(
+            "SELECT bs.id, bs.padre_codice, bs.figlio_codice, bs.quantita, "
+            "bs.formula_quantita, bs.condizione_esistenza, "
+            "COALESCE(bs.note, '') as note, "
+            "COALESCE(bs.posizione, 0) as ordine "
+            "FROM bom_struttura bs "
+            "WHERE bs.padre_codice = ? "
+            "ORDER BY ordine, bs.id",
+            (articolo_padre.codice,)
+        )
+        rows = cursor.fetchall()
+
+        result = []
+        for r in rows:
+            bs_id, padre_cod, figlio_cod, qta, formula, condizione, note, ordine = r
+
+            # 3. Cerca figlio prima in 'articoli' (SQLAlchemy), poi in 'articoli_bom' (raw)
+            figlio = db.query(Articolo).filter(Articolo.codice == figlio_cod).first()
+            figlio_data = None
+
+            if figlio:
+                figlio_data = {
+                    "id": figlio.id,
+                    "codice": figlio.codice,
+                    "descrizione": figlio.descrizione,
+                    "tipo_articolo": figlio.tipo_articolo,
+                    "costo_fisso": figlio.costo_fisso,
+                    "unita_misura": figlio.unita_misura,
+                    "fornitore": getattr(figlio, 'fornitore', None),
+                    "is_active": figlio.is_active,
+                }
+            else:
+                # Fallback: cerca in articoli_bom (tabella creata da migrate_prototipo)
+                cursor.execute(
+                    "SELECT codice, descrizione, tipo, categoria, costo_fisso, "
+                    "unita_misura FROM articoli_bom WHERE codice = ?",
+                    (figlio_cod,)
+                )
+                ab = cursor.fetchone()
+                if ab:
+                    figlio_data = {
+                        "id": 0,
+                        "codice": ab[0],
+                        "descrizione": ab[1],
+                        "tipo_articolo": ab[2] or "ACQUISTO",
+                        "costo_fisso": ab[4] or 0,
+                        "unita_misura": ab[5] or "PZ",
+                        "fornitore": None,
+                        "is_active": True,
+                    }
+
+            result.append({
+                "id": bs_id,
+                "articolo_padre_id": articolo_padre_id,
+                "articolo_figlio_id": figlio.id if figlio else 0,
+                "articolo_figlio": figlio_data,
+                "quantita": qta or 1,
+                "formula_quantita": formula,
+                "unita_misura": "PZ",
+                "condizione_esistenza": condizione,
+                "note": note,
+                "ordine": ordine or 0,
+            })
+
+        return result
 
 
 @app.post("/bom")
@@ -1785,82 +1910,147 @@ def create_bom_riga(data: dict, db: Session = Depends(get_db)):
 
     if not padre_id or not figlio_id:
         raise HTTPException(400, "articolo_padre_id e articolo_figlio_id obbligatori")
-
     if padre_id == figlio_id:
         raise HTTPException(400, "Un articolo non può contenere sé stesso")
 
-    # Controlla duplicati
-    exists = db.query(BomStruttura).filter(
-        BomStruttura.articolo_padre_id == padre_id,
-        BomStruttura.articolo_figlio_id == figlio_id,
-    ).first()
-    if exists:
-        raise HTTPException(400, "Questo componente è già nella distinta")
+    schema = _detect_bom_schema(db)
 
-    # Protezione loop: il figlio non può essere un antenato del padre
-    def is_ancestor(potential_ancestor_id, target_id, visited=None):
-        if visited is None:
-            visited = set()
-        if potential_ancestor_id in visited:
+    if schema == 'id':
+        exists = db.query(BomStruttura).filter(
+            BomStruttura.articolo_padre_id == padre_id,
+            BomStruttura.articolo_figlio_id == figlio_id,
+        ).first()
+        if exists:
+            raise HTTPException(400, "Questo componente è già nella distinta")
+
+        def is_ancestor(potential_ancestor_id, target_id, visited=None):
+            if visited is None:
+                visited = set()
+            if potential_ancestor_id in visited:
+                return False
+            visited.add(potential_ancestor_id)
+            parents = db.query(BomStruttura.articolo_padre_id).filter(
+                BomStruttura.articolo_figlio_id == target_id
+            ).all()
+            for (pid,) in parents:
+                if pid == potential_ancestor_id:
+                    return True
+                if is_ancestor(potential_ancestor_id, pid, visited):
+                    return True
             return False
-        visited.add(potential_ancestor_id)
-        parents = db.query(BomStruttura.articolo_padre_id).filter(
-            BomStruttura.articolo_figlio_id == target_id
-        ).all()
-        for (pid,) in parents:
-            if pid == potential_ancestor_id:
-                return True
-            if is_ancestor(potential_ancestor_id, pid, visited):
-                return True
-        return False
 
-    if is_ancestor(figlio_id, padre_id):
-        raise HTTPException(400, "Riferimento circolare: questo componente è un antenato dell'articolo padre")
+        if is_ancestor(figlio_id, padre_id):
+            raise HTTPException(400, "Riferimento circolare")
 
-    # Prossimo ordine
-    max_ord = db.query(BomStruttura).filter(
-        BomStruttura.articolo_padre_id == padre_id
-    ).count()
+        max_ord = db.query(BomStruttura).filter(
+            BomStruttura.articolo_padre_id == padre_id
+        ).count()
 
-    riga = BomStruttura(
-        articolo_padre_id=padre_id,
-        articolo_figlio_id=figlio_id,
-        quantita=data.get("quantita", 1),
-        formula_quantita=data.get("formula_quantita"),
-        unita_misura=data.get("unita_misura", "PZ"),
-        condizione_esistenza=data.get("condizione_esistenza"),
-        note=data.get("note"),
-        ordine=max_ord + 1,
-    )
-    db.add(riga)
-    db.commit()
-    db.refresh(riga)
-    return {"id": riga.id, "status": "ok"}
+        riga = BomStruttura(
+            articolo_padre_id=padre_id,
+            articolo_figlio_id=figlio_id,
+            quantita=data.get("quantita", 1),
+            formula_quantita=data.get("formula_quantita"),
+            unita_misura=data.get("unita_misura", "PZ"),
+            condizione_esistenza=data.get("condizione_esistenza"),
+            note=data.get("note"),
+            ordine=max_ord + 1,
+        )
+        db.add(riga)
+        db.commit()
+        db.refresh(riga)
+        return {"id": riga.id, "status": "ok"}
+
+    else:
+        # Schema vecchio: padre_codice/figlio_codice
+        padre = db.query(Articolo).filter(Articolo.id == padre_id).first()
+        figlio = db.query(Articolo).filter(Articolo.id == figlio_id).first()
+        if not padre or not figlio:
+            raise HTTPException(400, "Articolo padre o figlio non trovato")
+
+        conn = db.get_bind().raw_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM bom_struttura WHERE padre_codice=? AND figlio_codice=?",
+            (padre.codice, figlio.codice)
+        )
+        if cursor.fetchone()[0] > 0:
+            raise HTTPException(400, "Questo componente è già nella distinta")
+
+        cursor.execute(
+            "SELECT COALESCE(MAX(posizione), 0) FROM bom_struttura WHERE padre_codice=?",
+            (padre.codice,)
+        )
+        next_pos = (cursor.fetchone()[0] or 0) + 1
+
+        cursor.execute(
+            "INSERT INTO bom_struttura (padre_codice, figlio_codice, quantita, "
+            "formula_quantita, condizione_esistenza, note, posizione, obbligatorio) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+            (padre.codice, figlio.codice, data.get("quantita", 1),
+             data.get("formula_quantita"), data.get("condizione_esistenza"),
+             data.get("note"), next_pos)
+        )
+        conn.commit()
+        return {"id": cursor.lastrowid, "status": "ok"}
 
 
 @app.put("/bom/{riga_id}")
 def update_bom_riga(riga_id: int, data: dict, db: Session = Depends(get_db)):
     """Aggiorna una riga della distinta"""
-    riga = db.query(BomStruttura).filter(BomStruttura.id == riga_id).first()
-    if not riga:
-        raise HTTPException(404, "Riga BOM non trovata")
+    schema = _detect_bom_schema(db)
 
-    for key in ["quantita", "formula_quantita", "unita_misura", "condizione_esistenza", "note", "ordine"]:
-        if key in data:
-            setattr(riga, key, data[key])
+    if schema == 'id':
+        riga = db.query(BomStruttura).filter(BomStruttura.id == riga_id).first()
+        if not riga:
+            raise HTTPException(404, "Riga BOM non trovata")
+        for key in ["quantita", "formula_quantita", "unita_misura", "condizione_esistenza", "note", "ordine"]:
+            if key in data:
+                setattr(riga, key, data[key])
+        db.commit()
+    else:
+        conn = db.get_bind().raw_connection()
+        cursor = conn.cursor()
+        updates = []
+        values = []
+        for key in ["quantita", "formula_quantita", "condizione_esistenza", "note"]:
+            if key in data:
+                updates.append(f"{key} = ?")
+                values.append(data[key])
+        if "ordine" in data:
+            updates.append("posizione = ?")
+            values.append(data["ordine"])
+        if not updates:
+            return {"id": riga_id, "status": "ok"}
+        values.append(riga_id)
+        cursor.execute(f"UPDATE bom_struttura SET {', '.join(updates)} WHERE id = ?", values)
+        if cursor.rowcount == 0:
+            raise HTTPException(404, "Riga BOM non trovata")
+        conn.commit()
 
-    db.commit()
-    return {"id": riga.id, "status": "ok"}
+    return {"id": riga_id, "status": "ok"}
 
 
 @app.delete("/bom/{riga_id}")
 def delete_bom_riga(riga_id: int, db: Session = Depends(get_db)):
     """Rimuove una riga dalla distinta"""
-    riga = db.query(BomStruttura).filter(BomStruttura.id == riga_id).first()
-    if not riga:
-        raise HTTPException(404, "Riga BOM non trovata")
-    db.delete(riga)
-    db.commit()
+    schema = _detect_bom_schema(db)
+
+    if schema == 'id':
+        riga = db.query(BomStruttura).filter(BomStruttura.id == riga_id).first()
+        if not riga:
+            raise HTTPException(404, "Riga BOM non trovata")
+        db.delete(riga)
+        db.commit()
+    else:
+        conn = db.get_bind().raw_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM bom_struttura WHERE id = ?", (riga_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(404, "Riga BOM non trovata")
+        conn.commit()
+
     return {"status": "ok"}
 
 
@@ -1872,34 +2062,55 @@ def duplica_bom(data: dict, db: Session = Depends(get_db)):
 
     if not source_id or not target_id:
         raise HTTPException(400, "source_articolo_id e target_articolo_id obbligatori")
-
     if source_id == target_id:
         raise HTTPException(400, "Sorgente e destinazione devono essere diversi")
 
-    # Elimina BOM esistente della destinazione
-    db.query(BomStruttura).filter(BomStruttura.articolo_padre_id == target_id).delete()
+    schema = _detect_bom_schema(db)
 
-    # Copia righe
-    righe_source = db.query(BomStruttura).filter(
-        BomStruttura.articolo_padre_id == source_id
-    ).order_by(BomStruttura.ordine).all()
+    if schema == 'id':
+        db.query(BomStruttura).filter(BomStruttura.articolo_padre_id == target_id).delete()
+        righe_source = db.query(BomStruttura).filter(
+            BomStruttura.articolo_padre_id == source_id
+        ).order_by(BomStruttura.ordine).all()
+        for r in righe_source:
+            nuova = BomStruttura(
+                articolo_padre_id=target_id,
+                articolo_figlio_id=r.articolo_figlio_id,
+                quantita=r.quantita,
+                formula_quantita=r.formula_quantita,
+                unita_misura=r.unita_misura,
+                condizione_esistenza=r.condizione_esistenza,
+                note=r.note,
+                ordine=r.ordine,
+            )
+            db.add(nuova)
+        db.commit()
+        return {"status": "ok", "righe_duplicate": len(righe_source)}
 
-    for r in righe_source:
-        nuova = BomStruttura(
-            articolo_padre_id=target_id,
-            articolo_figlio_id=r.articolo_figlio_id,
-            quantita=r.quantita,
-            formula_quantita=r.formula_quantita,
-            unita_misura=r.unita_misura,
-            condizione_esistenza=r.condizione_esistenza,
-            note=r.note,
-            ordine=r.ordine,
+    else:
+        source = db.query(Articolo).filter(Articolo.id == source_id).first()
+        target = db.query(Articolo).filter(Articolo.id == target_id).first()
+        if not source or not target:
+            raise HTTPException(400, "Articoli non trovati")
+
+        conn = db.get_bind().raw_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM bom_struttura WHERE padre_codice = ?", (target.codice,))
+        cursor.execute(
+            "SELECT figlio_codice, quantita, formula_quantita, condizione_esistenza, "
+            "note, posizione, obbligatorio FROM bom_struttura WHERE padre_codice = ? ORDER BY posizione",
+            (source.codice,)
         )
-        db.add(nuova)
-
-    db.commit()
-    return {"status": "ok", "righe_duplicate": len(righe_source)}
-
+        righe = cursor.fetchall()
+        for r in righe:
+            cursor.execute(
+                "INSERT INTO bom_struttura (padre_codice, figlio_codice, quantita, "
+                "formula_quantita, condizione_esistenza, note, posizione, obbligatorio) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (target.codice, r[0], r[1], r[2], r[3], r[4], r[5], r[6])
+            )
+        conn.commit()
+        return {"status": "ok", "righe_duplicate": len(righe)}
 
 # ==========================================
 # CATEGORIE ARTICOLI

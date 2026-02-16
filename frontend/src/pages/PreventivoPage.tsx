@@ -2,7 +2,7 @@
  * PreventivoPage.tsx
  * Posizionare in: frontend/src/pages/PreventivoPage.tsx
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Sidebar } from '@/components/Sidebar';
@@ -60,7 +60,19 @@ export const PreventivoPage = () => {
   }
 
   const [activeSection, setActiveSection] = useState('dati_commessa');
-
+  const [openRuleId, setOpenRuleId] = useState<string | undefined>(undefined);
+  // Ascolta evento "openRule" per navigare al Rule Engine con regola preselezionata
+  useEffect(() => {
+    const handleOpenRule = (e: CustomEvent) => {
+      const ruleId = e.detail?.ruleId;
+      if (ruleId) {
+        setOpenRuleId(ruleId);
+        setActiveSection('rule_engine');
+      }
+    };
+    window.addEventListener('openRule', handleOpenRule as EventListener);
+    return () => window.removeEventListener('openRule', handleOpenRule as EventListener);
+  }, []);
   const { data: preventivo } = useQuery({
     queryKey: ['preventivo', preventivoId],
     queryFn: () => getPreventivo(preventivoId),
@@ -202,7 +214,7 @@ export const PreventivoPage = () => {
       case 'gestione_utenti':
         return <GestioneUtentiPage />;
       case 'rule_engine':
-        return <RuleBuilderPage />;
+        return <RuleBuilderPage initialRuleId={openRuleId} />;
 
       default:
         // Fallback per sezioni dinamiche dal DB non ancora implementate
@@ -229,7 +241,10 @@ export const PreventivoPage = () => {
         )}
         <Sidebar 
           activeSection={activeSection}
-          onSectionChange={(section) => setActiveSection(section)}
+          onSectionChange={(section) => {
+            setActiveSection(section);
+            if (section !== 'rule_engine') setOpenRuleId(undefined);
+          }}
           progresso={progresso}
         />
       </div>

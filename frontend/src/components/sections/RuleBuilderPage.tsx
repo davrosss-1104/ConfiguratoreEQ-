@@ -6,7 +6,7 @@
  *
  * Posizionare in: frontend/src/components/sections/RuleBuilderPage.tsx
  */
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -133,8 +133,7 @@ function ArticoloAutocomplete({
 // =======================================================
 // TAB 1: EDITOR INTEGRATO
 // =======================================================
-function EditorRegole() {
-  const queryClient = useQueryClient();
+function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string; onRuleSelect?: (rule: Rule | null) => void }) {  const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editRule, setEditRule] = useState<Rule | null>(null);
   const [isNew, setIsNew] = useState(false);
@@ -177,7 +176,29 @@ function EditorRegole() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['regole'] }),
   });
 
-  const selectRule = (rule: Rule) => { setSelectedId(rule.id); setEditRule(JSON.parse(JSON.stringify(rule))); setIsNew(false); };
+  // Auto-seleziona regola da initialRuleId
+  useEffect(() => {
+    if (initialRuleId && rules.length > 0 && !editRule) {
+      const found = rules.find(r => r.id === initialRuleId);
+      if (found) { selectRule(found); }
+    }
+  }, [initialRuleId, rules]);
+
+  const selectRule = (rule: Rule) => {
+    setSelectedId(rule.id);
+    setEditRule(JSON.parse(JSON.stringify(rule)));
+    setIsNew(false);
+    onRuleSelect?.(rule);
+  };
+  // FIX: Auto-seleziona regola se arriva da navigazione esterna
+  useEffect(() => {
+    if (initialRuleId && rules.length > 0 && !editRule) {
+      const found = rules.find(r => r.id === initialRuleId);
+      if (found) {
+        selectRule(found);
+      }
+    }
+  }, [initialRuleId, rules]);
   const newRule = () => { const r = JSON.parse(JSON.stringify(emptyRule)); r.id = `RULE_${Date.now()}`; setEditRule(r); setSelectedId(null); setIsNew(true); };
   const duplicateRule = (rule: Rule) => { const r = JSON.parse(JSON.stringify(rule)); r.id = `${rule.id}_COPY`; r.name = `${rule.name} (copia)`; setEditRule(r); setSelectedId(null); setIsNew(true); };
 
@@ -467,10 +488,26 @@ function EditorRegole() {
 // =======================================================
 // TAB 2: RULE DESIGNER (IFRAME)
 // =======================================================
-function RuleDesignerIframe() {
+function RuleDesignerIframe({ ruleToLoad }: { ruleToLoad?: Rule | null }) {
   const [isLoaded, setIsLoaded] = useState<boolean | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Invia regola al Rule Designer via postMessage
+  const sendRuleToDesigner = useCallback(() => {
+    if (ruleToLoad && iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        { type: 'LOAD_RULE_FROM_CONFIGURATORE', rule: ruleToLoad },
+        RULE_DESIGNER_URL
+      );
+    }
+  }, [ruleToLoad]);
+
+  // Quando cambia la regola e l'iframe è già caricato, invia
+  useEffect(() => {
+    if (isLoaded) sendRuleToDesigner();
+  }, [ruleToLoad, isLoaded]);
 
   return (
     <div className="space-y-4">
@@ -528,10 +565,11 @@ function RuleDesignerIframe() {
             </button>
           </div>
         )}
-        <iframe key={iframeKey} src={RULE_DESIGNER_URL}
+        <iframe ref={iframeRef} key={iframeKey} src={RULE_DESIGNER_URL}
           className={`w-full border-0 ${isFullscreen ? 'h-[calc(100vh-120px)]' : 'h-[700px]'}`}
           title="Rule Designer" allow="clipboard-read; clipboard-write"
-          onLoad={() => setIsLoaded(true)} onError={() => setIsLoaded(false)} />
+          onLoad={() => { setIsLoaded(true); setTimeout(sendRuleToDesigner, 300); }}
+          onError={() => setIsLoaded(false)} />
       </div>
     </div>
   );
@@ -541,8 +579,9 @@ function RuleDesignerIframe() {
 // =======================================================
 // COMPONENTE PRINCIPALE CON TABS
 // =======================================================
-export default function RuleBuilderPage() {
+export default function RuleBuilderPage({ initialRuleId }: { initialRuleId?: string }) {
   const [activeTab, setActiveTab] = useState<'editor' | 'designer'>('editor');
+  const [ruleForDesigner, setRuleForDesigner] = useState<Rule | null>(null);
 
   return (
     <div className="space-y-4">
@@ -576,7 +615,8 @@ export default function RuleBuilderPage() {
           )}
         </div>
       </div>
-      {activeTab === 'editor' ? <EditorRegole /> : <RuleDesignerIframe />}
-    </div>
+      {activeTab === 'editor'
+              ? <EditorRegole initialRuleId={initialRuleId} onRuleSelect={setRuleForDesigner} />
+              : <RuleDesignerIframe ruleToLoad={ruleForDesigner} />}    </div>
   );
 }
