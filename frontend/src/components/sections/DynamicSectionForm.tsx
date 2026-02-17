@@ -104,17 +104,26 @@ export default function DynamicSectionForm({
       }));
       setOpzioniMap(opzMap);
 
-      // 3. Carica valori salvati per questa sezione
+      // 3. Carica valori salvati (il backend auto-popola i default al primo accesso)
       const valoriRes = await fetch(`${API_BASE}/preventivi/${preventivoId}/configurazione/${sezioneCode}`);
-      const valoriSalvati = valoriRes.ok ? await valoriRes.json() : {};
-      
-      // Merge con valori default
+      const valoriData = valoriRes.ok ? await valoriRes.json() : {};
+      const valoriSalvati = valoriData.valori || {};
+
+      // Merge: valori dal DB hanno prioritÃ , fallback su default campo o valore vuoto
       const merged: Record<string, any> = {};
       for (const campo of campiVisibili) {
-        if (valoriSalvati[campo.codice] !== undefined) {
-          merged[campo.codice] = valoriSalvati[campo.codice];
+        if (valoriSalvati[campo.codice] !== undefined && valoriSalvati[campo.codice] !== null) {
+          // Valore dal DB (salvato dall'utente o auto-popolato come default)
+          const raw = valoriSalvati[campo.codice];
+          if (campo.tipo === 'numero') {
+            merged[campo.codice] = parseFloat(raw) || 0;
+          } else if (campo.tipo === 'booleano') {
+            merged[campo.codice] = raw === 'true' || raw === '1' || raw === true;
+          } else {
+            merged[campo.codice] = raw;
+          }
         } else if (campo.valore_default) {
-          // Converti default in base al tipo
+          // Fallback: default del campo (non ancora auto-popolato dal backend)
           if (campo.tipo === 'numero') {
             merged[campo.codice] = parseFloat(campo.valore_default) || 0;
           } else if (campo.tipo === 'booleano') {
@@ -177,12 +186,53 @@ export default function DynamicSectionForm({
     saveTimeoutRef.current = setTimeout(() => saveData(), 3000);
   }, [saveData]);
 
-  // Cleanup
+  // Per dropdown e checkbox: salva SUBITO con fetch diretto (no debounce, no isSavingRef)
+  const handleChangeImmediate = useCallback((codice: string, valore: any) => {
+    const next = { ...valoriRef.current, [codice]: valore };
+    valoriRef.current = next;
+    setValori(next);
+
+    // Cancella eventuale timer pendente
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
+    // Fetch diretto — non passa per saveData/isSavingRef
+    fetch(`${API_BASE}/preventivi/${preventivoId}/configurazione/${sezioneCode}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valori: next }),
+    }).then(res => {
+      if (res.ok) {
+        setSaveStatus('saved');
+        onDataChange?.();
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      }
+    }).catch(err => {
+      console.error('Errore salvataggio immediato:', err);
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    });
+  }, [preventivoId, sezioneCode, onDataChange]);
+
+  // Cleanup: flush dati pendenti su unmount
   useEffect(() => {
     return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+        try {
+          fetch(`${API_BASE}/preventivi/${preventivoId}/configurazione/${sezioneCode}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ valori: valoriRef.current }),
+            keepalive: true,
+          });
+        } catch {}
+      }
     };
-  }, []);
+  }, [preventivoId, sezioneCode]);
 
   // ==========================================
   // RENDER CAMPO
@@ -203,7 +253,7 @@ export default function DynamicSectionForm({
             </Label>
             <Select
               value={String(valore || '')}
-              onValueChange={(v) => handleChange(campo.codice, v)}
+              onValueChange={(v) => handleChangeImmediate(campo.codice, v)}
             >
               <SelectTrigger className="mt-1">
                 <SelectValue placeholder="Seleziona..." />
@@ -248,7 +298,7 @@ export default function DynamicSectionForm({
             <Checkbox
               id={campo.codice}
               checked={Boolean(valore)}
-              onCheckedChange={(checked) => handleChange(campo.codice, !!checked)}
+              onCheckedChange={(checked) => handleChangeImmediate(campo.codice, !!checked)}
             />
             <div className="space-y-1 leading-none">
               <Label htmlFor={campo.codice} className="cursor-pointer">

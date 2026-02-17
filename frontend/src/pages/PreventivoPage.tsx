@@ -2,7 +2,7 @@
  * PreventivoPage.tsx
  * Posizionare in: frontend/src/pages/PreventivoPage.tsx
  */
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Sidebar } from '@/components/Sidebar';
@@ -23,6 +23,7 @@ import { GestioneUtentiPage } from '@/components/sections/GestioneUtentiPage';
 import RuleBuilderPage from '@/components/sections/RuleBuilderPage';
 import GestioneClientiPage from '@/components/sections/GestioneClientiPage';
 import GestioneBomPage from '@/components/sections/GestioneBomPage';
+import DynamicSectionForm from '@/components/sections/DynamicSectionForm';
 
 // Colori sfondo per categoria
 const CATEGORY_THEMES = {
@@ -60,19 +61,7 @@ export const PreventivoPage = () => {
   }
 
   const [activeSection, setActiveSection] = useState('dati_commessa');
-  const [openRuleId, setOpenRuleId] = useState<string | undefined>(undefined);
-  // Ascolta evento "openRule" per navigare al Rule Engine con regola preselezionata
-  useEffect(() => {
-    const handleOpenRule = (e: CustomEvent) => {
-      const ruleId = e.detail?.ruleId;
-      if (ruleId) {
-        setOpenRuleId(ruleId);
-        setActiveSection('rule_engine');
-      }
-    };
-    window.addEventListener('openRule', handleOpenRule as EventListener);
-    return () => window.removeEventListener('openRule', handleOpenRule as EventListener);
-  }, []);
+
   const { data: preventivo } = useQuery({
     queryKey: ['preventivo', preventivoId],
     queryFn: () => getPreventivo(preventivoId),
@@ -117,7 +106,7 @@ export const PreventivoPage = () => {
   const progresso = calcolaProgresso();
 
   const renderSection = () => {
-    // *** Normalizza: sia 'dati-commessa' che 'dati_commessa' → stessa chiave ***
+    // *** Normalizza: sia 'dati-commessa' che 'dati_commessa' Ã¢â€ â€™ stessa chiave ***
     const section = activeSection.replace(/-/g, '_');
 
     switch (section) {
@@ -134,51 +123,23 @@ export const PreventivoPage = () => {
         return <DisposizioneVanoForm preventivoId={preventivoId} />;
       
       case 'argano':
-        return (
-          <div className="p-6 bg-white/70 rounded-lg shadow">
-            <h2 className="text-2xl font-bold mb-4">Argano</h2>
-            <p className="text-gray-500">Sezione in costruzione</p>
-          </div>
-        );
-      
       case 'quadro':
-        return (
-          <div className="p-6 bg-white/70 rounded-lg shadow">
-            <h2 className="text-2xl font-bold mb-4">Quadro</h2>
-            <p className="text-gray-500">Sezione in costruzione</p>
-          </div>
-        );
-
       case 'tensioni':
-        return (
-          <div className="p-6 bg-white/70 rounded-lg shadow">
-            <h2 className="text-2xl font-bold mb-4">Tensioni</h2>
-            <p className="text-gray-500">Sezione in costruzione</p>
-          </div>
-        );
-
       case 'vano':
-        return (
-          <div className="p-6 bg-white/70 rounded-lg shadow">
-            <h2 className="text-2xl font-bold mb-4">Vano</h2>
-            <p className="text-gray-500">Sezione in costruzione</p>
-          </div>
-        );
-
       case 'info_generale':
-        return (
-          <div className="p-6 bg-white/70 rounded-lg shadow">
-            <h2 className="text-2xl font-bold mb-4">Info Generale</h2>
-            <p className="text-gray-500">Sezione in costruzione</p>
-          </div>
-        );
-      
       case 'porte':
+      case 'cabina':
+      case 'porte_lato_a':
+      case 'porte_lato_b':
+      case 'operatore_a':
         return (
-          <div className="p-6 bg-white/70 rounded-lg shadow">
-            <h2 className="text-2xl font-bold mb-4">Porte</h2>
-            <p className="text-gray-500">Sezione in costruzione</p>
-          </div>
+          <DynamicSectionForm
+            key={section}
+            preventivoId={preventivoId}
+            sezioneCode={section}
+            sezioneName={section.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+            onDataChange={() => {}}
+          />
         );
 
       case 'materiali':
@@ -214,15 +175,18 @@ export const PreventivoPage = () => {
       case 'gestione_utenti':
         return <GestioneUtentiPage />;
       case 'rule_engine':
-        return <RuleBuilderPage initialRuleId={openRuleId} />;
+        return <RuleBuilderPage />;
 
       default:
-        // Fallback per sezioni dinamiche dal DB non ancora implementate
+        // Fallback: tutte le sezioni non gestite usano il form dinamico
         return (
-          <div className="p-6 bg-white/70 rounded-lg shadow">
-            <h2 className="text-2xl font-bold mb-4 capitalize">{activeSection.replace(/_/g, ' ')}</h2>
-            <p className="text-gray-500">Sezione in costruzione</p>
-          </div>
+          <DynamicSectionForm
+            key={section}
+            preventivoId={preventivoId}
+            sezioneCode={section}
+            sezioneName={section.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+            onDataChange={() => {}}
+          />
         );
     }
   };
@@ -241,10 +205,7 @@ export const PreventivoPage = () => {
         )}
         <Sidebar 
           activeSection={activeSection}
-          onSectionChange={(section) => {
-            setActiveSection(section);
-            if (section !== 'rule_engine') setOpenRuleId(undefined);
-          }}
+          onSectionChange={(section) => setActiveSection(section)}
           progresso={progresso}
         />
       </div>

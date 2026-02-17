@@ -14,7 +14,7 @@ const datiCommessaSchema = z.object({
   data_offerta: z.string().optional(),
   riferimento_cliente: z.string().optional(),
   quantita: z.coerce.number().int().positive().optional().nullable(),
-  consegna_richiesta: z.string().optional(),        // ← FIX: era data_consegna_richiesta
+  data_consegna_richiesta: z.string().optional(),
   imballo: z.string().optional(),
   reso_fco: z.string().optional(),
   pagamento: z.string().optional(),
@@ -27,13 +27,7 @@ type DatiCommessaFormValues = z.infer<typeof datiCommessaSchema>;
 const inputClass = "w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors";
 const labelClass = "block text-sm font-medium text-gray-700 mb-1";
 
-const DEFAULT_VALUES: DatiCommessaFormValues = {
-  numero_offerta: "", data_offerta: "", riferimento_cliente: "",
-  quantita: null, consegna_richiesta: "",
-  imballo: "", reso_fco: "", pagamento: "", trasporto: "", destinazione: "",
-};
-
-// Normalizza valori per confronto: null/undefined/"" → "", numeri → numeri
+// Normalizza valori per confronto: null/undefined/"" â†’ "", numeri â†’ numeri
 function normalize(values: any): string {
   const obj: any = {};
   for (const key of Object.keys(values).sort()) {
@@ -47,8 +41,7 @@ export function DatiCommessaForm() {
   const { id } = useParams<{ id: string }>();
   const preventivoId = parseInt(id || "0", 10);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const serverSnapshotRef = useRef<string>(normalize(DEFAULT_VALUES));  // ← FIX: inizializzato con default
-  const dataLoadedRef = useRef(false);   // ← FIX: flag per bloccare auto-save prima del caricamento
+  const serverSnapshotRef = useRef<string>('');  // JSON dei valori dal server
   const [clienteId, setClienteId] = useState<number | null>(null);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
 
@@ -61,6 +54,8 @@ export function DatiCommessaForm() {
       return res.json();
     },
     enabled: preventivoId > 0,
+    refetchOnMount: 'always',
+    staleTime: 0,
   });
 
   const { data: datiCommessa, isLoading } = useQuery({
@@ -78,7 +73,11 @@ export function DatiCommessaForm() {
 
   const form = useForm<DatiCommessaFormValues>({
     resolver: zodResolver(datiCommessaSchema),
-    defaultValues: DEFAULT_VALUES,
+    defaultValues: {
+      numero_offerta: "", data_offerta: "", riferimento_cliente: "",
+      quantita: null, data_consegna_richiesta: "",
+      imballo: "", reso_fco: "", pagamento: "", trasporto: "", destinazione: "",
+    },
   });
 
   const updateMutation = useMutation({
@@ -93,6 +92,7 @@ export function DatiCommessaForm() {
       return res.json();
     },
     onSuccess: () => {
+      // Aggiorna snapshot con i valori appena salvati
       serverSnapshotRef.current = normalize(form.getValues());
       setLastSaved(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }));
       toast.success("Dati commessa salvati");
@@ -112,7 +112,7 @@ export function DatiCommessaForm() {
       data_offerta: datiCommessa.data_offerta || "",
       riferimento_cliente: datiCommessa.riferimento_cliente || "",
       quantita: datiCommessa.quantita || null,
-      consegna_richiesta: datiCommessa.consegna_richiesta || datiCommessa.data_consegna_richiesta || "",  // ← FIX: campo rinominato + fallback
+      data_consegna_richiesta: datiCommessa.data_consegna_richiesta || datiCommessa.consegna_richiesta || "",
       imballo: datiCommessa.imballo || "",
       reso_fco: datiCommessa.reso_fco || "",
       pagamento: datiCommessa.pagamento || "",
@@ -120,34 +120,32 @@ export function DatiCommessaForm() {
       destinazione: datiCommessa.destinazione || "",
     };
 
-    // Salva snapshot PRIMA del reset — il watch confronterà con questo
+    // Salva snapshot dei valori server â€” il watch confronterÃ  con questo
     serverSnapshotRef.current = normalize(formData);
 
     console.log("[DatiCommessa] Reset form con dati server:",
       Object.entries(formData).filter(([,v]) => v).map(([k]) => k));
 
     form.reset(formData);
-
-    // ← FIX: Abilita auto-save DOPO il reset con dati server (con piccolo delay per evitare trigger spurio)
-    setTimeout(() => {
-      dataLoadedRef.current = true;
-    }, 100);
-
-    if (preventivo?.cliente_id) setClienteId(preventivo.cliente_id);
   }, [datiCommessa]);
+
+  // Carica clienteId dal preventivo (indipendente da datiCommessa)
+  useEffect(() => {
+    if (preventivo?.cliente_id) {
+      setClienteId(preventivo.cliente_id);
+    }
+  }, [preventivo]);
 
   // Auto-save: confronta valori attuali con snapshot server
   useEffect(() => {
     const subscription = form.watch(() => {
-      // ← FIX: Non salvare finché i dati server non sono stati caricati
-      if (!dataLoadedRef.current) return;
-
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
       saveTimeoutRef.current = setTimeout(() => {
         const currentValues = form.getValues();
         const currentJson = normalize(currentValues);
 
+        // Salva SOLO se i valori sono diversi da quelli del server
         if (currentJson === serverSnapshotRef.current) {
           return;
         }
@@ -160,14 +158,22 @@ export function DatiCommessaForm() {
 
     return () => {
       subscription.unsubscribe();
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    };
-  }, []);
-
-  // ← FIX: Reset dataLoaded quando il componente si smonta (cambio sezione)
-  useEffect(() => {
-    return () => {
-      dataLoadedRef.current = false;
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        // Flush: salva dati pendenti con keepalive (sopravvive all'unmount)
+        const currentValues = form.getValues();
+        const currentJson = normalize(currentValues);
+        if (currentJson !== serverSnapshotRef.current) {
+          try {
+            fetch(`${API_BASE}/preventivi/${preventivoId}/dati-commessa`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(currentValues),
+              keepalive: true,
+            });
+          } catch {}
+        }
+      }
     };
   }, []);
 
@@ -244,14 +250,14 @@ export function DatiCommessaForm() {
               />
             </div>
             <div>
-              <label className={labelClass}>Quantità</label>
+              <label className={labelClass}>QuantitÃ </label>
               <input {...form.register("quantita")} type="number" min="1" placeholder="Es: 1" className={inputClass} />
             </div>
             <div>
               <label className={`${labelClass} flex items-center gap-2`}>
                 <Clock className="w-4 h-4 text-amber-500" /> Data Consegna Richiesta
               </label>
-              <input {...form.register("consegna_richiesta")} type="date"
+              <input {...form.register("data_consegna_richiesta")} type="date"
                 className={`${inputClass} border-amber-300 focus:ring-amber-500 focus:border-amber-500`} />
               <p className="text-xs text-amber-600 mt-1">Usata per verifica Lead Time nella sezione Materiali</p>
             </div>

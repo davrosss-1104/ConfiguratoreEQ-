@@ -1,0 +1,80 @@
+{
+  "id": "CONT_OLEO_ST_60HZ_9_2KW",
+  "name": "Contattori oleo stella-triangolo 9.2kW 60Hz/440V",
+  "description": "Selezione contattori per centralina oleodinamica 9.2kW, avviamento stella-triangolo, 60Hz/440V",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "argano.trazione",
+      "operator": "equals",
+      "value": "oleodinamica",
+      "description": "Trazione oleodinamica"
+    },
+    {
+      "field": "argano.tipo_avviamento_motore",
+      "operator": "equals",
+      "value": "stella_triangolo",
+      "description": "Avviamento stella-triangolo"
+    },
+    {
+      "field": "tensioni.frequenza_rete",
+      "operator": "equals",
+      "value": "60",
+      "description": "Rete 60Hz"
+    },
+    {
+      "field": "argano.potenza_motore_kw",
+      "operator": "greater_equal",
+      "value": 8.2,
+      "description": "Potenza >= 8.2 kW"
+    },
+    {
+      "field": "argano.potenza_motore_kw",
+      "operator": "less_than",
+      "value": 10.1,
+      "description": "Potenza < 10.1 kW"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "CONT-D18-KS",
+      "descrizione": "Contattore D18 stella (KS) - motore 9.2kW",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "categoria": "Contattori",
+      "note": "Avviamento stella-triangolo, contattore stella"
+    },
+    {
+      "codice": "MORS-10MM2-RST",
+      "descrizione": "Morsetti 10mm² linea R-S-T",
+      "quantita": 3,
+      "prezzo_unitario": 0,
+      "categoria": "Morsetteria"
+    },
+    {
+      "codice": "MORS-10MM2-UVW",
+      "descrizione": "Morsetti 10mm² motore U-V-W",
+      "quantita": 3,
+      "prezzo_unitario": 0,
+      "categoria": "Morsetteria"
+    },
+    {
+      "codice": "FILO-10MM2-RST",
+      "descrizione": "Filo 10mm² linea R-S-T",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "unita_misura": "mt",
+      "categoria": "Cablaggio"
+    },
+    {
+      "codice": "FILO-10MM2-UVW",
+      "descrizione": "Filo 10mm² motore U-V-W",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "unita_misura": "mt",
+      "categoria": "Cablaggio"
+    }
+  ]
+}

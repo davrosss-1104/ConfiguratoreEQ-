@@ -237,6 +237,239 @@ def genera_docx_preventivo(preventivo, dati_commessa, dati_principali, normative
 
 
 # ═══════════════════════════════════════════════════════
+# DOCX: PREVENTIVO v2 — Data-driven da /dati-documento
+# ═══════════════════════════════════════════════════════
+def genera_docx_preventivo_v2(preventivo_info: dict, dati_documento: dict, materiali: list):
+    """
+    Genera documento DOCX leggendo la struttura dinamica da /dati-documento.
+    
+    Args:
+        preventivo_info: {"numero": str, "customer": str, "status": str,
+                          "totale": float, "sconto": float, "netto": float, "note": str}
+        dati_documento:  output di GET /preventivi/{id}/dati-documento
+        materiali:       lista ORM Materiale (per tabella materiali dettagliata)
+    """
+    from docx import Document
+    from docx.shared import Pt, Cm, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.oxml.ns import qn
+
+    doc = Document()
+
+    # Stili base
+    style = doc.styles['Normal']
+    style.font.name = 'Arial'
+    style.font.size = Pt(10)
+
+    sezioni = dati_documento.get("sezioni", [])
+
+    for sez in sezioni:
+        codice = sez.get("codice", "")
+        titolo = sez.get("titolo", "")
+        tipo = sez.get("tipo", "tabella")
+        mostra_titolo = sez.get("mostra_titolo", True)
+        nota = sez.get("nota")
+        stile = sez.get("stile")
+        campi = sez.get("campi", [])
+        tipo_speciale = sez.get("_tipo_speciale")
+
+        # ── INTESTAZIONE ──
+        if tipo == "intestazione" or codice == "intestazione":
+            h = doc.add_heading('ELETTROQUADRI S.r.l.', level=1)
+            h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for run in h.runs:
+                run.font.color.rgb = RGBColor(0xCC, 0x00, 0x00)
+
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.add_run('Sede Legale: Via Puccini, 1 — Tel. 0332 470049\n').font.size = Pt(8)
+            p.add_run('info@elettroquadri.net — www.elettroquadri.net').font.size = Pt(8)
+
+            # Info base preventivo
+            doc.add_paragraph('')
+            numero = preventivo_info.get("numero", "")
+            customer = preventivo_info.get("customer", "")
+            status = preventivo_info.get("status", "bozza")
+
+            t = doc.add_table(rows=2, cols=4)
+            t.alignment = WD_TABLE_ALIGNMENT.CENTER
+            t.style = 'Table Grid'
+            rows_data = [
+                ("Offerta N°", safe_str(numero), "Stato", safe_str(status).upper()),
+                ("Cliente", safe_str(customer), "", ""),
+            ]
+            for i, (l1, v1, l2, v2) in enumerate(rows_data):
+                t.cell(i, 0).text = l1
+                t.cell(i, 1).text = v1
+                t.cell(i, 2).text = l2
+                t.cell(i, 3).text = v2
+                for j in [0, 2]:
+                    for run in t.cell(i, j).paragraphs[0].runs:
+                        run.font.bold = True
+                        run.font.size = Pt(9)
+                    for run in t.cell(i, j + 1).paragraphs[0].runs:
+                        run.font.size = Pt(9)
+            doc.add_paragraph('')
+            continue
+
+        # ── MATERIALI ──
+        if tipo_speciale == "materiali" or codice == "materiali":
+            if mostra_titolo:
+                doc.add_heading(titolo or 'Distinta Materiali', level=2)
+
+            if materiali:
+                col_widths = [Cm(3), Cm(7), Cm(2), Cm(2.5), Cm(3)]
+                t_mat = doc.add_table(rows=1, cols=5)
+                t_mat.style = 'Table Grid'
+                t_mat.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+                headers = ['Codice', 'Descrizione', 'Qtà', 'Prezzo Unit.', 'Totale']
+                for i, h_text in enumerate(headers):
+                    cell = t_mat.rows[0].cells[i]
+                    cell.text = h_text
+                    for run in cell.paragraphs[0].runs:
+                        run.font.bold = True
+                        run.font.size = Pt(9)
+                        run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+                    shading = cell._element.get_or_add_tcPr()
+                    shading_elm = shading.makeelement(qn('w:shd'), {
+                        qn('w:fill'): '333333', qn('w:val'): 'clear'
+                    })
+                    shading.append(shading_elm)
+
+                totale_mat = 0.0
+                for m in materiali:
+                    row = t_mat.add_row().cells
+                    row[0].text = safe_str(getattr(m, 'codice', ''))
+                    desc = safe_str(getattr(m, 'descrizione', ''))
+                    if getattr(m, 'aggiunto_da_regola', False):
+                        regola_id = safe_str(getattr(m, 'regola_id', ''))
+                        desc += ' [Template]' if regola_id.startswith('TEMPLATE_BASE') else ' [Auto]'
+                    row[1].text = desc
+                    row[2].text = safe_str(getattr(m, 'quantita', ''))
+                    row[3].text = fmt_euro(getattr(m, 'prezzo_unitario', 0))
+                    prezzo_tot = safe_float(getattr(m, 'prezzo_totale', 0))
+                    row[4].text = fmt_euro(prezzo_tot)
+                    totale_mat += prezzo_tot
+                    for cell in row:
+                        for run in cell.paragraphs[0].runs:
+                            run.font.size = Pt(9)
+
+                # Riga totale
+                row_tot = t_mat.add_row().cells
+                row_tot[3].text = 'TOTALE'
+                row_tot[4].text = fmt_euro(totale_mat)
+                for run in row_tot[3].paragraphs[0].runs:
+                    run.font.bold = True
+                for run in row_tot[4].paragraphs[0].runs:
+                    run.font.bold = True
+
+            # Totali con sconti
+            doc.add_paragraph('')
+            totale = safe_float(preventivo_info.get("totale", 0))
+            netto = safe_float(preventivo_info.get("netto", 0))
+            sconto = safe_float(preventivo_info.get("sconto", 0))
+
+            p_tot = doc.add_paragraph()
+            p_tot.add_run(f'Totale Materiali: {fmt_euro(totale)}\n').font.size = Pt(11)
+            if sconto > 0:
+                p_tot.add_run(f'Sconto: {sconto}%\n').font.size = Pt(11)
+            if netto > 0 and netto != totale:
+                run_netto = p_tot.add_run(f'Totale Netto: {fmt_euro(netto)}')
+                run_netto.font.size = Pt(12)
+                run_netto.font.bold = True
+            continue
+
+        # ── TESTO LIBERO (note, condizioni) ──
+        if tipo in ("testo_libero", "testo"):
+            if mostra_titolo:
+                doc.add_heading(titolo, level=2)
+            # I campi di testo libero hanno valore nel primo campo
+            for campo in campi:
+                val = campo.get("valore", "")
+                if val:
+                    doc.add_paragraph(safe_str(val))
+            # Nota default della sezione
+            if nota:
+                doc.add_paragraph(safe_str(nota))
+            continue
+
+        # ── VALORI STANDARD ──
+        if codice == "valori_standard":
+            if mostra_titolo:
+                doc.add_heading(titolo, level=2)
+            if nota:
+                p_nota = doc.add_paragraph()
+                run_nota = p_nota.add_run(safe_str(nota))
+                run_nota.font.size = Pt(8)
+                run_nota.font.italic = True
+                run_nota.font.color.rgb = RGBColor(0x99, 0x66, 0x00)
+
+            if campi:
+                t_std = doc.add_table(rows=1, cols=3)
+                t_std.style = 'Table Grid'
+                for i, h_text in enumerate(['Campo', 'Valore', 'Sezione']):
+                    cell = t_std.rows[0].cells[i]
+                    cell.text = h_text
+                    for run in cell.paragraphs[0].runs:
+                        run.font.bold = True
+                        run.font.size = Pt(9)
+                for campo in campi:
+                    row = t_std.add_row().cells
+                    row[0].text = safe_str(campo.get("etichetta", ""))
+                    valore = safe_str(campo.get("valore", ""))
+                    um = campo.get("unita_misura")
+                    if um:
+                        valore += f" {um}"
+                    row[1].text = valore
+                    row[2].text = safe_str(campo.get("sezione_config", ""))
+                    for cell in row:
+                        for run in cell.paragraphs[0].runs:
+                            run.font.size = Pt(9)
+            continue
+
+        # ── TABELLA GENERICA (dati_commessa, specifiche_tecniche, configurazione, ecc.) ──
+        if campi:
+            if mostra_titolo:
+                doc.add_heading(titolo, level=2)
+
+            t_sez = doc.add_table(rows=len(campi), cols=2)
+            t_sez.style = 'Table Grid'
+            for i, campo in enumerate(campi):
+                etichetta = safe_str(campo.get("etichetta", ""))
+                valore = safe_str(campo.get("valore", ""))
+                um = campo.get("unita_misura")
+                if um:
+                    valore += f" {um}"
+
+                t_sez.cell(i, 0).text = etichetta
+                t_sez.cell(i, 1).text = valore
+                for run in t_sez.cell(i, 0).paragraphs[0].runs:
+                    run.font.bold = True
+                    run.font.size = Pt(9)
+                for run in t_sez.cell(i, 1).paragraphs[0].runs:
+                    run.font.size = Pt(9)
+
+    # ── NOTE PREVENTIVO ──
+    note = preventivo_info.get("note", "")
+    if note:
+        doc.add_heading('Note', level=2)
+        doc.add_paragraph(safe_str(note))
+
+    # ── FOOTER ──
+    doc.add_paragraph('')
+    footer = doc.add_paragraph()
+    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    footer.add_run(f'Documento generato il {datetime.now().strftime("%d/%m/%Y %H:%M")}').font.size = Pt(8)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf
+
+
+# ═══════════════════════════════════════════════════════
 # XLSX: PREVENTIVO
 # ═══════════════════════════════════════════════════════
 def genera_xlsx_preventivo(preventivo, dati_commessa, dati_principali, normative, argano, materiali, cliente=None):

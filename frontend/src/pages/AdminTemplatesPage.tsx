@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import TemplateFieldConfigPanel from './TemplateFieldConfigPanel';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -560,11 +561,24 @@ export const AdminTemplatesPage = () => {
                       </span>
                     )}
                   </button>
+                  {/* Tab Config Preventivo (solo per template esistenti) */}
+                  {editing.id && (
+                    <button
+                      onClick={() => setActiveSection('_field_config')}
+                      className={`px-5 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
+                        activeSection === '_field_config'
+                          ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50'
+                          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      ⚙ Config Preventivo
+                    </button>
+                  )}
                 </div>
-
-                {/* Contenuto sezione */}
                 <div className="p-5">
-                  {activeSection !== 'materiali' ? (
+                  {activeSection === '_field_config' && editing.id ? (
+                    <TemplateFieldConfigPanel templateId={editing.id} />
+                  ) : activeSection !== 'materiali' ? (
                     <div className="space-y-3">
                       <p className="text-sm text-gray-400 mb-4">
                         Seleziona i campi da pre-compilare e imposta i valori predefiniti.

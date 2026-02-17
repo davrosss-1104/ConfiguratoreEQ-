@@ -1,0 +1,87 @@
+{
+  "id": "CONT_OLEO_SS_50HZ_22_1KW",
+  "name": "Contattori oleo soft starter 22.1kW 50Hz/400V",
+  "description": "Selezione contattori per centralina oleodinamica 22.1kW, avviamento soft starter, 50Hz/400V",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "argano.trazione",
+      "operator": "equals",
+      "value": "oleodinamica",
+      "description": "Trazione oleodinamica"
+    },
+    {
+      "field": "argano.tipo_avviamento_motore",
+      "operator": "equals",
+      "value": "soft_starter",
+      "description": "Avviamento soft starter"
+    },
+    {
+      "field": "tensioni.frequenza_rete",
+      "operator": "equals",
+      "value": "50",
+      "description": "Rete 50Hz"
+    },
+    {
+      "field": "argano.potenza_motore_kw",
+      "operator": "greater_equal",
+      "value": 20.2,
+      "description": "Potenza >= 20.2 kW"
+    },
+    {
+      "field": "argano.potenza_motore_kw",
+      "operator": "less_than",
+      "value": 25.8,
+      "description": "Potenza < 25.8 kW"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "SS-V70",
+      "descrizione": "Soft Starter modello V70 - motore 22.1kW",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "categoria": "Soft Starter"
+    },
+    {
+      "codice": "CONT-D50-KM",
+      "descrizione": "Contattore D50 by-pass (KM) - motore 22.1kW",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "categoria": "Contattori",
+      "note": "Avviamento soft starter, contattore by-pass"
+    },
+    {
+      "codice": "MORS-16MM2-RST",
+      "descrizione": "Morsetti 16mm² linea R-S-T",
+      "quantita": 3,
+      "prezzo_unitario": 0,
+      "categoria": "Morsetteria"
+    },
+    {
+      "codice": "MORS-16MM2-UVW",
+      "descrizione": "Morsetti 16mm² motore U-V-W",
+      "quantita": 3,
+      "prezzo_unitario": 0,
+      "categoria": "Morsetteria"
+    },
+    {
+      "codice": "FILO-10MM2-RST",
+      "descrizione": "Filo 10mm² linea R-S-T",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "unita_misura": "mt",
+      "categoria": "Cablaggio"
+    },
+    {
+      "codice": "FILO-10MM2-UVW",
+      "descrizione": "Filo 10mm² motore U-V-W",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "unita_misura": "mt",
+      "categoria": "Cablaggio"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "id": "CONT_OLEO_SS_60HZ_57KW",
+  "name": "Contattori oleo soft starter 57kW 60Hz/440V",
+  "description": "Selezione contattori per centralina oleodinamica 57kW, avviamento soft starter, 60Hz/440V",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "argano.trazione",
+      "operator": "equals",
+      "value": "oleodinamica",
+      "description": "Trazione oleodinamica"
+    },
+    {
+      "field": "argano.tipo_avviamento_motore",
+      "operator": "equals",
+      "value": "soft_starter",
+      "description": "Avviamento soft starter"
+    },
+    {
+      "field": "tensioni.frequenza_rete",
+      "operator": "equals",
+      "value": "60",
+      "description": "Rete 60Hz"
+    },
+    {
+      "field": "argano.potenza_motore_kw",
+      "operator": "greater_equal",
+      "value": 52.5,
+      "description": "Potenza >= 52.5 kW"
+    },
+    {
+      "field": "argano.potenza_motore_kw",
+      "operator": "less_than",
+      "value": 64.5,
+      "description": "Potenza < 64.5 kW"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "SS-V105",
+      "descrizione": "Soft Starter modello V105 - motore 57kW",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "categoria": "Soft Starter"
+    }
+  ]
+}

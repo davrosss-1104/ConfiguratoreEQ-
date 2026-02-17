@@ -96,12 +96,6 @@ def _prev_totale(p):     return _prev_get(p, 'totale_materiali', 'total_price', 
 def _prev_netto(p):      return _prev_get(p, 'totale_netto', 'total_price_finale', default=0)
 def _prev_categoria(p):  return _prev_get(p, 'categoria', default='')
 
-def safe_float(val, default=0.0):
-    try:
-        return float(val) if val is not None else default
-    except (TypeError, ValueError):
-        return default
-
 
 # ==========================================
 # RULE ENGINE - VERSIONE MIGLIORATA
@@ -129,7 +123,7 @@ def load_rules():
     return rules
 
 def evaluate_condition(condition: dict, config_data: dict) -> bool:
-    """Valuta una singola condizione con gestione robusta di NULL/None e tipi misti"""
+    """Valuta una singola condizione con gestione robusta di NULL/None"""
     if isinstance(condition, str):
         return False
     
@@ -151,50 +145,26 @@ def evaluate_condition(condition: dict, config_data: dict) -> bool:
     result = False
     
     if operator == "equals":
-        # Confronto robusto: prova prima diretto, poi stringa vs stringa
         result = config_value == expected_value
-        if not result:
-            result = str(config_value).strip().lower() == str(expected_value).strip().lower()
     elif operator == "not_equals":
-        result = str(config_value).strip().lower() != str(expected_value).strip().lower()
+        result = config_value != expected_value
     elif operator == "contains":
-        result = str(expected_value).lower() in str(config_value).lower() if config_value else False
-    elif operator in ("greater_than", "gt"):
+        result = expected_value in str(config_value) if config_value else False
+    elif operator == "greater_than":
         try:
             result = float(config_value) > float(expected_value)
         except (ValueError, TypeError):
             result = False
-    elif operator in ("greater_equal", "gte", "greater_than_or_equal"):
-        try:
-            result = float(config_value) >= float(expected_value)
-        except (ValueError, TypeError):
-            result = False
-    elif operator in ("less_than", "lt"):
+    elif operator == "less_than":
         try:
             result = float(config_value) < float(expected_value)
         except (ValueError, TypeError):
             result = False
-    elif operator in ("less_equal", "lte", "less_than_or_equal"):
-        try:
-            result = float(config_value) <= float(expected_value)
-        except (ValueError, TypeError):
-            result = False
     elif operator == "in":
         if isinstance(expected_value, list):
-            cv_lower = str(config_value).strip().lower()
-            result = cv_lower in [str(v).strip().lower() for v in expected_value]
+            result = config_value in expected_value
         else:
             result = False
-    elif operator == "not_in":
-        if isinstance(expected_value, list):
-            cv_lower = str(config_value).strip().lower()
-            result = cv_lower not in [str(v).strip().lower() for v in expected_value]
-        else:
-            result = True
-    elif operator == "is_true":
-        result = str(config_value).strip().lower() in ("true", "1", "si", "yes")
-    elif operator == "is_false":
-        result = str(config_value).strip().lower() in ("false", "0", "no", "")
     
     return result
 
@@ -204,7 +174,6 @@ def build_config_context(preventivo_id: int, db: Session) -> dict:
     leggendo da TUTTE le fonti dati del preventivo.
     
     Fonti (in ordine di priorita, le ultime sovrascrivono):
-      0. defaults da campi_configuratore (base, priorità minima)
       1. metadati preventivo (tipo, categoria)
       2. dati_principali (tabella ORM)
       3. normative (tabella ORM)
@@ -218,18 +187,6 @@ def build_config_context(preventivo_id: int, db: Session) -> dict:
         return {}
     
     config_data = {}
-    
-    # 0. DEFAULTS da campi_configuratore (priorità più bassa, base per tutte le sezioni)
-    #    Garantisce che i valori default siano disponibili anche per sezioni non ancora visitate
-    try:
-        defaults_rows = db.execute(
-            text("SELECT codice, valore_default FROM campi_configuratore WHERE attivo=1 AND valore_default IS NOT NULL AND valore_default != '-'")
-        ).fetchall()
-        for codice, valore_default in defaults_rows:
-            if codice and valore_default:
-                config_data[codice] = valore_default
-    except Exception:
-        pass
     
     # 1. Metadati preventivo
     config_data["preventivo_tipo"] = _prev_tipo(preventivo)
@@ -699,16 +656,13 @@ def get_preventivi(db: Session = Depends(get_db)):
     preventivi = db.query(Preventivo).order_by(Preventivo.created_at.desc()).all()
     return preventivi
 
-@app.get("/preventivi/{preventivo_id}")
+@app.get("/preventivi/{preventivo_id}", response_model=PreventivoSchema)
 def get_preventivo(preventivo_id: int, db: Session = Depends(get_db)):
     """Ottieni un preventivo specifico"""
     preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
     if not preventivo:
         raise HTTPException(status_code=404, detail="Preventivo non trovato")
-    result = {}
-    for col in preventivo.__table__.columns:
-        result[col.name] = getattr(preventivo, col.name, None)
-    return result
+    return preventivo
 
 @app.post("/preventivi", response_model=PreventivoSchema, status_code=201)
 def create_preventivo(data: PreventivoCreate, db: Session = Depends(get_db)):
@@ -811,35 +765,6 @@ def create_preventivo(data: PreventivoCreate, db: Session = Depends(get_db)):
     # Valuta regole (incluse TEMPLATE_BASE) per aggiungere articoli base automatici
     safe_evaluate_rules(preventivo.id, db)
     db.refresh(preventivo)
-
-    # Inizializza defaults e applica field_config dal template
-    try:
-        campi_default = db.execute(text("""
-            SELECT codice, sezione, valore_default
-            FROM campi_configuratore
-            WHERE attivo = 1 AND valore_default IS NOT NULL AND valore_default != ''
-        """)).fetchall()
-
-        existing_campos = db.execute(text("""
-            SELECT codice_campo FROM valori_configurazione WHERE preventivo_id = :pid
-        """), {"pid": preventivo.id}).fetchall()
-        existing_set = {r[0] for r in existing_campos}
-
-        for codice, sezione, valore_default in campi_default:
-            if codice not in existing_set:
-                db.execute(text("""
-                    INSERT INTO valori_configurazione
-                        (preventivo_id, sezione, codice_campo, valore, is_default)
-                    VALUES (:pid, :sez, :campo, :val, 1)
-                """), {"pid": preventivo.id, "sez": sezione,
-                       "campo": codice, "val": str(valore_default)})
-        db.commit()
-
-        if data.template_id:
-            _apply_template_field_config(db, preventivo.id, data.template_id)
-            db.commit()
-    except Exception as e:
-        logger.warning(f"Errore inizializzazione defaults/field_config: {e}")
     
     return preventivo
 
@@ -1356,24 +1281,8 @@ def export_preventivo(preventivo_id: int, formato: str, db: Session = Depends(ge
     
     elif fmt in ("docx", "pdf"):
         try:
-            # Genera dati documento strutturati
-            dati_doc = get_dati_documento_preventivo(preventivo_id, db)
-
-            # Info base per header/footer
-            preventivo_info = {
-                "numero": _prev_numero(preventivo),
-                "customer": getattr(preventivo, 'customer_name', '') or '',
-                "status": _prev_stato(preventivo),
-                "totale": safe_float(_prev_totale(preventivo)),
-                "sconto": safe_float(getattr(preventivo, 'sconto_cliente', 0)) + safe_float(getattr(preventivo, 'sconto_extra_admin', 0)),
-                "netto": safe_float(_prev_netto(preventivo)),
-                "note": getattr(preventivo, 'note', '') or '',
-            }
-            if cliente:
-                preventivo_info["customer"] = getattr(cliente, 'ragione_sociale', preventivo_info["customer"]) or preventivo_info["customer"]
-
-            from export_utils import genera_docx_preventivo_v2
-            buf = genera_docx_preventivo_v2(preventivo_info, dati_doc, materiali)
+            from export_utils import genera_docx_preventivo
+            buf = genera_docx_preventivo(preventivo, dati_commessa, dati_principali, normative_data, argano_data, materiali, cliente)
             return StreamingResponse(buf,
                 media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 headers={"Content-Disposition": f'attachment; filename="{filename_base}.docx"'})
@@ -1489,47 +1398,6 @@ def export_ordine(ordine_id: int, formato: str, db: Session = Depends(get_db)):
 
 
 # ==========================================
-# HELPER: Applica field_config da template a valori_configurazione
-# ==========================================
-
-def _apply_template_field_config(db, preventivo_id: int, template_id: int):
-    """
-    Legge field_config dal template e aggiorna i flag su valori_configurazione.
-    Chiamare DOPO che i valori sono stati inseriti in valori_configurazione.
-    """
-    template = db.query(ProductTemplate).filter(ProductTemplate.id == template_id).first()
-    if not template or not template.template_data:
-        return 0
-
-    try:
-        td = json.loads(template.template_data)
-    except json.JSONDecodeError:
-        return 0
-
-    field_config = td.get("field_config", {})
-    if not field_config:
-        return 0
-
-    count = 0
-    for codice_campo, cfg in field_config.items():
-        is_readonly = 1 if cfg.get("readonly", False) else 0
-        includi = 1 if cfg.get("includi_preventivo", True) else 0
-        mostra_def = 1 if cfg.get("mostra_default", False) else 0
-
-        result = db.execute(text("""
-            UPDATE valori_configurazione
-            SET is_readonly = :ro, includi_preventivo = :inc, mostra_default_preventivo = :md
-            WHERE preventivo_id = :pid AND codice_campo = :campo
-        """), {"ro": is_readonly, "inc": includi, "md": mostra_def,
-               "pid": preventivo_id, "campo": codice_campo})
-
-        if result.rowcount > 0:
-            count += 1
-
-    return count
-
-
-# ==========================================
 # PRODUCT TEMPLATES
 # ==========================================
 @app.get("/templates", response_model=List[ProductTemplateSchema])
@@ -1614,77 +1482,6 @@ def delete_template(template_id: int, db: Session = Depends(get_db)):
     db.delete(template)
     db.commit()
     return {"message": "Template eliminato"}
-
-
-@app.get("/templates/{template_id}/field-config")
-def get_template_field_config(template_id: int, db: Session = Depends(get_db)):
-    """
-    Restituisce la configurazione campi per un template.
-    Per ogni campo: readonly, includi_preventivo, mostra_default.
-    """
-    template = db.query(ProductTemplate).filter(ProductTemplate.id == template_id).first()
-    if not template:
-        raise HTTPException(status_code=404, detail="Template non trovato")
-
-    field_config = {}
-    if template.template_data:
-        try:
-            td = json.loads(template.template_data)
-            field_config = td.get("field_config", {})
-        except json.JSONDecodeError:
-            pass
-
-    try:
-        campi = db.execute(text("""
-            SELECT codice, etichetta, sezione, tipo, valore_default
-            FROM campi_configuratore WHERE attivo = 1
-            ORDER BY sezione, ordine
-        """)).fetchall()
-    except Exception:
-        campi = []
-
-    result = []
-    for codice, etichetta, sezione, tipo, valore_default in campi:
-        cfg = field_config.get(codice, {})
-        result.append({
-            "codice": codice,
-            "etichetta": etichetta,
-            "sezione": sezione,
-            "tipo": tipo,
-            "valore_default": valore_default,
-            "readonly": cfg.get("readonly", False),
-            "includi_preventivo": cfg.get("includi_preventivo", True),
-            "mostra_default": cfg.get("mostra_default", False),
-        })
-
-    return {"template_id": template_id, "fields": result, "raw_config": field_config}
-
-
-@app.put("/templates/{template_id}/field-config")
-def update_template_field_config(template_id: int, data: dict, db: Session = Depends(get_db)):
-    """
-    Aggiorna la configurazione campi per un template.
-    Body: {"field_config": {"campo": {"readonly": true, "includi_preventivo": true, "mostra_default": false}, ...}}
-    """
-    template = db.query(ProductTemplate).filter(ProductTemplate.id == template_id).first()
-    if not template:
-        raise HTTPException(status_code=404, detail="Template non trovato")
-
-    new_field_config = data.get("field_config", {})
-
-    existing_td = {}
-    if template.template_data:
-        try:
-            existing_td = json.loads(template.template_data)
-        except json.JSONDecodeError:
-            existing_td = {}
-
-    existing_td["field_config"] = new_field_config
-    template.template_data = json.dumps(existing_td, ensure_ascii=False)
-    db.commit()
-
-    return {"status": "ok", "fields_configured": len(new_field_config)}
-
 
 # ==========================================
 # RULE ENGINE ENDPOINT
@@ -2100,47 +1897,6 @@ def rinomina_campo(data: dict, db: Session = Depends(get_db)):
             except Exception as e:
                 report["errori"].append(f"{filename}: {e}")
 
-    # 5. Template JSON — template_data keys e field_config keys
-    try:
-        templates = db.execute(text("SELECT id, template_data FROM product_templates WHERE template_data IS NOT NULL")).fetchall()
-        report["templates_aggiornati"] = 0
-        vecchio_sez = vecchio.split(".", 1)[0] if "." in vecchio else ""
-        vecchio_campo_only = vecchio.split(".", 1)[1] if "." in vecchio else vecchio
-        nuovo_sez = nuovo.split(".", 1)[0] if "." in nuovo else ""
-        nuovo_campo_only = nuovo.split(".", 1)[1] if "." in nuovo else nuovo
-
-        for tmpl_id, tmpl_json in templates:
-            if not tmpl_json:
-                continue
-            tmpl_data = json.loads(tmpl_json)
-            changed = False
-
-            # Rinomina campo nelle sezioni dati (es: templateData.argano.trazione → templateData.argano.nuovo_nome)
-            if vecchio_sez and vecchio_sez in tmpl_data:
-                sez_data = tmpl_data[vecchio_sez]
-                if isinstance(sez_data, dict) and vecchio_campo_only in sez_data:
-                    sez_data[nuovo_campo_only] = sez_data.pop(vecchio_campo_only)
-                    # Se la sezione è cambiata, sposta
-                    if nuovo_sez != vecchio_sez:
-                        if nuovo_sez not in tmpl_data:
-                            tmpl_data[nuovo_sez] = {}
-                        tmpl_data[nuovo_sez][nuovo_campo_only] = sez_data.pop(nuovo_campo_only, tmpl_data[nuovo_sez].get(nuovo_campo_only))
-                    changed = True
-
-            # Rinomina chiave in field_config
-            if "field_config" in tmpl_data:
-                fc = tmpl_data["field_config"]
-                if vecchio in fc:
-                    fc[nuovo] = fc.pop(vecchio)
-                    changed = True
-
-            if changed:
-                db.execute(text("UPDATE product_templates SET template_data=:data WHERE id=:id"),
-                    {"data": json.dumps(tmpl_data), "id": tmpl_id})
-                report["templates_aggiornati"] += 1
-    except Exception as e:
-        report["errori"].append(f"templates: {e}")
-
     db.commit()
     return report
 
@@ -2460,7 +2216,7 @@ def create_bom_riga(data: dict, db: Session = Depends(get_db)):
     if not padre_id or not figlio_id:
         raise HTTPException(400, "articolo_padre_id e articolo_figlio_id obbligatori")
     if padre_id == figlio_id:
-        raise HTTPException(400, "Un articolo non può contenere sè stesso")
+        raise HTTPException(400, "Un articolo non puÃ² contenere sÃ© stesso")
 
     schema = _detect_bom_schema(db)
 
@@ -2470,7 +2226,7 @@ def create_bom_riga(data: dict, db: Session = Depends(get_db)):
             BomStruttura.articolo_figlio_id == figlio_id,
         ).first()
         if exists:
-            raise HTTPException(400, "Questo componente è già  nella distinta")
+            raise HTTPException(400, "Questo componente Ã¨ giÃ  nella distinta")
 
         def is_ancestor(potential_ancestor_id, target_id, visited=None):
             if visited is None:
@@ -3287,78 +3043,7 @@ def update_sezione_configuratore(sezione_id: int, data: dict, db: Session = Depe
             db.execute(text(f"UPDATE sezioni_configuratore SET {','.join(fields)} WHERE id=:id"), params)
             new_codice = data.get("codice")
             if new_codice and new_codice != old_codice:
-                # ── CASCADE COMPLETO RINOMINA SEZIONE ──
-                
-                # 1. campi_configuratore.sezione
-                db.execute(text("UPDATE campi_configuratore SET sezione=:new WHERE sezione=:old"),
-                    {"new": new_codice, "old": old_codice})
-                
-                # 2. campi_configuratore.codice (prefisso sezione: "argano.trazione" → "motore.trazione")
-                db.execute(text("""
-                    UPDATE campi_configuratore 
-                    SET codice = :new || SUBSTR(codice, LENGTH(:old) + 1)
-                    WHERE codice LIKE :prefix
-                """), {"new": new_codice, "old": old_codice, "prefix": old_codice + ".%"})
-                
-                # 3. valori_configurazione.sezione
-                db.execute(text("UPDATE valori_configurazione SET sezione=:new WHERE sezione=:old"),
-                    {"new": new_codice, "old": old_codice})
-                
-                # 4. valori_configurazione.codice_campo (prefisso)
-                db.execute(text("""
-                    UPDATE valori_configurazione
-                    SET codice_campo = :new || SUBSTR(codice_campo, LENGTH(:old) + 1)
-                    WHERE codice_campo LIKE :prefix
-                """), {"new": new_codice, "old": old_codice, "prefix": old_codice + ".%"})
-                
-                # 5. template_data JSON keys nei template (rinomina chiave sezione e field_config keys)
-                try:
-                    templates = db.execute(text("SELECT id, template_data FROM product_templates WHERE template_data IS NOT NULL")).fetchall()
-                    for tmpl_id, tmpl_json in templates:
-                        if not tmpl_json:
-                            continue
-                        tmpl_data = _json.loads(tmpl_json)
-                        changed = False
-                        
-                        # Rinomina chiave sezione (es: "argano" → "motore")
-                        if old_codice in tmpl_data:
-                            tmpl_data[new_codice] = tmpl_data.pop(old_codice)
-                            changed = True
-                        
-                        # Rinomina chiavi in field_config (es: "argano.trazione" → "motore.trazione")
-                        if "field_config" in tmpl_data:
-                            fc = tmpl_data["field_config"]
-                            new_fc = {}
-                            for k, v in fc.items():
-                                if k.startswith(old_codice + "."):
-                                    new_fc[new_codice + k[len(old_codice):]] = v
-                                    changed = True
-                                else:
-                                    new_fc[k] = v
-                            if changed:
-                                tmpl_data["field_config"] = new_fc
-                        
-                        if changed:
-                            db.execute(text("UPDATE product_templates SET template_data=:data WHERE id=:id"),
-                                {"data": _json.dumps(tmpl_data), "id": tmpl_id})
-                except Exception as e_tmpl:
-                    print(f"Warning: cascade template_data failed: {e_tmpl}")
-                
-                # 6. Rule JSON files (rinomina riferimenti campo nei file .json)
-                try:
-                    import glob
-                    rules_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rules")
-                    if os.path.exists(rules_dir):
-                        for filepath in glob.glob(os.path.join(rules_dir, "*.json")):
-                            with open(filepath, "r", encoding="utf-8") as rf:
-                                rule_text = rf.read()
-                            if f'"{old_codice}.' in rule_text:
-                                rule_text = rule_text.replace(f'"{old_codice}.', f'"{new_codice}.')
-                                with open(filepath, "w", encoding="utf-8") as wf:
-                                    wf.write(rule_text)
-                except Exception as e_rules:
-                    print(f"Warning: cascade rule files failed: {e_rules}")
-
+                db.execute(text("UPDATE campi_configuratore SET sezione=:new WHERE sezione=:old"), {"new": new_codice, "old": old_codice})
             db.commit()
         return {"status": "ok"}
     except HTTPException:
@@ -3552,31 +3237,28 @@ def get_valori_sezione(preventivo_id: int, sezione: str, db: Session = Depends(g
     Legge i valori di una sezione per un preventivo.
     AUTO-POPULATE: se la sezione non ha ancora valori salvati,
     popola automaticamente tutti i default da campi_configuratore.
-    Ritorna anche is_readonly per ogni campo.
     """
     try:
         # 1. Leggi valori esistenti
         result = db.execute(text("""
-            SELECT codice_campo, valore, is_default,
-                   COALESCE(is_readonly, 0) as is_readonly
+            SELECT codice_campo, valore, is_default
             FROM valori_configurazione
             WHERE preventivo_id = :pid AND sezione = :sez
         """), {"pid": preventivo_id, "sez": sezione})
         rows = result.fetchall()
 
         if rows:
+            # Valori giÃ  presenti â†’ ritorna
             valori = {r[0]: r[1] for r in rows}
             defaults_info = {r[0]: bool(r[2]) for r in rows}
-            readonly_info = {r[0]: bool(r[3]) for r in rows}
             return {
                 "preventivo_id": preventivo_id,
                 "sezione": sezione,
                 "valori": valori,
                 "is_default": defaults_info,
-                "is_readonly": readonly_info,
             }
 
-        # 2. Nessun valore -> auto-populate da campi_configuratore
+        # 2. Nessun valore â†’ auto-populate da campi_configuratore
         campi = db.execute(text("""
             SELECT codice, valore_default, tipo
             FROM campi_configuratore
@@ -3585,7 +3267,6 @@ def get_valori_sezione(preventivo_id: int, sezione: str, db: Session = Depends(g
 
         valori = {}
         defaults_info = {}
-        readonly_info = {}
         for codice, valore_default, tipo in campi:
             if valore_default is not None and str(valore_default).strip() != "":
                 val = str(valore_default)
@@ -3596,33 +3277,15 @@ def get_valori_sezione(preventivo_id: int, sezione: str, db: Session = Depends(g
                 """), {"pid": preventivo_id, "sez": sezione, "campo": codice, "val": val})
                 valori[codice] = val
                 defaults_info[codice] = True
-                readonly_info[codice] = False
 
         if valori:
             db.commit()
-
-            # Applica field_config dal template se esiste
-            prev = db.execute(text(
-                "SELECT template_id FROM preventivi WHERE id = :pid"
-            ), {"pid": preventivo_id}).fetchone()
-            if prev and prev[0]:
-                _apply_template_field_config(db, preventivo_id, prev[0])
-                db.commit()
-                # Rileggi readonly aggiornati
-                for codice in valori:
-                    row = db.execute(text("""
-                        SELECT COALESCE(is_readonly, 0) FROM valori_configurazione
-                        WHERE preventivo_id = :pid AND codice_campo = :campo
-                    """), {"pid": preventivo_id, "campo": codice}).fetchone()
-                    if row:
-                        readonly_info[codice] = bool(row[0])
 
         return {
             "preventivo_id": preventivo_id,
             "sezione": sezione,
             "valori": valori,
             "is_default": defaults_info,
-            "is_readonly": readonly_info,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -3632,7 +3295,14 @@ def get_valori_sezione(preventivo_id: int, sezione: str, db: Session = Depends(g
 def save_valori_sezione(preventivo_id: int, sezione: str, data: dict, db: Session = Depends(get_db)):
     """
     Salva valori sezione (upsert) con tracking is_default.
-    I campi con is_readonly=1 vengono SALTATI (non modificabili).
+    
+    Body: {"valori": {"campo1": "valore1", ...}}
+    
+    Logica is_default:
+      - Se il campo aveva is_default=1 e il valore cambia â†’ is_default=0
+      - Se il campo aveva is_default=1 e il valore resta uguale â†’ resta 1
+      - Se il campo aveva is_default=0 â†’ resta 0 (utente l'ha giÃ  toccato)
+      - Se il campo Ã¨ nuovo â†’ confronta col default di campi_configuratore
     """
     try:
         valori = data.get("valori", {})
@@ -3645,32 +3315,28 @@ def save_valori_sezione(preventivo_id: int, sezione: str, data: dict, db: Sessio
         """), {"sez": sezione})
         campo_defaults = {r[0]: r[1] for r in defaults_result.fetchall()}
 
-        # Carica stato attuale (valore, is_default, is_readonly)
+        # Carica stato attuale is_default per i campi esistenti
         existing_result = db.execute(text("""
-            SELECT codice_campo, valore, is_default, COALESCE(is_readonly, 0)
+            SELECT codice_campo, valore, is_default
             FROM valori_configurazione
             WHERE preventivo_id = :pid AND sezione = :sez
         """), {"pid": preventivo_id, "sez": sezione})
-        existing = {r[0]: {"valore": r[1], "is_default": r[2], "is_readonly": r[3]}
-                    for r in existing_result.fetchall()}
-
-        skipped_readonly = []
+        existing = {r[0]: {"valore": r[1], "is_default": r[2]} for r in existing_result.fetchall()}
 
         for codice_campo, valore in valori.items():
-            # Salta campi readonly
-            if codice_campo in existing and existing[codice_campo]["is_readonly"]:
-                skipped_readonly.append(codice_campo)
-                continue
-
             valore_str = str(valore) if valore is not None else None
 
             if codice_campo in existing:
                 old = existing[codice_campo]
+                # Determina is_default
                 if old["is_default"] == 0:
+                    # Utente l'ha giÃ  toccato in precedenza â†’ resta 0
                     new_is_default = 0
                 elif valore_str != old["valore"]:
+                    # Era default e il valore Ã¨ cambiato â†’ 0
                     new_is_default = 0
                 else:
+                    # Era default e il valore non Ã¨ cambiato â†’ resta 1
                     new_is_default = 1
 
                 db.execute(text("""
@@ -3680,6 +3346,7 @@ def save_valori_sezione(preventivo_id: int, sezione: str, data: dict, db: Sessio
                 """), {"val": valore_str, "isd": new_is_default,
                        "pid": preventivo_id, "sez": sezione, "campo": codice_campo})
             else:
+                # Campo nuovo â†’ confronta col default
                 default_val = campo_defaults.get(codice_campo)
                 is_def = 1 if (default_val is not None and valore_str == str(default_val)) else 0
 
@@ -3695,19 +3362,16 @@ def save_valori_sezione(preventivo_id: int, sezione: str, data: dict, db: Sessio
         # Trigger rule engine dopo salvataggio
         result = safe_evaluate_rules(preventivo_id, db)
 
-        response = {
+        return {
             "status": "ok",
             "sezione": sezione,
-            "campi_salvati": len(valori) - len(skipped_readonly),
+            "campi_salvati": len(valori),
             "rules_result": result,
         }
-        if skipped_readonly:
-            response["campi_readonly_saltati"] = skipped_readonly
-
-        return response
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/preventivi/{preventivo_id}/configurazione")
 def get_tutti_valori_configurazione(preventivo_id: int, db: Session = Depends(get_db)):
@@ -3752,8 +3416,6 @@ def delete_valori_sezione(preventivo_id: int, sezione: str, db: Session = Depend
 # ============================================================================
 # SEZIONE C: DATI PREVENTIVO STRUTTURATI PER PDF
 # ============================================================================
-# SEZIONE C: DATI DOCUMENTO PREVENTIVO
-# ============================================================================
 
 @app.get("/preventivi/{preventivo_id}/dati-documento")
 def get_dati_documento_preventivo(preventivo_id: int, db: Session = Depends(get_db)):
@@ -3761,9 +3423,32 @@ def get_dati_documento_preventivo(preventivo_id: int, db: Session = Depends(get_
     Restituisce tutti i dati del preventivo strutturati per sezione del documento.
     Usato dal generatore PDF/DOCX per assemblare il documento.
     
-    Logica flag (per-preventivo > globale):
-    - Se valori_configurazione ha includi_preventivo/mostra_default_preventivo -> usa quelli
-    - Altrimenti fallback su campi_configuratore (globale)
+    Response:
+    {
+      "preventivo_id": 1,
+      "sezioni": [
+        {
+          "codice": "specifiche_tecniche",
+          "titolo": "Specifiche Tecniche",
+          "tipo": "tabella",
+          "nota": null,
+          "campi": [
+            {
+              "codice": "frequenza_rete",
+              "etichetta": "Frequenza di rete",
+              "valore": "50",
+              "unita_misura": "Hz",
+              "is_default": true,
+              "tipo_campo": "dropdown"
+            }, ...
+          ]
+        }, ...
+      ],
+      "valori_standard": [
+        // Campi con is_default=true E mostra_default_preventivo=true
+        // (aggregati da tutte le sezioni)
+      ]
+    }
     """
     try:
         # 1. Carica sezioni preventivo (visibili, ordinate)
@@ -3779,101 +3464,77 @@ def get_dati_documento_preventivo(preventivo_id: int, db: Session = Depends(get_
             for r in sez_result.fetchall()
         ]
 
-        # 2. Carica tutti i campi con mapping preventivo (globale)
+        # 2. Carica tutti i campi con mapping preventivo
         campi_result = db.execute(text("""
             SELECT codice, etichetta, tipo, sezione, unita_misura, valore_default,
-                   COALESCE(includi_preventivo, 0) as includi_glob,
-                   sezione_preventivo,
-                   COALESCE(ordine_preventivo, 0) as ordine_prev,
-                   etichetta_preventivo,
-                   COALESCE(mostra_default_preventivo, 0) as mostra_def_glob
+                   includi_preventivo, sezione_preventivo, ordine_preventivo,
+                   etichetta_preventivo, mostra_default_preventivo
             FROM campi_configuratore
-            WHERE attivo = 1
+            WHERE attivo = 1 AND includi_preventivo = 1
             ORDER BY sezione_preventivo, ordine_preventivo
         """))
-        campi_global = {}
+        campi_map = {}  # sezione_preventivo â†’ [campi]
         for r in campi_result.fetchall():
-            campi_global[r[0]] = {
+            sez_prev = r[7]  # sezione_preventivo
+            if not sez_prev:
+                continue
+            if sez_prev not in campi_map:
+                campi_map[sez_prev] = []
+            campi_map[sez_prev].append({
                 "codice": r[0], "etichetta": r[1], "tipo_campo": r[2],
                 "sezione_config": r[3], "unita_misura": r[4],
-                "valore_default": r[5],
-                "includi_preventivo_glob": bool(r[6]),
-                "sezione_preventivo": r[7],
-                "ordine_preventivo": r[8],
+                "valore_default": r[5], "ordine": r[8],
                 "etichetta_preventivo": r[9],
-                "mostra_default_glob": bool(r[10]),
-            }
+                "mostra_default_preventivo": bool(r[10]),
+            })
 
-        # 3. Carica tutti i valori per questo preventivo (con flag per-preventivo)
+        # 3. Carica tutti i valori per questo preventivo
         val_result = db.execute(text("""
-            SELECT sezione, codice_campo, valore,
-                   COALESCE(is_default, 1) as is_default,
-                   includi_preventivo,
-                   mostra_default_preventivo
+            SELECT sezione, codice_campo, valore, is_default
             FROM valori_configurazione
             WHERE preventivo_id = :pid
         """), {"pid": preventivo_id})
         valori_all = {}
-        for sez, campo, valore, is_def, incl_prev, mostra_def in val_result.fetchall():
-            valori_all[campo] = {
-                "valore": valore,
-                "is_default": bool(is_def),
-                "sezione_config": sez,
-                "includi_preventivo_prev": incl_prev,
-                "mostra_default_prev": mostra_def,
-            }
+        for sez, campo, valore, is_def in val_result.fetchall():
+            valori_all[campo] = {"valore": valore, "is_default": bool(is_def), "sezione_config": sez}
 
         # 4. Assembla il documento
         sezioni_output = []
-        valori_standard = []
+        valori_standard = []  # Raccolta globale dei default non modificati
 
         for sez_doc in sezioni_doc:
             cod_sez = sez_doc["codice"]
 
+            # La sezione "valori_standard" Ã¨ speciale (popolata dopo)
             if cod_sez == "valori_standard":
                 continue
 
+            # La sezione "materiali" Ã¨ gestita diversamente (query Materiale)
             if cod_sez == "materiali":
-                sezioni_output.append({**sez_doc, "campi": [], "_tipo_speciale": "materiali"})
+                sezioni_output.append({
+                    **sez_doc,
+                    "campi": [],
+                    "_tipo_speciale": "materiali",
+                })
                 continue
 
-            # Trova campi assegnati a questa sezione preventivo
-            campi_sez = [
-                v for v in campi_global.values()
-                if v["sezione_preventivo"] == cod_sez
-            ]
-            campi_sez.sort(key=lambda x: x["ordine_preventivo"])
-
+            campi_sez = campi_map.get(cod_sez, [])
             campi_output = []
+
             for campo_def in campi_sez:
                 codice = campo_def["codice"]
                 val_info = valori_all.get(codice, {})
                 valore = val_info.get("valore")
                 is_def = val_info.get("is_default", True)
 
+                # Se il valore non Ã¨ stato salvato, usa il default
                 if valore is None and campo_def["valore_default"]:
                     valore = campo_def["valore_default"]
                     is_def = True
 
+                # Salta campi senza valore
                 if valore is None or str(valore).strip() == "":
                     continue
-
-                # Determina includi_preventivo: per-preventivo > globale
-                incl_prev = val_info.get("includi_preventivo_prev")
-                if incl_prev is not None:
-                    includi = bool(incl_prev)
-                else:
-                    includi = campo_def["includi_preventivo_glob"]
-
-                if not includi:
-                    continue
-
-                # Determina mostra_default: per-preventivo > globale
-                mostra_def_prev = val_info.get("mostra_default_prev")
-                if mostra_def_prev is not None:
-                    mostra_default = bool(mostra_def_prev)
-                else:
-                    mostra_default = campo_def["mostra_default_glob"]
 
                 campo_out = {
                     "codice": codice,
@@ -3884,12 +3545,14 @@ def get_dati_documento_preventivo(preventivo_id: int, db: Session = Depends(get_
                     "tipo_campo": campo_def["tipo_campo"],
                 }
 
-                if is_def and mostra_default:
+                # Se Ã¨ default e mostra_default_preventivo â†’ aggiungilo anche a valori_standard
+                if is_def and campo_def["mostra_default_preventivo"]:
                     valori_standard.append({
                         **campo_out,
                         "sezione_config": campo_def["sezione_config"],
                     })
 
+                # Nel PDF della sezione, mostra anche i default (sempre, se includi_preventivo=1)
                 campi_output.append(campo_out)
 
             if campi_output:
@@ -3898,7 +3561,10 @@ def get_dati_documento_preventivo(preventivo_id: int, db: Session = Depends(get_
         # 5. Aggiungi sezione "valori_standard" se ci sono
         sez_standard = next((s for s in sezioni_doc if s["codice"] == "valori_standard"), None)
         if sez_standard and valori_standard:
-            sezioni_output.append({**sez_standard, "campi": valori_standard})
+            sezioni_output.append({
+                **sez_standard,
+                "campi": valori_standard,
+            })
 
         return {
             "preventivo_id": preventivo_id,
@@ -3917,17 +3583,25 @@ def get_dati_documento_preventivo(preventivo_id: int, db: Session = Depends(get_
 def inizializza_defaults_preventivo(preventivo_id: int, db: Session = Depends(get_db)):
     """
     Popola TUTTE le sezioni con i valori di default da campi_configuratore.
-    Poi applica field_config dal template se associato.
+    Chiamare alla creazione del preventivo o al primo accesso.
+    Non sovrascrive valori giÃ  salvati.
+    
+    Returns:
+      {"campi_inizializzati": 42, "sezioni": ["argano", "normative", ...]}
     """
     try:
+        # Carica tutti i campi attivi con un default
         campi = db.execute(text("""
             SELECT codice, sezione, valore_default, tipo
             FROM campi_configuratore
             WHERE attivo = 1 AND valore_default IS NOT NULL AND valore_default != ''
         """)).fetchall()
 
+        # Carica campi giÃ  salvati per questo preventivo
         existing = db.execute(text("""
-            SELECT codice_campo FROM valori_configurazione WHERE preventivo_id = :pid
+            SELECT codice_campo
+            FROM valori_configurazione
+            WHERE preventivo_id = :pid
         """), {"pid": preventivo_id}).fetchall()
         existing_set = {r[0] for r in existing}
 
@@ -3936,7 +3610,8 @@ def inizializza_defaults_preventivo(preventivo_id: int, db: Session = Depends(ge
 
         for codice, sezione, valore_default, tipo in campi:
             if codice in existing_set:
-                continue
+                continue  # Non sovrascrivere
+
             db.execute(text("""
                 INSERT INTO valori_configurazione
                     (preventivo_id, sezione, codice_campo, valore, is_default)
@@ -3949,21 +3624,10 @@ def inizializza_defaults_preventivo(preventivo_id: int, db: Session = Depends(ge
         if count:
             db.commit()
 
-        # Applica field_config dal template
-        field_config_count = 0
-        prev = db.execute(text(
-            "SELECT template_id FROM preventivi WHERE id = :pid"
-        ), {"pid": preventivo_id}).fetchone()
-        if prev and prev[0]:
-            field_config_count = _apply_template_field_config(db, preventivo_id, prev[0])
-            if field_config_count:
-                db.commit()
-
         return {
             "status": "ok",
             "campi_inizializzati": count,
             "sezioni": sorted(sezioni_touched),
-            "field_config_applicati": field_config_count,
         }
     except Exception as e:
         db.rollback()

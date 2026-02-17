@@ -1,0 +1,88 @@
+{
+  "id": "CONT_OLEO_ST_50HZ_11_8KW",
+  "name": "Contattori oleo stella-triangolo 11.8kW 50Hz/400V",
+  "description": "Selezione contattori per centralina oleodinamica 11.8kW, avviamento stella-triangolo, 50Hz/400V",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "argano.trazione",
+      "operator": "equals",
+      "value": "oleodinamica",
+      "description": "Trazione oleodinamica"
+    },
+    {
+      "field": "argano.tipo_avviamento_motore",
+      "operator": "equals",
+      "value": "stella_triangolo",
+      "description": "Avviamento stella-triangolo"
+    },
+    {
+      "field": "tensioni.frequenza_rete",
+      "operator": "equals",
+      "value": "50",
+      "description": "Rete 50Hz"
+    },
+    {
+      "field": "argano.potenza_motore_kw",
+      "operator": "greater_equal",
+      "value": 10.7,
+      "description": "Potenza >= 10.7 kW"
+    },
+    {
+      "field": "argano.potenza_motore_kw",
+      "operator": "less_than",
+      "value": 13.2,
+      "description": "Potenza < 13.2 kW"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "CONT-D25-KS",
+      "descrizione": "Contattore D25 stella (KS) - motore 11.8kW",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "categoria": "Contattori",
+      "note": "Avviamento stella-triangolo, contattore stella"
+    },
+    {
+      "codice": "CONT-D18-KM",
+      "descrizione": "Contattore D18 triangolo (KM) - motore 11.8kW",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "categoria": "Contattori",
+      "note": "Avviamento stella-triangolo, contattore triangolo"
+    },
+    {
+      "codice": "MORS-10MM2-RST",
+      "descrizione": "Morsetti 10mm² linea R-S-T",
+      "quantita": 3,
+      "prezzo_unitario": 0,
+      "categoria": "Morsetteria"
+    },
+    {
+      "codice": "MORS-10MM2-UVW",
+      "descrizione": "Morsetti 10mm² motore U-V-W",
+      "quantita": 3,
+      "prezzo_unitario": 0,
+      "categoria": "Morsetteria"
+    },
+    {
+      "codice": "FILO-4MM2-RST",
+      "descrizione": "Filo 4mm² linea R-S-T",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "unita_misura": "mt",
+      "categoria": "Cablaggio"
+    },
+    {
+      "codice": "FILO-4MM2-UVW",
+      "descrizione": "Filo 4mm² motore U-V-W",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "unita_misura": "mt",
+      "categoria": "Cablaggio"
+    }
+  ]
+}
