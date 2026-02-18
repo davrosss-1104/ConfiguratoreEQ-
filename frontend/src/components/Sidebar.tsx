@@ -148,6 +148,7 @@ export const Sidebar = ({
     { id: 'gestione-sezioni', label: 'Gestione Sezioni', icon: <Layers className="h-5 w-5" /> },
     { id: 'gestione-utenti', label: 'Gestione Utenti', icon: <UserCog className="h-5 w-5" /> },
     { id: 'rule-engine', label: 'Rule Engine', icon: <Settings2 className="h-5 w-5" /> },
+    { id: 'editor-template-doc', label: 'Template Documenti', icon: <FileText className="h-5 w-5" /> }, 
   ];
 
   const renderMenuItem = (item: { id: string; label: string; icon: React.ReactNode }) => {

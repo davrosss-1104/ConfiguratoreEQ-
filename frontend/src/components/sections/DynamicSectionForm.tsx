@@ -4,8 +4,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Check, AlertCircle } from 'lucide-react';
+import { Loader2, Check, AlertCircle, Zap } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useFieldsWithRules } from '@/hooks/useFieldsWithRules';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -16,8 +17,8 @@ const API_BASE = 'http://localhost:8000';
 interface CampoDB {
   id: number;
   codice: string;
-  label: string;        // etichetta
-  tipo: string;         // testo, numero, booleano, dropdown, data
+  label: string;
+  tipo: string;
   sezione: string;
   gruppo_opzioni?: string;
   ordine: number;
@@ -57,6 +58,7 @@ export default function DynamicSectionForm({
   onDataChange,
 }: DynamicSectionFormProps) {
   const { toast } = useToast();
+  const fieldsWithRules = useFieldsWithRules();
 
   // State
   const [campi, setCampi] = useState<CampoDB[]>([]);
@@ -109,11 +111,10 @@ export default function DynamicSectionForm({
       const valoriData = valoriRes.ok ? await valoriRes.json() : {};
       const valoriSalvati = valoriData.valori || {};
 
-      // Merge: valori dal DB hanno prioritÃ , fallback su default campo o valore vuoto
+      // Merge: valori dal DB hanno priorità, fallback su default campo o valore vuoto
       const merged: Record<string, any> = {};
       for (const campo of campiVisibili) {
         if (valoriSalvati[campo.codice] !== undefined && valoriSalvati[campo.codice] !== null) {
-          // Valore dal DB (salvato dall'utente o auto-popolato come default)
           const raw = valoriSalvati[campo.codice];
           if (campo.tipo === 'numero') {
             merged[campo.codice] = parseFloat(raw) || 0;
@@ -123,7 +124,6 @@ export default function DynamicSectionForm({
             merged[campo.codice] = raw;
           }
         } else if (campo.valore_default) {
-          // Fallback: default del campo (non ancora auto-popolato dal backend)
           if (campo.tipo === 'numero') {
             merged[campo.codice] = parseFloat(campo.valore_default) || 0;
           } else if (campo.tipo === 'booleano') {
@@ -186,53 +186,21 @@ export default function DynamicSectionForm({
     saveTimeoutRef.current = setTimeout(() => saveData(), 3000);
   }, [saveData]);
 
-  // Per dropdown e checkbox: salva SUBITO con fetch diretto (no debounce, no isSavingRef)
-  const handleChangeImmediate = useCallback((codice: string, valore: any) => {
-    const next = { ...valoriRef.current, [codice]: valore };
-    valoriRef.current = next;
-    setValori(next);
-
-    // Cancella eventuale timer pendente
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = null;
-    }
-
-    // Fetch diretto — non passa per saveData/isSavingRef
-    fetch(`${API_BASE}/preventivi/${preventivoId}/configurazione/${sezioneCode}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ valori: next }),
-    }).then(res => {
-      if (res.ok) {
-        setSaveStatus('saved');
-        onDataChange?.();
-        setTimeout(() => setSaveStatus('idle'), 2000);
-      }
-    }).catch(err => {
-      console.error('Errore salvataggio immediato:', err);
-      setSaveStatus('error');
-      setTimeout(() => setSaveStatus('idle'), 3000);
-    });
-  }, [preventivoId, sezioneCode, onDataChange]);
-
-  // Cleanup: flush dati pendenti su unmount
+  // Cleanup
   useEffect(() => {
     return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = null;
-        try {
-          fetch(`${API_BASE}/preventivi/${preventivoId}/configurazione/${sezioneCode}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ valori: valoriRef.current }),
-            keepalive: true,
-          });
-        } catch {}
-      }
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [preventivoId, sezioneCode]);
+  }, []);
+
+  // ==========================================
+  // RULE ICON
+  // ==========================================
+
+  const RuleIcon = ({ codice }: { codice: string }) => {
+    if (!fieldsWithRules.has(codice)) return null;
+    return <Zap className="w-3.5 h-3.5 text-amber-500 inline-block ml-1 flex-shrink-0" title="Collegato a una regola automatica" />;
+  };
 
   // ==========================================
   // RENDER CAMPO
@@ -250,10 +218,11 @@ export default function DynamicSectionForm({
               {campo.label}
               {campo.obbligatorio && <span className="text-red-500 ml-1">*</span>}
               {campo.unita_misura && <span className="text-gray-400 ml-1">({campo.unita_misura})</span>}
+              <RuleIcon codice={campo.codice} />
             </Label>
             <Select
               value={String(valore || '')}
-              onValueChange={(v) => handleChangeImmediate(campo.codice, v)}
+              onValueChange={(v) => handleChange(campo.codice, v)}
             >
               <SelectTrigger className="mt-1">
                 <SelectValue placeholder="Seleziona..." />
@@ -278,6 +247,7 @@ export default function DynamicSectionForm({
               {campo.label}
               {campo.obbligatorio && <span className="text-red-500 ml-1">*</span>}
               {campo.unita_misura && <span className="text-gray-400 ml-1">({campo.unita_misura})</span>}
+              <RuleIcon codice={campo.codice} />
             </Label>
             <Input
               type="number"
@@ -298,12 +268,13 @@ export default function DynamicSectionForm({
             <Checkbox
               id={campo.codice}
               checked={Boolean(valore)}
-              onCheckedChange={(checked) => handleChangeImmediate(campo.codice, !!checked)}
+              onCheckedChange={(checked) => handleChange(campo.codice, !!checked)}
             />
             <div className="space-y-1 leading-none">
               <Label htmlFor={campo.codice} className="cursor-pointer">
                 {campo.label}
                 {campo.obbligatorio && <span className="text-red-500 ml-1">*</span>}
+                <RuleIcon codice={campo.codice} />
               </Label>
               {campo.descrizione && <p className="text-xs text-gray-400">{campo.descrizione}</p>}
             </div>
@@ -316,6 +287,7 @@ export default function DynamicSectionForm({
             <Label className="text-sm font-medium text-gray-700">
               {campo.label}
               {campo.obbligatorio && <span className="text-red-500 ml-1">*</span>}
+              <RuleIcon codice={campo.codice} />
             </Label>
             <Input
               type="date"
@@ -334,6 +306,7 @@ export default function DynamicSectionForm({
             <Label className="text-sm font-medium text-gray-700">
               {campo.label}
               {campo.obbligatorio && <span className="text-red-500 ml-1">*</span>}
+              <RuleIcon codice={campo.codice} />
             </Label>
             <Input
               type="text"

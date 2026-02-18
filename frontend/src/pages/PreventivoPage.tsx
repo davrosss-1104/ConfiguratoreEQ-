@@ -25,6 +25,7 @@ import GestioneClientiPage from '@/components/sections/GestioneClientiPage';
 import GestioneBomPage from '@/components/sections/GestioneBomPage';
 import DynamicSectionForm from '@/components/sections/DynamicSectionForm';
 import { Building, ArrowLeft, FileText } from 'lucide-react';
+import DocumentTemplateEditorPage from '@/pages/DocumentTemplateEditorPage';
 
 // Colori sfondo per categoria
 const CATEGORY_THEMES = {
@@ -189,6 +190,9 @@ export const PreventivoPage = () => {
         return <GestioneUtentiPage />;
       case 'rule_engine':
         return <RuleBuilderPage />;
+      
+      case 'editor_template_doc':
+      return <DocumentTemplateEditorPage />;
 
       default:
         // Fallback: tutte le sezioni non gestite usano il form dinamico
@@ -207,7 +211,8 @@ export const PreventivoPage = () => {
   // Nasconde colonna materiali laterale per sezioni fullwidth
   const sectionNorm = activeSection.replace(/-/g, '_');
   const hideSideMaterials = sectionNorm === 'materiali' || sectionNorm === 'ordine'
-    || sectionNorm.startsWith('gestione_') || sectionNorm === 'rule_engine';
+    || sectionNorm.startsWith('gestione_') || sectionNorm === 'rule_engine'
+    || sectionNorm === 'editor_template_doc';
 
   return (
     <div className={`flex min-h-screen ${theme.pageBg}`}>

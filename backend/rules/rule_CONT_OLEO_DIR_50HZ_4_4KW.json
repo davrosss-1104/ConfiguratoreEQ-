@@ -7,13 +7,13 @@
   "priority": 50,
   "conditions": [
     {
-      "field": "argano.trazione",
+      "field": "trazione.trazione",
       "operator": "equals",
       "value": "oleodinamica",
       "description": "Trazione oleodinamica"
     },
     {
-      "field": "argano.tipo_avviamento_motore",
+      "field": "trazione.tipo_avviamento_motore",
       "operator": "equals",
       "value": "diretto",
       "description": "Avviamento diretto"
@@ -25,13 +25,13 @@
       "description": "Rete 50Hz"
     },
     {
-      "field": "argano.potenza_motore_kw",
+      "field": "trazione.potenza_motore_kw",
       "operator": "greater_equal",
       "value": 0,
       "description": "Potenza >= 0 kW"
     },
     {
-      "field": "argano.potenza_motore_kw",
+      "field": "trazione.potenza_motore_kw",
       "operator": "less_than",
       "value": 5.2,
       "description": "Potenza < 5.2 kW"
