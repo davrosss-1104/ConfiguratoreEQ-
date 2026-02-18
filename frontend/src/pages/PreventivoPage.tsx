@@ -24,6 +24,7 @@ import RuleBuilderPage from '@/components/sections/RuleBuilderPage';
 import GestioneClientiPage from '@/components/sections/GestioneClientiPage';
 import GestioneBomPage from '@/components/sections/GestioneBomPage';
 import DynamicSectionForm from '@/components/sections/DynamicSectionForm';
+import { Building, ArrowLeft, FileText } from 'lucide-react';
 
 // Colori sfondo per categoria
 const CATEGORY_THEMES = {
@@ -85,6 +86,18 @@ export const PreventivoPage = () => {
   const { data: disposizioneVano } = useQuery({
     queryKey: ['disposizioneVano', preventivoId],
     queryFn: () => getDisposizioneVano(preventivoId),
+  });
+
+  // Carica dati cliente dal cliente_id del preventivo
+  const clienteId = (preventivo as any)?.cliente_id;
+  const { data: cliente } = useQuery({
+    queryKey: ['cliente', clienteId],
+    queryFn: async () => {
+      const res = await fetch(`http://localhost:8000/clienti/${clienteId}`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!clienteId,
   });
 
   const rawCategoria = (preventivo as any)?.categoria as string | undefined;
@@ -212,48 +225,72 @@ export const PreventivoPage = () => {
 
       {/* Contenuto principale */}
       <div className="flex-1 p-6">
-        {/* Header con barra progresso e pulsanti export */}
-        <div className="mb-6">
-          <div className="bg-white/70 backdrop-blur-sm rounded-lg shadow p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-4">
-                    <button
-                      onClick={() => navigate('/')}
-                      className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                      </svg>
-                      Torna alla Home
-                    </button>
-                    {categoria && (
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${theme.badge}`}>
-                        {categoria}
-                      </span>
-                    )}
-                    <span className="text-sm font-medium text-gray-700">
-                      Progresso Configurazione
+        {/* === TESTATA: N° Preventivo + Cliente + Status === */}
+        <div className="mb-4">
+          <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow px-5 py-3">
+            <div className="flex items-center justify-between">
+              {/* Sinistra: Back + N° + Categoria */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => navigate('/')}
+                  className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
+                  title="Torna alla Home"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-gray-400" />
+                  <span className="text-lg font-bold text-gray-900">
+                    {(preventivo as any)?.numero_preventivo || '...'}
+                  </span>
+                  {categoria && (
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${theme.badge}`}>
+                      {categoria}
                     </span>
-                  </div>
-                  <span className={`text-sm font-bold ${theme.progressText}`}>
-                    {progresso}%
+                  )}
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    (preventivo as any)?.status === 'confermato' 
+                      ? 'bg-green-100 text-green-700' 
+                      : 'bg-amber-50 text-amber-700 border border-amber-200'
+                  }`}>
+                    {(preventivo as any)?.status === 'confermato' ? 'Confermato' 
+                      : (preventivo as any)?.status === 'draft' ? 'Bozza' 
+                      : (preventivo as any)?.status || '...'}
                   </span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2.5">
-                  <div
-                    className={`${theme.progressBar} h-2.5 rounded-full transition-all duration-500`}
-                    style={{ width: `${progresso}%` }}
-                  ></div>
-                </div>
               </div>
-              <div className="ml-4">
-                <ExportButtons 
-                  preventivoId={preventivoId}
-                  numeroPreventivo={(preventivo as any)?.numero_preventivo}
+
+              {/* Centro: Cliente */}
+              <div className="flex items-center gap-2 text-sm">
+                {cliente ? (
+                  <>
+                    <Building className="w-4 h-4 text-green-600" />
+                    <span className="font-medium text-gray-800">{cliente.ragione_sociale}</span>
+                    <span className="text-gray-400">({cliente.codice})</span>
+                  </>
+                ) : (
+                  <span className="text-gray-400 italic">Nessun cliente selezionato</span>
+                )}
+              </div>
+
+              {/* Destra: Export */}
+              <ExportButtons 
+                preventivoId={preventivoId}
+                numeroPreventivo={(preventivo as any)?.numero_preventivo}
+              />
+            </div>
+
+            {/* Barra progresso compatta */}
+            <div className="mt-2 flex items-center gap-3">
+              <div className="flex-1 bg-gray-200 rounded-full h-1.5">
+                <div
+                  className={`${theme.progressBar} h-1.5 rounded-full transition-all duration-500`}
+                  style={{ width: `${progresso}%` }}
                 />
               </div>
+              <span className={`text-xs font-medium ${theme.progressText}`}>
+                {progresso}%
+              </span>
             </div>
           </div>
         </div>
@@ -261,9 +298,6 @@ export const PreventivoPage = () => {
         <div className="flex gap-6">
           {/* Colonna sinistra - Sezione principale */}
           <div className="flex-1">
-            {sectionNorm === 'dati_commessa' && (
-              <CustomerNameEditor preventivoId={preventivoId} />
-            )}
             {renderSection()}
           </div>
 

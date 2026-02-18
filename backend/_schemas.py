@@ -1,24 +1,10 @@
 """
 schemas.py - Pydantic Schemas per validazione e serializzazione
 Allineato con DB reale e frontend
-
-NOTA: Tutte le Base class hanno extra="allow" per evitare che campi
-non dichiarati vengano silenziosamente scartati da Pydantic.
 """
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-
-
-# ============================================================================
-# MIXIN: Config permissiva per tutti gli schema sezione
-# ============================================================================
-
-class PermissiveBase(BaseModel):
-    """Base class con extra=allow: campi sconosciuti passano attraverso
-    invece di essere scartati silenziosamente"""
-    class Config:
-        extra = "allow"
 
 
 # ============================================================================
@@ -64,7 +50,7 @@ class UserLogin(BaseModel):
 # CLIENTE SCHEMAS
 # ============================================================================
 
-class ClienteBase(PermissiveBase):
+class ClienteBase(BaseModel):
     codice: Optional[str] = None
     ragione_sociale: Optional[str] = None
     partita_iva: Optional[str] = None
@@ -104,7 +90,6 @@ class ClienteOut(ClienteBase):
     id: int
 
     class Config:
-        extra = "allow"
         from_attributes = True
 
 
@@ -112,7 +97,7 @@ class ClienteOut(ClienteBase):
 # MATERIALE SCHEMAS
 # ============================================================================
 
-class MaterialeBase(PermissiveBase):
+class MaterialeBase(BaseModel):
     codice: Optional[str] = None
     descrizione: Optional[str] = None
     categoria: Optional[str] = None
@@ -151,7 +136,6 @@ class MaterialeOut(MaterialeBase):
     preventivo_id: int
 
     class Config:
-        extra = "allow"
         from_attributes = True
 
 Materiale = MaterialeOut
@@ -161,7 +145,7 @@ Materiale = MaterialeOut
 # PREVENTIVO SCHEMAS
 # ============================================================================
 
-class PreventivoCreate(PermissiveBase):
+class PreventivoCreate(BaseModel):
     numero_preventivo: Optional[str] = None
     tipo_preventivo: Optional[str] = "COMPLETO"
     categoria: Optional[str] = None
@@ -172,7 +156,7 @@ class PreventivoCreate(PermissiveBase):
     note: Optional[str] = None
 
 
-class PreventivoUpdate(PermissiveBase):
+class PreventivoUpdate(BaseModel):
     numero_preventivo: Optional[str] = None
     tipo_preventivo: Optional[str] = None
     categoria: Optional[str] = None
@@ -189,7 +173,7 @@ class PreventivoUpdate(PermissiveBase):
     lead_time_giorni: Optional[int] = None
 
 
-class PreventivoOut(PermissiveBase):
+class PreventivoOut(BaseModel):
     id: int
     numero_preventivo: Optional[str] = None
     tipo_preventivo: Optional[str] = None
@@ -206,7 +190,6 @@ class PreventivoOut(PermissiveBase):
     updated_at: Optional[datetime] = None
 
     class Config:
-        extra = "allow"
         from_attributes = True
 
 Preventivo = PreventivoOut
@@ -214,17 +197,11 @@ Preventivo = PreventivoOut
 
 # ============================================================================
 # DATI COMMESSA SCHEMAS
-# Campi reali dal frontend: numero_offerta, data_offerta,
-#   riferimento_cliente, quantita, data_consegna_richiesta, imballo,
-#   reso_fco, pagamento, trasporto, destinazione
 # ============================================================================
 
-class DatiCommessaBase(PermissiveBase):
+class DatiCommessaBase(BaseModel):
     numero_offerta: Optional[str] = None
-    data_offerta: Optional[str] = None
     riferimento_cliente: Optional[str] = None
-    quantita: Optional[int] = None
-    data_consegna_richiesta: Optional[str] = None
     imballo: Optional[str] = None
     reso_fco: Optional[str] = None
     pagamento: Optional[str] = None
@@ -246,7 +223,6 @@ class DatiCommessaOut(DatiCommessaBase):
     preventivo_id: int
 
     class Config:
-        extra = "allow"
         from_attributes = True
 
 DatiCommessa = DatiCommessaOut
@@ -254,26 +230,18 @@ DatiCommessa = DatiCommessaOut
 
 # ============================================================================
 # DATI PRINCIPALI SCHEMAS
-# Campi reali dal frontend/DB: tipo_impianto, nuovo_impianto,
-#   numero_fermate, numero_servizi, velocita, corsa,
-#   con_locale_macchina, posizione_locale_macchina, tipo_trazione,
-#   forza_motrice, luce, tensione_manovra, tensione_freno
 # ============================================================================
 
-class DatiPrincipaliBase(PermissiveBase):
+class DatiPrincipaliBase(BaseModel):
     tipo_impianto: Optional[str] = None
-    nuovo_impianto: Optional[bool] = None
-    numero_fermate: Optional[int] = None
-    numero_servizi: Optional[int] = None
-    velocita: Optional[float] = None
+    tipo_azionamento: Optional[str] = None
+    tipo_manovra: Optional[str] = None
+    num_fermate: Optional[int] = None
     corsa: Optional[float] = None
-    con_locale_macchina: Optional[bool] = None
-    posizione_locale_macchina: Optional[str] = None
-    tipo_trazione: Optional[str] = None
-    forza_motrice: Optional[str] = None
-    luce: Optional[str] = None
-    tensione_manovra: Optional[str] = None
-    tensione_freno: Optional[str] = None
+    portata: Optional[float] = None
+    velocita: Optional[float] = None
+    alimentazione: Optional[str] = None
+    frequenza: Optional[str] = None
 
 
 class DatiPrincipaliCreate(DatiPrincipaliBase):
@@ -289,7 +257,6 @@ class DatiPrincipaliOut(DatiPrincipaliBase):
     preventivo_id: int
 
     class Config:
-        extra = "allow"
         from_attributes = True
 
 DatiPrincipali = DatiPrincipaliOut
@@ -297,22 +264,18 @@ DatiPrincipali = DatiPrincipaliOut
 
 # ============================================================================
 # NORMATIVE SCHEMAS
-# en_81_1, en_81_20, en_81_21 = str (anno: "2014", "2020", ecc.)
-# en_81_28..73, a3_95_16, dm236_legge13, emendamento_a3, uni_10411_1 = bool
 # ============================================================================
 
-class NormativeBase(PermissiveBase):
-    en_81_1: Optional[str] = None
-    en_81_20: Optional[str] = None
-    en_81_21: Optional[str] = None
-    en_81_28: Optional[bool] = None
-    en_81_70: Optional[bool] = None
-    en_81_72: Optional[bool] = None
-    en_81_73: Optional[bool] = None
+class NormativeBase(BaseModel):
+    en81_20: Optional[bool] = None
+    en81_50: Optional[bool] = None
+    en81_70: Optional[bool] = None
+    en81_72: Optional[bool] = None
+    en81_73: Optional[bool] = None
+    en81_28: Optional[bool] = None
     a3_95_16: Optional[bool] = None
-    dm236_legge13: Optional[bool] = None
-    emendamento_a3: Optional[bool] = None
-    uni_10411_1: Optional[bool] = None
+    dm236_l13: Optional[bool] = None
+    en81_20_2020: Optional[bool] = None
 
 
 class NormativeCreate(NormativeBase):
@@ -328,7 +291,6 @@ class NormativeOut(NormativeBase):
     preventivo_id: int
 
     class Config:
-        extra = "allow"
         from_attributes = True
 
 Normative = NormativeOut
@@ -336,10 +298,9 @@ Normative = NormativeOut
 
 # ============================================================================
 # DISPOSIZIONE VANO SCHEMAS
-# extra=allow cattura tutti i campi dinamici
 # ============================================================================
 
-class DisposizioneVanoBase(PermissiveBase):
+class DisposizioneVanoBase(BaseModel):
     larghezza_vano: Optional[float] = None
     profondita_vano: Optional[float] = None
     fossa: Optional[float] = None
@@ -361,7 +322,6 @@ class DisposizioneVanoOut(DisposizioneVanoBase):
     preventivo_id: int
 
     class Config:
-        extra = "allow"
         from_attributes = True
 
 DisposizioneVano = DisposizioneVanoOut
@@ -369,10 +329,9 @@ DisposizioneVano = DisposizioneVanoOut
 
 # ============================================================================
 # PORTE SCHEMAS
-# extra=allow cattura tutti i campi dinamici
 # ============================================================================
 
-class PorteBase(PermissiveBase):
+class PorteBase(BaseModel):
     tipo_porta_cabina: Optional[str] = None
     tipo_porta_piano: Optional[str] = None
     larghezza_porta: Optional[float] = None
@@ -394,7 +353,6 @@ class PorteOut(PorteBase):
     preventivo_id: int
 
     class Config:
-        extra = "allow"
         from_attributes = True
 
 Porte = PorteOut
@@ -404,7 +362,7 @@ Porte = PorteOut
 # PRODUCT TEMPLATE SCHEMAS
 # ============================================================================
 
-class ProductTemplateBase(PermissiveBase):
+class ProductTemplateBase(BaseModel):
     nome_display: Optional[str] = None
     categoria: Optional[str] = None
     sotto_categoria: Optional[str] = None
@@ -428,7 +386,6 @@ class ProductTemplateOut(ProductTemplateBase):
     id: int
 
     class Config:
-        extra = "allow"
         from_attributes = True
 
 ProductTemplate = ProductTemplateOut

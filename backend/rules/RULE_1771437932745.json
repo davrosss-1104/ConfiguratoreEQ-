@@ -1,0 +1,24 @@
+{
+  "id": "RULE_1771437932745",
+  "name": "EN 81-28",
+  "description": "",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "normative.en_81_28",
+      "operator": "equals",
+      "value": "true"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "ENC-ABS",
+      "descrizione": "Encoder assoluto",
+      "quantita": 1,
+      "prezzo_unitario": 320,
+      "categoria": "ACQUISTO"
+    }
+  ]
+}

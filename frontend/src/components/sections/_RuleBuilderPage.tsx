@@ -1,8 +1,10 @@
 /**
  * RuleBuilderPage.tsx — Editor regole JSON + Rule Designer iframe
  *
- * Tab 1: Editor integrato con autocomplete articoli e input valori intelligenti
+ * Tab 1: Editor integrato con autocomplete articoli
  * Tab 2: Rule Designer standalone via iframe
+ *
+ * Posizionare in: frontend/src/components/sections/RuleBuilderPage.tsx
  */
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -30,14 +32,6 @@ interface Condition { field: string; operator: string; value: any; description?:
 interface MaterialItem { codice: string; descrizione: string; quantita: number; prezzo_unitario: number; categoria: string; note?: string; }
 interface Rule { id: string; name: string; description?: string; version?: string; enabled: boolean; priority: number; conditions: Condition[]; materials: MaterialItem[]; }
 interface ArticoloResult { id: number; codice: string; descrizione: string; costo_fisso: number; tipo_articolo: string; }
-
-interface CampoDisponibile {
-  field: string;
-  source: string;
-  label: string;
-  type?: 'testo' | 'numero' | 'booleano' | 'dropdown' | 'data';
-  options?: (string | { value: string; label: string })[];
-}
 
 const emptyRule: Rule = {
   id: '', name: '', description: '', version: '1.0', enabled: true, priority: 50,
@@ -67,8 +61,10 @@ function ArticoloAutocomplete({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
+  // Sync value from parent
   useEffect(() => { setQuery(value); }, [value]);
 
+  // Close on click outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) setOpen(false);
@@ -135,104 +131,9 @@ function ArticoloAutocomplete({
 
 
 // =======================================================
-// INPUT VALORE INTELLIGENTE PER CONDIZIONI
-// =======================================================
-function ConditionValueInput({
-  value,
-  operator,
-  campo,
-  onChange,
-}: {
-  value: any;
-  operator: string;
-  campo: CampoDisponibile | undefined;
-  onChange: (val: any) => void;
-}) {
-  const tipo = campo?.type || 'testo';
-  const options = campo?.options || [];
-
-  // Operatore "in" → sempre input testo per array JSON
-  if (operator === 'in') {
-    return (
-      <input
-        value={typeof value === 'object' ? JSON.stringify(value) : value}
-        onChange={e => {
-          let v: any = e.target.value;
-          try { v = JSON.parse(v); } catch { }
-          onChange(v);
-        }}
-        className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm"
-        placeholder='["val1","val2"]'
-      />
-    );
-  }
-
-  // Booleano → select Sì/No
-  if (tipo === 'booleano') {
-    const strVal = String(value).toLowerCase();
-    return (
-      <select
-        value={strVal === 'true' || strVal === 'si' || strVal === 'sì' || strVal === '1' ? 'true' : strVal === 'false' || strVal === 'no' || strVal === '0' ? 'false' : ''}
-        onChange={e => onChange(e.target.value)}
-        className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm bg-white"
-      >
-        <option value="">-- Seleziona --</option>
-        <option value="true">Sì</option>
-        <option value="false">No</option>
-      </select>
-    );
-  }
-
-  // Dropdown con opzioni
-  if (tipo === 'dropdown' && options.length > 0) {
-    return (
-      <select
-        value={String(value)}
-        onChange={e => onChange(e.target.value)}
-        className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm bg-white"
-      >
-        <option value="">-- Seleziona --</option>
-        {options.map((opt, i) => {
-          if (typeof opt === 'string') {
-            return <option key={i} value={opt}>{opt}</option>;
-          }
-          return <option key={i} value={opt.value}>{opt.label}</option>;
-        })}
-      </select>
-    );
-  }
-
-  // Numero → input type number
-  if (tipo === 'numero') {
-    return (
-      <input
-        type="number"
-        step="any"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm"
-        placeholder="Valore numerico"
-      />
-    );
-  }
-
-  // Fallback: testo libero
-  return (
-    <input
-      value={typeof value === 'object' ? JSON.stringify(value) : value}
-      onChange={e => onChange(e.target.value)}
-      className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm"
-      placeholder="Valore"
-    />
-  );
-}
-
-
-// =======================================================
 // TAB 1: EDITOR INTEGRATO
 // =======================================================
-function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string; onRuleSelect?: (rule: Rule | null) => void }) {
-  const queryClient = useQueryClient();
+function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string; onRuleSelect?: (rule: Rule | null) => void }) {  const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editRule, setEditRule] = useState<Rule | null>(null);
   const [isNew, setIsNew] = useState(false);
@@ -244,17 +145,10 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
     queryFn: async () => { const r = await fetch(`${API}/regole`); return r.ok ? r.json() : []; },
   });
 
-  const { data: campiDisponibili = [] } = useQuery<CampoDisponibile[]>({
+  const { data: campiDisponibili = [] } = useQuery<{ field: string; source: string; label: string }[]>({
     queryKey: ['regole-campi'],
     queryFn: async () => { const r = await fetch(`${API}/regole-campi-disponibili`); return r.ok ? r.json() : []; },
   });
-
-  // Mappa campo -> metadati per lookup rapido
-  const campiMap = useMemo(() => {
-    const map: Record<string, CampoDisponibile> = {};
-    campiDisponibili.forEach(c => { map[c.field] = c; });
-    return map;
-  }, [campiDisponibili]);
 
   const saveMutation = useMutation({
     mutationFn: async (rule: Rule) => {
@@ -282,6 +176,7 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['regole'] }),
   });
 
+  // Auto-seleziona regola da initialRuleId
   useEffect(() => {
     if (initialRuleId && rules.length > 0 && !editRule) {
       const found = rules.find(r => r.id === initialRuleId);
@@ -295,7 +190,15 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
     setIsNew(false);
     onRuleSelect?.(rule);
   };
-
+  // FIX: Auto-seleziona regola se arriva da navigazione esterna
+  useEffect(() => {
+    if (initialRuleId && rules.length > 0 && !editRule) {
+      const found = rules.find(r => r.id === initialRuleId);
+      if (found) {
+        selectRule(found);
+      }
+    }
+  }, [initialRuleId, rules]);
   const newRule = () => { const r = JSON.parse(JSON.stringify(emptyRule)); r.id = `RULE_${Date.now()}`; setEditRule(r); setSelectedId(null); setIsNew(true); };
   const duplicateRule = (rule: Rule) => { const r = JSON.parse(JSON.stringify(rule)); r.id = `${rule.id}_COPY`; r.name = `${rule.name} (copia)`; setEditRule(r); setSelectedId(null); setIsNew(true); };
 
@@ -313,21 +216,6 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
     if (!editRule) return;
     const arr = [...editRule[arrayName]];
     (arr[index] as any)[field] = value;
-    // Se cambiamo il campo della condizione, resetta il valore
-    if (arrayName === 'conditions' && field === 'field') {
-      const campoInfo = campiMap[value];
-      if (campoInfo?.type === 'booleano') {
-        (arr[index] as any).value = '';
-        (arr[index] as any).operator = 'equals';
-      } else if (campoInfo?.type === 'dropdown') {
-        (arr[index] as any).value = '';
-        (arr[index] as any).operator = 'equals';
-      } else if (campoInfo?.type === 'numero') {
-        (arr[index] as any).value = '';
-      } else {
-        (arr[index] as any).value = '';
-      }
-    }
     setEditRule({ ...editRule, [arrayName]: arr });
   };
 
@@ -352,6 +240,7 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
     !searchTerm || r.name?.toLowerCase().includes(searchTerm.toLowerCase()) || r.id?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Handler: seleziona articolo da autocomplete e popola campi materiale
   const handleArticoloSelect = (index: number, art: ArticoloResult) => {
     if (!editRule) return;
     const arr = [...editRule.materials];
@@ -363,22 +252,6 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
       categoria: art.tipo_articolo || arr[index].categoria,
     };
     setEditRule({ ...editRule, materials: arr });
-  };
-
-  // Filtra operatori in base al tipo di campo
-  const getOperatorsForField = (fieldName: string) => {
-    const campo = campiMap[fieldName];
-    if (!campo) return OPERATORS;
-    if (campo.type === 'booleano') {
-      return OPERATORS.filter(o => ['equals', 'not_equals'].includes(o.value));
-    }
-    if (campo.type === 'dropdown') {
-      return OPERATORS.filter(o => ['equals', 'not_equals', 'in'].includes(o.value));
-    }
-    if (campo.type === 'numero') {
-      return OPERATORS.filter(o => ['equals', 'not_equals', 'greater_than', 'less_than'].includes(o.value));
-    }
-    return OPERATORS;
   };
 
   return (
@@ -478,7 +351,7 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
                   <input value={editRule.description || ''} onChange={e => updateField('description', e.target.value)} className={inputCls} placeholder="Descrizione opzionale" />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600 mb-1 block">Priorità (1=alta)</label>
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Priorita (1=alta)</label>
                   <input type="number" value={editRule.priority} onChange={e => updateField('priority', parseInt(e.target.value) || 50)} className={inputCls} min={1} max={100} />
                 </div>
                 <div className="flex items-end">
@@ -503,63 +376,31 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
                 {expandedSections.has('conditions') && (
                   <div className="border-t px-4 py-3 space-y-2">
                     <p className="text-xs text-gray-500 mb-2">Tutte le condizioni devono essere soddisfatte (AND)</p>
-                    {editRule.conditions.map((cond, idx) => {
-                      const campoInfo = campiMap[cond.field];
-                      const tipoLabel = campoInfo?.type
-                        ? campoInfo.type === 'booleano' ? '🔘' : campoInfo.type === 'dropdown' ? '📋' : campoInfo.type === 'numero' ? '#' : ''
-                        : '';
-
-                      return (
-                        <div key={idx} className="flex items-center gap-2 bg-gray-50 rounded-lg p-2">
-                          <GripVertical className="w-4 h-4 text-gray-300 flex-shrink-0" />
-
-                          {/* Campo */}
-                          <select value={cond.field} onChange={e => updateArrayItem('conditions', idx, 'field', e.target.value)}
-                            className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
-                            <option value="">-- Campo --</option>
-                            {Object.entries(
-                              campiDisponibili.reduce((acc: Record<string, CampoDisponibile[]>, c) => {
-                                if (!acc[c.source]) acc[c.source] = [];
-                                acc[c.source].push(c);
-                                return acc;
-                              }, {})
-                            ).map(([source, fields]) => (
-                              <optgroup key={source} label={source}>
-                                {fields.map(f => {
-                                  const icon = f.type === 'booleano' ? '🔘 ' : f.type === 'dropdown' ? '📋 ' : f.type === 'numero' ? '# ' : '';
-                                  return <option key={f.field} value={f.field}>{icon}{f.label}</option>;
-                                })}
-                              </optgroup>
-                            ))}
-                          </select>
-
-                          {/* Operatore (filtrato per tipo) */}
-                          <select value={cond.operator} onChange={e => updateArrayItem('conditions', idx, 'operator', e.target.value)}
-                            className="w-36 border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
-                            {getOperatorsForField(cond.field).map(op => (
-                              <option key={op.value} value={op.value}>{op.label}</option>
-                            ))}
-                          </select>
-
-                          {/* Valore intelligente */}
-                          <ConditionValueInput
-                            value={cond.value}
-                            operator={cond.operator}
-                            campo={campoInfo}
-                            onChange={v => updateArrayItem('conditions', idx, 'value', v)}
-                          />
-
-                          {/* Indicatore tipo */}
-                          {tipoLabel && (
-                            <span className="text-xs text-gray-400 flex-shrink-0" title={`Tipo: ${campoInfo?.type}`}>
-                              {tipoLabel}
-                            </span>
-                          )}
-
-                          <button onClick={() => removeArrayItem('conditions', idx)} className={btnIcon}><X className="w-3.5 h-3.5 text-red-400" /></button>
-                        </div>
-                      );
-                    })}
+                    {editRule.conditions.map((cond, idx) => (
+                      <div key={idx} className="flex items-center gap-2 bg-gray-50 rounded-lg p-2">
+                        <GripVertical className="w-4 h-4 text-gray-300 flex-shrink-0" />
+                        <select value={cond.field} onChange={e => updateArrayItem('conditions', idx, 'field', e.target.value)}
+                          className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
+                          <option value="">-- Campo --</option>
+                          {Object.entries(
+                            campiDisponibili.reduce((acc: Record<string, typeof campiDisponibili>, c) => { if (!acc[c.source]) acc[c.source] = []; acc[c.source].push(c); return acc; }, {})
+                          ).map(([source, fields]) => (
+                            <optgroup key={source} label={source}>
+                              {fields.map(f => (<option key={f.field} value={f.field}>{f.label}</option>))}
+                            </optgroup>
+                          ))}
+                        </select>
+                        <select value={cond.operator} onChange={e => updateArrayItem('conditions', idx, 'operator', e.target.value)}
+                          className="w-36 border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
+                          {OPERATORS.map(op => (<option key={op.value} value={op.value}>{op.label}</option>))}
+                        </select>
+                        <input value={typeof cond.value === 'object' ? JSON.stringify(cond.value) : cond.value}
+                          onChange={e => { let v: any = e.target.value; if (cond.operator === 'in') { try { v = JSON.parse(v); } catch { } } updateArrayItem('conditions', idx, 'value', v); }}
+                          className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm"
+                          placeholder={cond.operator === 'in' ? '["val1","val2"]' : 'Valore'} />
+                        <button onClick={() => removeArrayItem('conditions', idx)} className={btnIcon}><X className="w-3.5 h-3.5 text-red-400" /></button>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -609,7 +450,7 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
                               className={inputCls} placeholder="Quadri Elettrici" />
                           </div>
                           <div>
-                            <label className="text-[10px] text-gray-500">Quantità</label>
+                            <label className="text-[10px] text-gray-500">Quantita</label>
                             <input type="number" value={mat.quantita} onChange={e => updateArrayItem('materials', idx, 'quantita', parseFloat(e.target.value) || 1)}
                               className={inputCls} min={1} />
                           </div>
@@ -653,6 +494,7 @@ function RuleDesignerIframe({ ruleToLoad }: { ruleToLoad?: Rule | null }) {
   const [iframeKey, setIframeKey] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  // Invia regola al Rule Designer via postMessage
   const sendRuleToDesigner = useCallback(() => {
     if (ruleToLoad && iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage(
@@ -662,6 +504,7 @@ function RuleDesignerIframe({ ruleToLoad }: { ruleToLoad?: Rule | null }) {
     }
   }, [ruleToLoad]);
 
+  // Quando cambia la regola e l'iframe è già caricato, invia
   useEffect(() => {
     if (isLoaded) sendRuleToDesigner();
   }, [ruleToLoad, isLoaded]);
@@ -773,8 +616,7 @@ export default function RuleBuilderPage({ initialRuleId }: { initialRuleId?: str
         </div>
       </div>
       {activeTab === 'editor'
-        ? <EditorRegole initialRuleId={initialRuleId} onRuleSelect={setRuleForDesigner} />
-        : <RuleDesignerIframe ruleToLoad={ruleForDesigner} />}
-    </div>
+              ? <EditorRegole initialRuleId={initialRuleId} onRuleSelect={setRuleForDesigner} />
+              : <RuleDesignerIframe ruleToLoad={ruleForDesigner} />}    </div>
   );
 }

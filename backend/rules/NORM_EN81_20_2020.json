@@ -1,0 +1,39 @@
+{
+  "id": "NORM_EN81_20_2020",
+  "name": "Normativa EN 81-20:2020",
+  "description": "Componenti aggiuntivi richiesti dalla EN 81-20 edizione 2020",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "en_81_20",
+      "operator": "equals",
+      "value": "true",
+      "description": "EN 81-20 edizione 2020"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "UCM-EN81-20",
+      "descrizione": "Dispositivo UCM (Unintended Car Movement)",
+      "quantita": 1,
+      "prezzo_unitario": 580,
+      "categoria": "Sicurezza"
+    },
+    {
+      "codice": "BOTT-LIS-LID",
+      "descrizione": "Bottoniera tetto cabina LIS/LID (EN81-20)",
+      "quantita": 1,
+      "prezzo_unitario": 85,
+      "categoria": "Sicurezza"
+    },
+    {
+      "codice": "LUCE-EMERG-81-20",
+      "descrizione": "Luce emergenza cabina EN81-20",
+      "quantita": 1,
+      "prezzo_unitario": 42,
+      "categoria": "Illuminazione"
+    }
+  ]
+}

@@ -250,7 +250,7 @@ export function DatiCommessaForm() {
               />
             </div>
             <div>
-              <label className={labelClass}>QuantitÃ </label>
+              <label className={labelClass}>Quantità </label>
               <input {...form.register("quantita")} type="number" min="1" placeholder="Es: 1" className={inputClass} />
             </div>
             <div>

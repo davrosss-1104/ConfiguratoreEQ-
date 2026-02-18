@@ -5,6 +5,7 @@ import { PreventivoPage } from './pages/PreventivoPage';
 import { AdminTemplatesPage } from './pages/AdminTemplatesPage';
 import { Toaster } from '@/components/ui/Toaster';
 import { RicambiPage } from './pages/RicambiPage';
+import RicercaPreventiviPage from './pages/RicercaPreventiviPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,6 +24,7 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/preventivo/:id" element={<PreventivoPage />} />
+          <Route path="/ricerca" element={<RicercaPreventiviPage />} />
           <Route path="/ricambi" element={<RicambiPage />} />
           <Route path="/admin/templates" element={<AdminTemplatesPage />} />
         </Routes>
