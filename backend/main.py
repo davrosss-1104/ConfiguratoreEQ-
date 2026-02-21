@@ -461,7 +461,44 @@ def evaluate_rules(preventivo_id: int, db: Session):
                     "note": material.get("note", ""),
                 })
     
-    # 4. Rimozione orfani: materiali da regole non piu attive
+    # 4. Lookup prezzi da tabella articoli per materiali senza prezzo
+    codici_senza_prezzo = set(
+        m["codice"] for m in materials_to_add
+        if not m.get("prezzo_unitario") and m.get("codice")
+    )
+    prezzi_articoli = {}
+    if codici_senza_prezzo:
+        articoli_trovati = db.query(Articolo).filter(
+            Articolo.codice.in_(codici_senza_prezzo)
+        ).all()
+        for art in articoli_trovati:
+            costo_base = art.costo_fisso or 0
+            ricarico = art.ricarico_percentuale or 0
+            prezzo = costo_base * (1 + ricarico / 100) if ricarico else costo_base
+            prezzi_articoli[art.codice] = round(prezzo, 4)
+            
+        # Fallback: cerca anche in articoli_bom (tabella legacy)
+        codici_mancanti = codici_senza_prezzo - set(prezzi_articoli.keys())
+        if codici_mancanti:
+            try:
+                placeholders = ",".join(f":c{i}" for i in range(len(codici_mancanti)))
+                params = {f"c{i}": c for i, c in enumerate(codici_mancanti)}
+                result = db.execute(text(
+                    f"SELECT codice, costo_fisso, costo_variabile FROM articoli_bom WHERE codice IN ({placeholders})"
+                ), params)
+                for row in result.fetchall():
+                    costo = (row[1] or 0) + (row[2] or 0)
+                    if costo > 0:
+                        prezzi_articoli[row[0]] = round(costo, 4)
+            except Exception:
+                pass  # tabella articoli_bom potrebbe non esistere
+
+    # Aggiorna prezzi nei materiali da aggiungere
+    for mat_data in materials_to_add:
+        if not mat_data.get("prezzo_unitario") and mat_data["codice"] in prezzi_articoli:
+            mat_data["prezzo_unitario"] = prezzi_articoli[mat_data["codice"]]
+
+    # 5. Rimozione orfani: materiali da regole non piu attive
     materiali_rimossi = 0
     existing_auto = db.query(Materiale).filter(
         Materiale.preventivo_id == preventivo_id,
@@ -473,8 +510,9 @@ def evaluate_rules(preventivo_id: int, db: Session):
             db.delete(mat)
             materiali_rimossi += 1
     
-    # 5. Aggiungi nuovi materiali (evita duplicati)
+    # 6. Aggiungi nuovi materiali (evita duplicati) + aggiorna prezzi mancanti
     materiali_aggiunti = 0
+    materiali_prezzo_aggiornato = 0
     for mat_data in materials_to_add:
         existing = db.query(Materiale).filter(
             Materiale.preventivo_id == preventivo_id,
@@ -482,7 +520,13 @@ def evaluate_rules(preventivo_id: int, db: Session):
             Materiale.regola_id == mat_data["rule_id"]
         ).first()
         
-        if not existing:
+        if existing:
+            # Aggiorna prezzo se era 0 e ora abbiamo un prezzo valido
+            if (not existing.prezzo_unitario or existing.prezzo_unitario == 0) and mat_data["prezzo_unitario"]:
+                existing.prezzo_unitario = mat_data["prezzo_unitario"]
+                existing.prezzo_totale = existing.quantita * mat_data["prezzo_unitario"]
+                materiali_prezzo_aggiornato += 1
+        else:
             qta = mat_data["quantita"]
             prezzo = mat_data["prezzo_unitario"]
             nuovo = Materiale(
@@ -500,8 +544,8 @@ def evaluate_rules(preventivo_id: int, db: Session):
             db.add(nuovo)
             materiali_aggiunti += 1
     
-    # 6. Ricalcola totale preventivo
-    if materiali_aggiunti > 0 or materiali_rimossi > 0:
+    # 7. Ricalcola totale preventivo
+    if materiali_aggiunti > 0 or materiali_rimossi > 0 or materiali_prezzo_aggiornato > 0:
         db.commit()
         tutti_materiali = db.query(Materiale).filter(
             Materiale.preventivo_id == preventivo_id
@@ -514,8 +558,11 @@ def evaluate_rules(preventivo_id: int, db: Session):
         "status": "ok",
         "materiali_aggiunti": materiali_aggiunti,
         "materiali_rimossi": materiali_rimossi,
+        "materiali_prezzo_aggiornato": materiali_prezzo_aggiornato,
         "regole_attive": list(active_rules),
         "regole_totali": len(rules),
+        "prezzi_da_articoli": len(prezzi_articoli),
+        "codici_senza_prezzo": list(codici_senza_prezzo - set(prezzi_articoli.keys())),
         "context_keys": list(config_data.keys()),
     }
 
@@ -906,10 +953,14 @@ def create_preventivo(data: PreventivoCreate, db: Session = Depends(get_db)):
     
     # Scrivi valori template in valori_configurazione (fonte primaria)
     if template_data_parsed:
+        skip_keys = {"materiali", "field_config"}
         for sez_codice, campi in template_data_parsed.items():
-            if sez_codice == "materiali" or not isinstance(campi, dict):
+            if sez_codice in skip_keys or not isinstance(campi, dict):
                 continue
             for codice_campo, valore in campi.items():
+                # Salta valori che sono dict/list (sotto-config, non valori reali)
+                if isinstance(valore, (dict, list)):
+                    continue
                 if valore is not None and str(valore).strip() != "":
                     db.execute(text("""
                         INSERT INTO valori_configurazione
@@ -1025,6 +1076,9 @@ def get_dati_commessa(preventivo_id: int, db: Session = Depends(get_db)):
     result = {}
     for col in dati.__table__.columns:
         result[col.name] = getattr(dati, col.name, None)
+    # Alias per frontend
+    if "consegna_richiesta" in result:
+        result["data_consegna_richiesta"] = result["consegna_richiesta"]
     return result
 
 @app.put("/preventivi/{preventivo_id}/dati-commessa")
@@ -1038,11 +1092,16 @@ def update_dati_commessa(preventivo_id: int, data: DatiCommessaUpdate, db: Sessi
         print(f"[DATI COMMESSA] PUT preventivo_id={preventivo_id}, fields={list(update_data.keys())}")
         # Salva campi dati_commessa
         cliente_id_value = update_data.pop('cliente_id', None)
+        # Mapping nomi frontend -> nomi ORM
+        field_aliases = {
+            "data_consegna_richiesta": "consegna_richiesta",
+        }
         for key, value in update_data.items():
-            if hasattr(dati, key):
-                setattr(dati, key, value)
+            orm_key = field_aliases.get(key, key)
+            if hasattr(dati, orm_key):
+                setattr(dati, orm_key, value)
             else:
-                print(f"[DATI COMMESSA] WARNING: campo '{key}' non esiste nel modello DatiCommessa")
+                print(f"[DATI COMMESSA] WARNING: campo '{key}' (orm: '{orm_key}') non esiste nel modello DatiCommessa")
         
         # Se presente cliente_id, aggiorna direttamente il preventivo
         if cliente_id_value is not None:
@@ -1713,16 +1772,30 @@ def _apply_template_field_config(db, preventivo_id: int, template_id: int):
 
     count = 0
     for codice_campo, cfg in field_config.items():
-        is_readonly = 1 if cfg.get("readonly", False) else 0
-        includi = 1 if cfg.get("includi_preventivo", True) else 0
-        mostra_def = 1 if cfg.get("mostra_default", False) else 0
+        # Costruisci UPDATE dinamico: solo flag esplicitamente presenti nel template
+        updates = []
+        params = {"pid": preventivo_id, "campo": codice_campo}
 
-        result = db.execute(text("""
+        if "readonly" in cfg:
+            updates.append("is_readonly = :ro")
+            params["ro"] = 1 if cfg["readonly"] else 0
+
+        if "includi_preventivo" in cfg:
+            updates.append("includi_preventivo = :inc")
+            params["inc"] = 1 if cfg["includi_preventivo"] else 0
+
+        if "mostra_default" in cfg:
+            updates.append("mostra_default_preventivo = :md")
+            params["md"] = 1 if cfg["mostra_default"] else 0
+
+        if not updates:
+            continue
+
+        result = db.execute(text(f"""
             UPDATE valori_configurazione
-            SET is_readonly = :ro, includi_preventivo = :inc, mostra_default_preventivo = :md
+            SET {', '.join(updates)}
             WHERE preventivo_id = :pid AND codice_campo = :campo
-        """), {"ro": is_readonly, "inc": includi, "md": mostra_def,
-               "pid": preventivo_id, "campo": codice_campo})
+        """), params)
 
         if result.rowcount > 0:
             count += 1
@@ -4173,7 +4246,14 @@ def update_campo(campo_id: int, data: dict, db: Session = Depends(get_db)):
             "unita_misura": "unita_misura", "valore_min": "valore_min",
             "valore_max": "valore_max", "valore_default": "valore_default",
             "descrizione": "descrizione", "visibile_form": "visibile_form",
-            "usabile_regole": "usabile_regole"
+            "usabile_regole": "usabile_regole",
+            # Campi preventivo/PDF
+            "includi_preventivo": "includi_preventivo",
+            "mostra_default_preventivo": "mostra_default_preventivo",
+            "mostra_default": "mostra_default_preventivo",
+            "sezione_preventivo": "sezione_preventivo",
+            "ordine_preventivo": "ordine_preventivo",
+            "etichetta_preventivo": "etichetta_preventivo",
         }
         fields, params = [], {"id": campo_id}
         for frontend_key, db_col in field_map.items():
@@ -4213,7 +4293,7 @@ def get_valori_sezione(preventivo_id: int, sezione: str, db: Session = Depends(g
     try:
         # 1. Leggi valori esistenti
         result = db.execute(text("""
-            SELECT codice_campo, valore, is_default
+            SELECT codice_campo, valore, is_default, COALESCE(is_readonly, 0)
             FROM valori_configurazione
             WHERE preventivo_id = :pid AND sezione = :sez
         """), {"pid": preventivo_id, "sez": sezione})
@@ -4221,6 +4301,7 @@ def get_valori_sezione(preventivo_id: int, sezione: str, db: Session = Depends(g
         
         valori = {r[0]: r[1] for r in rows}
         defaults_info = {r[0]: bool(r[2]) for r in rows}
+        readonly_info = {r[0]: bool(r[3]) for r in rows}
         
         # 2. Popola default MANCANTI da campi_configuratore
         campi = db.execute(text("""
@@ -4240,16 +4321,34 @@ def get_valori_sezione(preventivo_id: int, sezione: str, db: Session = Depends(g
                 """), {"pid": preventivo_id, "sez": sezione, "campo": codice, "val": val})
                 valori[codice] = val
                 defaults_info[codice] = True
+                readonly_info[codice] = False
                 nuovi += 1
         
         if nuovi:
             db.commit()
+
+            # Applica field_config dal template se esiste
+            prev = db.execute(text(
+                "SELECT template_id FROM preventivi WHERE id = :pid"
+            ), {"pid": preventivo_id}).fetchone()
+            if prev and prev[0]:
+                _apply_template_field_config(db, preventivo_id, prev[0])
+                db.commit()
+                # Rileggi readonly aggiornati
+                for codice in list(readonly_info.keys()):
+                    row = db.execute(text("""
+                        SELECT COALESCE(is_readonly, 0) FROM valori_configurazione
+                        WHERE preventivo_id = :pid AND codice_campo = :campo
+                    """), {"pid": preventivo_id, "campo": codice}).fetchone()
+                    if row:
+                        readonly_info[codice] = bool(row[0])
 
         return {
             "preventivo_id": preventivo_id,
             "sezione": sezione,
             "valori": valori,
             "is_default": defaults_info,
+            "is_readonly": readonly_info,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

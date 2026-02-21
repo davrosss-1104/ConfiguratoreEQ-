@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Query, Header
+from fastapi import FastAPI, Depends, HTTPException, Query, Header, UploadFile, File as FastAPIFile, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -10,6 +10,13 @@ import os
 import io
 import math
 import re
+
+import base64
+from template_engine import (
+    DocumentTemplate, STATIC_SECTIONS,
+    get_available_fields_from_db, get_default_template_config_from_db,
+    genera_docx_da_template, load_valori_dinamici
+)
 
 from database import engine, SessionLocal
 from models import (
@@ -886,21 +893,35 @@ def create_preventivo(data: PreventivoCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(preventivo)
     
-    # Crea record correlati (vuoti o pre-compilati da template)
-    dp_data = template_data_parsed.get("dati_principali", {}) if template_data_parsed else {}
-    norm_data = template_data_parsed.get("normative", {}) if template_data_parsed else {}
-    dc_data = template_data_parsed.get("dati_commessa", {}) if template_data_parsed else {}
-    dv_data = template_data_parsed.get("disposizione_vano", {}) if template_data_parsed else {}
-    porte_data = template_data_parsed.get("porte", {}) if template_data_parsed else {}
-    
-    dati_commessa = DatiCommessa(preventivo_id=preventivo.id, **dc_data)
-    dati_principali = DatiPrincipali(preventivo_id=preventivo.id, **dp_data)
-    normative = Normative(preventivo_id=preventivo.id, **norm_data)
-    disposizione_vano = DisposizioneVano(preventivo_id=preventivo.id, **dv_data)
-    porte = Porte(preventivo_id=preventivo.id, **porte_data)
-    
-    db.add_all([dati_commessa, dati_principali, normative, disposizione_vano, porte])
+    # Crea record ORM vuoti per le sezioni dedicate (backward compat)
+    db.add_all([
+        DatiCommessa(preventivo_id=preventivo.id),
+        DatiPrincipali(preventivo_id=preventivo.id),
+        Normative(preventivo_id=preventivo.id),
+        DisposizioneVano(preventivo_id=preventivo.id),
+        Porte(preventivo_id=preventivo.id),
+        Argano(preventivo_id=preventivo.id),
+    ])
     db.commit()
+    
+    # Scrivi valori template in valori_configurazione (fonte primaria)
+    if template_data_parsed:
+        for sez_codice, campi in template_data_parsed.items():
+            if sez_codice == "materiali" or not isinstance(campi, dict):
+                continue
+            for codice_campo, valore in campi.items():
+                if valore is not None and str(valore).strip() != "":
+                    db.execute(text("""
+                        INSERT INTO valori_configurazione
+                            (preventivo_id, sezione, codice_campo, valore, is_default)
+                        VALUES (:pid, :sez, :campo, :val, 1)
+                    """), {
+                        "pid": preventivo.id,
+                        "sez": sez_codice,
+                        "campo": codice_campo,
+                        "val": str(valore),
+                    })
+        db.commit()
     
     # Aggiungi materiali da template se presenti
     if template_data_parsed and "materiali" in template_data_parsed:
@@ -1077,12 +1098,22 @@ def update_dati_principali(preventivo_id: int, data: DatiPrincipaliUpdate, db: S
     if not dati:
         dati = DatiPrincipali(preventivo_id=preventivo_id)
         db.add(dati)
-    for key, value in data.dict(exclude_unset=True).items():
-        setattr(dati, key, value)
+    update_data = data.dict(exclude_unset=True)
+    print(f"[DATI_PRINCIPALI] PUT preventivo_id={preventivo_id}, fields={list(update_data.keys())}")
+    for key, value in update_data.items():
+        if hasattr(dati, key):
+            setattr(dati, key, value)
+        else:
+            print(f"[DATI_PRINCIPALI] WARNING: campo '{key}' non esiste nel modello")
     db.commit()
     db.refresh(dati)
-    safe_evaluate_rules(preventivo_id, db)
-    return _orm_to_dict(dati)
+    rule_result = safe_evaluate_rules(preventivo_id, db)
+    result = _orm_to_dict(dati)
+    if rule_result and isinstance(rule_result, dict):
+        result["materials_added"] = rule_result.get("materiali_aggiunti", 0)
+        result["materials_removed"] = rule_result.get("materiali_rimossi", 0)
+        result["active_rules"] = rule_result.get("regole_attive", [])
+    return result
 
 # ==========================================
 # NORMATIVE
@@ -1103,12 +1134,23 @@ def update_normative(preventivo_id: int, data: NormativeUpdate, db: Session = De
     if not normative:
         normative = Normative(preventivo_id=preventivo_id)
         db.add(normative)
-    for key, value in data.dict(exclude_unset=True).items():
-        setattr(normative, key, value)
+    update_data = data.dict(exclude_unset=True)
+    print(f"[NORMATIVE] PUT preventivo_id={preventivo_id}, fields={update_data}")
+    for key, value in update_data.items():
+        if hasattr(normative, key):
+            setattr(normative, key, value)
+        else:
+            print(f"[NORMATIVE] WARNING: campo '{key}' non esiste nel modello")
     db.commit()
     db.refresh(normative)
-    safe_evaluate_rules(preventivo_id, db)
-    return _orm_to_dict(normative)
+    rule_result = safe_evaluate_rules(preventivo_id, db)
+    result = _orm_to_dict(normative)
+    # Aggiungi info regole alla risposta
+    if rule_result and isinstance(rule_result, dict):
+        result["materials_added"] = rule_result.get("materiali_aggiunti", 0)
+        result["materials_removed"] = rule_result.get("materiali_rimossi", 0)
+        result["active_rules"] = rule_result.get("regole_attive", [])
+    return result
 
 # ==========================================
 # DISPOSIZIONE VANO
@@ -1139,7 +1181,10 @@ def update_disposizione_vano(preventivo_id: int, data: DisposizioneVanoUpdate, d
             cleaned_data[key] = value
     
     for key, value in cleaned_data.items():
-        setattr(disposizione, key, value)
+        if hasattr(disposizione, key):
+            setattr(disposizione, key, value)
+        else:
+            print(f"[DISPOSIZIONE_VANO] WARNING: campo '{key}' non esiste nel modello")
     
     db.commit()
     db.refresh(disposizione)
@@ -1173,7 +1218,10 @@ def update_porte(preventivo_id: int, data: PorteUpdate, db: Session = Depends(ge
         porte = Porte(preventivo_id=preventivo_id)
         db.add(porte)
     for key, value in data.dict(exclude_unset=True).items():
-        setattr(porte, key, value)
+        if hasattr(porte, key):
+            setattr(porte, key, value)
+        else:
+            print(f"[PORTE] WARNING: campo '{key}' non esiste nel modello")
     db.commit()
     db.refresh(porte)
     safe_evaluate_rules(preventivo_id, db)
@@ -1428,8 +1476,7 @@ def update_sconto_admin(preventivo_id: int, data: dict, db: Session = Depends(ge
 # EXPORT PREVENTIVO
 # ==========================================
 @app.get("/preventivi/{preventivo_id}/export/{formato}")
-def export_preventivo(preventivo_id: int, formato: str, db: Session = Depends(get_db)):
-    """Esporta preventivo in formato JSON, DOCX o XLSX"""
+def export_preventivo(preventivo_id: int, formato: str, request: Request, db: Session = Depends(get_db)):    
     preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
     if not preventivo:
         raise HTTPException(status_code=404, detail="Preventivo non trovato")
@@ -1474,11 +1521,47 @@ def export_preventivo(preventivo_id: int, formato: str, db: Session = Depends(ge
         }
     
     elif fmt in ("docx", "pdf"):
-        try:
-            # Genera dati documento strutturati
-            dati_doc = get_dati_documento_preventivo(preventivo_id, db)
+        # --- Template personalizzato ---
+        doc_template_id = request.query_params.get("template_id")
+        doc_template = None
+        if doc_template_id:
+            doc_template = db.query(DocumentTemplate).filter(
+                DocumentTemplate.id == int(doc_template_id)
+            ).first()
+        else:
+            doc_template = db.query(DocumentTemplate).filter(
+                DocumentTemplate.tipo == "preventivo",
+                DocumentTemplate.is_default == True,
+                DocumentTemplate.attivo == True
+            ).first()
 
-            # Info base per header/footer
+        if doc_template and doc_template.config:
+            try:
+                available = get_available_fields_from_db(db)
+                valori_din = load_valori_dinamici(db, preventivo_id)
+                buf = genera_docx_da_template(
+                    template_config=doc_template.config,
+                    preventivo=preventivo,
+                    dati_commessa=dati_commessa,
+                    dati_principali=dati_principali,
+                    normative=normative_data,
+                    argano=argano_data,
+                    materiali=materiali,
+                    cliente=cliente,
+                    logo_data=doc_template.logo_data,
+                    logo_mime=doc_template.logo_mime,
+                    valori_dinamici=valori_din,
+                    available_fields=available,
+                )
+                return StreamingResponse(buf,
+                    media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"Content-Disposition": f'attachment; filename="{filename_base}.docx"'})
+            except Exception as e:
+                print(f"Errore template personalizzato, fallback: {e}")
+
+        # --- Fallback: generazione standard ---
+        try:
+            dati_doc = get_dati_documento_preventivo(preventivo_id, db)
             preventivo_info = {
                 "numero": _prev_numero(preventivo),
                 "customer": getattr(preventivo, 'customer_name', '') or '',
@@ -1490,7 +1573,6 @@ def export_preventivo(preventivo_id: int, formato: str, db: Session = Depends(ge
             }
             if cliente:
                 preventivo_info["customer"] = getattr(cliente, 'ragione_sociale', preventivo_info["customer"]) or preventivo_info["customer"]
-
             from export_utils import genera_docx_preventivo_v2
             buf = genera_docx_preventivo_v2(preventivo_info, dati_doc, materiali)
             return StreamingResponse(buf,
@@ -1832,6 +1914,100 @@ def get_regola(rule_id: str):
             return r
     raise HTTPException(status_code=404, detail=f"Regola {rule_id} non trovata")
 
+@app.post("/regole/check-value-usage")
+def check_value_usage(data: dict, db: Session = Depends(get_db)):
+    """
+    Controlla se un valore di un gruppo dropdown e' usato in condizioni di regole.
+    Body: { "gruppo": "en_81_20_anno", "valore": "2020" }
+    """
+    gruppo = data.get("gruppo", "")
+    valore = str(data.get("valore", ""))
+    
+    if not gruppo or not valore:
+        return {"affected_rules": [], "count": 0}
+    
+    # Trova i codici campo che usano questo gruppo dropdown
+    try:
+        result = db.execute(text(
+            "SELECT codice FROM campi_configuratore WHERE gruppo_dropdown = :g"
+        ), {"g": gruppo})
+        codici = [r[0] for r in result.fetchall()]
+    except:
+        codici = []
+    
+    # Genera varianti nome campo (regole possono usare con o senza prefisso sezione)
+    field_variants = set(codici)
+    for codice in codici:
+        if "." in codice:
+            field_variants.add(codice.split(".", 1)[1])
+        field_variants.add(gruppo.replace("_anno", "").replace("_tipo", ""))
+    
+    # Cerca nelle regole
+    rules = load_rules()
+    affected = []
+    for rule in rules:
+        for cond in rule.get("conditions", []):
+            if cond.get("field") in field_variants and str(cond.get("value")) == valore:
+                affected.append({
+                    "rule_id": rule.get("id"),
+                    "rule_name": rule.get("name", rule.get("id")),
+                    "enabled": rule.get("enabled", True),
+                    "field": cond.get("field"),
+                    "value": str(cond.get("value")),
+                })
+                break
+    
+    return {"affected_rules": affected, "count": len(affected), "field_variants": list(field_variants)}
+
+@app.put("/regole/cascade-update-value")
+def cascade_update_value(data: dict, db: Session = Depends(get_db)):
+    """
+    Aggiorna un valore nelle condizioni di tutte le regole impattate.
+    Body: { "gruppo": "en_81_20_anno", "old_value": "2020", "new_value": "2020_rev" }
+    """
+    gruppo = data.get("gruppo", "")
+    old_value = str(data.get("old_value", ""))
+    new_value = str(data.get("new_value", ""))
+    
+    if not old_value or not new_value:
+        raise HTTPException(status_code=400, detail="old_value e new_value obbligatori")
+    
+    # Stessa logica di field_variants
+    try:
+        result = db.execute(text(
+            "SELECT codice FROM campi_configuratore WHERE gruppo_dropdown = :g"
+        ), {"g": gruppo})
+        codici = [r[0] for r in result.fetchall()]
+    except:
+        codici = []
+    
+    field_variants = set(codici)
+    for codice in codici:
+        if "." in codice:
+            field_variants.add(codice.split(".", 1)[1])
+        field_variants.add(gruppo.replace("_anno", "").replace("_tipo", ""))
+    
+    # Aggiorna
+    rules = load_rules()
+    updated_rules = []
+    for rule in rules:
+        modified = False
+        for cond in rule.get("conditions", []):
+            if cond.get("field") in field_variants and str(cond.get("value")) == old_value:
+                cond["value"] = new_value
+                modified = True
+        if modified:
+            rule_id = rule.get("id")
+            filepath = os.path.join(RULES_DIR, f"{rule_id}.json")
+            try:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    json.dump(rule, f, indent=2, ensure_ascii=False)
+                updated_rules.append(rule_id)
+            except Exception as e:
+                print(f"Errore aggiornamento regola {rule_id}: {e}")
+    
+    return {"status": "ok", "updated_rules": updated_rules, "count": len(updated_rules)}
+
 @app.post("/regole")
 def create_regola(data: dict):
     """Crea una nuova regola JSON"""
@@ -1884,18 +2060,46 @@ def delete_regola(rule_id: str):
 
 @app.get("/regole-campi-disponibili")
 def get_campi_disponibili(db: Session = Depends(get_db)):
-    """Lista tutti i campi utilizzabili nelle condizioni delle regole, con tipo e opzioni"""
+    """
+    Lista tutti i campi utilizzabili nelle condizioni delle regole, con tipo e opzioni.
+    
+    Approccio DYNAMIC-FIRST:
+    1. Legge TUTTO da campi_configuratore (fonte di verità per campi sezione)
+    2. Aggiunge campi template/preventivo (meta-campi, non in campi_configuratore)
+    3. Aggiunge fallback per campi ORM legacy NON presenti in campi_configuratore
+    """
     campi = []
+    codici_gia_aggiunti = set()
 
-    # Helper per aggiungere campo con metadati
     def add_campo(field, source, label, tipo="testo", options=None):
+        if field in codici_gia_aggiunti:
+            return  # Evita duplicati
+        codici_gia_aggiunti.add(field)
         entry = {"field": field, "source": source, "label": label, "type": tipo}
         if options:
             entry["options"] = options
         campi.append(entry)
 
-    # --- Campi TEMPLATE ---
-    # Carica opzioni reali da DB
+    # =========================================================
+    # STEP 1: Campi da campi_configuratore (FONTE DI VERITÀ)
+    # =========================================================
+    try:
+        result = db.execute(text(
+            "SELECT codice, etichetta, sezione, tipo, gruppo_dropdown "
+            "FROM campi_configuratore WHERE attivo=1 ORDER BY sezione, ordine"
+        ))
+        for row in result.fetchall():
+            codice, etichetta, sezione, tipo, gruppo = row[0], row[1], row[2], row[3], row[4]
+            options = None
+            if tipo == "dropdown" and gruppo:
+                options = _load_dropdown_options(db, gruppo)
+            add_campo(codice, sezione, etichetta, tipo or "testo", options)
+    except Exception:
+        pass
+
+    # =========================================================
+    # STEP 2: Meta-campi TEMPLATE (non sono in campi_configuratore)
+    # =========================================================
     try:
         cat_result = db.execute(text("SELECT DISTINCT categoria FROM product_templates WHERE attivo=1 ORDER BY categoria"))
         template_categorie = [r[0] for r in cat_result.fetchall() if r[0]]
@@ -1922,64 +2126,76 @@ def get_campi_disponibili(db: Session = Depends(get_db)):
     add_campo("template_nome", "template", "Template Nome Display", "dropdown", template_nomi)
     add_campo("template_id", "template", "Template ID", "dropdown", template_ids)
 
-    # --- Campi PREVENTIVO ---
+    # =========================================================
+    # STEP 3: Meta-campi PREVENTIVO (non sono in campi_configuratore)
+    # =========================================================
     add_campo("preventivo_tipo", "preventivo", "Tipo Preventivo", "dropdown", ["COMPLETO", "RICAMBI"])
     add_campo("preventivo_categoria", "preventivo", "Categoria Preventivo", "dropdown", template_categorie)
 
-    # --- Campi DATI PRINCIPALI ---
-    # Campi booleani
-    for c in ["nuovo_impianto", "con_locale_macchina"]:
-        add_campo(c, "dati_principali", c.replace("_", " ").title(), "booleano")
-    # Campi numerici
-    for c in ["numero_fermate", "numero_servizi", "velocita", "corsa", "luce"]:
-        add_campo(c, "dati_principali", c.replace("_", " ").title(), "numero")
-    # Campi dropdown (carica opzioni da opzioni_dropdown se esistono)
-    dp_dropdowns = {
-        "tipo_impianto": "tipo_impianto",
-        "posizione_locale_macchina": "posizione_locale_macchina",
-        "tipo_trazione": "tipo_trazione",
-        "forza_motrice": "forza_motrice",
-        "tensione_manovra": "tensione_manovra",
-        "tensione_freno": "tensione_freno",
+    # =========================================================
+    # STEP 4: Fallback campi ORM legacy
+    #   Solo per campi NON già definiti in campi_configuratore.
+    #   Questi servono se il sistema ha tabelle ORM legacy
+    #   non ancora migrate a campi_configuratore.
+    # =========================================================
+    
+    # Dati principali
+    legacy_dp = {
+        "tipo_impianto": ("dropdown", "tipo_impianto"),
+        "nuovo_impianto": ("booleano", None),
+        "numero_fermate": ("numero", None),
+        "numero_servizi": ("numero", None),
+        "velocita": ("numero", None),
+        "corsa": ("numero", None),
+        "con_locale_macchina": ("booleano", None),
+        "posizione_locale_macchina": ("dropdown", "posizione_locale_macchina"),
+        "tipo_trazione": ("dropdown", "tipo_trazione"),
+        "forza_motrice": ("dropdown", "forza_motrice"),
+        "luce": ("numero", None),
+        "tensione_manovra": ("dropdown", "tensione_manovra"),
+        "tensione_freno": ("dropdown", "tensione_freno"),
     }
-    for campo, gruppo in dp_dropdowns.items():
-        opts = _load_dropdown_options(db, gruppo)
-        add_campo(campo, "dati_principali", campo.replace("_", " ").title(), "dropdown" if opts else "testo", opts or None)
+    for campo, (tipo, gruppo) in legacy_dp.items():
+        if campo not in codici_gia_aggiunti:
+            opts = _load_dropdown_options(db, gruppo) if gruppo else None
+            add_campo(campo, "dati_principali", campo.replace("_", " ").title(), tipo, opts)
 
-    # --- Campi NORMATIVE (tutti booleani) ---
-    for c in ["en_81_1", "en_81_20", "en_81_21", "en_81_28", "en_81_70",
-              "en_81_72", "en_81_73", "a3_95_16", "dm236_legge13", "emendamento_a3"]:
-        add_campo(c, "normative", c.replace("_", " ").upper(), "booleano")
+    # Normative
+    legacy_norm = {
+        "en_81_1": ("dropdown", "en_81_1_anno", [{"value": "1998", "label": "1998"}, {"value": "2010", "label": "2010"}]),
+        "en_81_20": ("dropdown", "en_81_20_anno", [{"value": "2014", "label": "2014"}, {"value": "2020", "label": "2020"}]),
+        "en_81_21": ("dropdown", "en_81_21_anno", [{"value": "2009", "label": "2009"}, {"value": "2018", "label": "2018"}]),
+        "en_81_28": ("booleano", None, None),
+        "en_81_70": ("booleano", None, None),
+        "en_81_72": ("booleano", None, None),
+        "en_81_73": ("booleano", None, None),
+        "a3_95_16": ("booleano", None, None),
+        "dm236_legge13": ("booleano", None, None),
+        "emendamento_a3": ("booleano", None, None),
+        "uni_10411_1": ("booleano", None, None),
+    }
+    for campo, (tipo, gruppo, fallback_opts) in legacy_norm.items():
+        if campo not in codici_gia_aggiunti:
+            opts = None
+            if gruppo:
+                opts = _load_dropdown_options(db, gruppo) or fallback_opts
+            add_campo(campo, "normative", campo.replace("_", " ").upper(), tipo, opts)
 
-    # --- Campi ARGANO ---
-    # Booleani
-    for c in ["vvvf_nel_vano", "ventilazione_forzata"]:
-        add_campo(c, "argano", c.replace("_", " ").title(), "booleano")
-    # Numerici
-    for c in ["potenza_motore_kw", "corrente_nom_motore_amp", "freno_tensione"]:
-        add_campo(c, "argano", c.replace("_", " ").title(), "numero")
-    # Dropdown
-    arg_dropdowns = {"trazione": "trazione", "tipo_vvvf": "tipo_vvvf", "tipo_teleruttore": "tipo_teleruttore"}
-    for campo, gruppo in arg_dropdowns.items():
-        opts = _load_dropdown_options(db, gruppo)
-        add_campo(campo, "argano", campo.replace("_", " ").title(), "dropdown" if opts else "testo", opts or None)
-
-    # --- Campi DINAMICI da campi_configuratore ---
-    try:
-        result = db.execute(text(
-            "SELECT codice, etichetta, sezione, tipo, gruppo_dropdown "
-            "FROM campi_configuratore WHERE attivo=1"
-        ))
-        for row in result.fetchall():
-            codice, etichetta, sezione, tipo, gruppo = row[0], row[1], row[2], row[3], row[4]
-            options = None
-            if tipo == "dropdown" and gruppo:
-                options = _load_dropdown_options(db, gruppo)
-            elif tipo == "booleano":
-                pass  # no options needed, frontend knows
-            add_campo(codice, f"dinamico/{sezione}", etichetta, tipo or "testo", options)
-    except Exception:
-        pass
+    # Argano
+    legacy_argano = {
+        "trazione": ("dropdown", "trazione"),
+        "potenza_motore_kw": ("numero", None),
+        "corrente_nom_motore_amp": ("numero", None),
+        "tipo_vvvf": ("dropdown", "tipo_vvvf"),
+        "vvvf_nel_vano": ("booleano", None),
+        "freno_tensione": ("numero", None),
+        "ventilazione_forzata": ("booleano", None),
+        "tipo_teleruttore": ("dropdown", "tipo_teleruttore"),
+    }
+    for campo, (tipo, gruppo) in legacy_argano.items():
+        if campo not in codici_gia_aggiunti:
+            opts = _load_dropdown_options(db, gruppo) if gruppo else None
+            add_campo(campo, "argano", campo.replace("_", " ").title(), tipo, opts)
 
     return campi
 
@@ -3104,6 +3320,32 @@ def get_gruppi_dropdown(db: Session = Depends(get_db)):
         return [{"gruppo": r[0], "totale": r[1], "attive": r[2]} for r in result.fetchall()]
     except:
         return []
+    
+@app.get("/opzioni-dropdown/gruppi-sezioni-map")
+def get_gruppi_sezioni_map(db: Session = Depends(get_db)):
+    """
+    Restituisce { gruppo_dropdown: { sezione_codice, sezione_etichetta } }
+    costruita dai campi_configuratore + sezioni_configuratore.
+    """
+    try:
+        result = db.execute(text("""
+            SELECT DISTINCT c.gruppo_dropdown, c.sezione, 
+                   COALESCE(s.etichetta, c.sezione) as sezione_etichetta
+            FROM campi_configuratore c
+            LEFT JOIN sezioni_configuratore s ON s.codice = c.sezione
+            WHERE c.gruppo_dropdown IS NOT NULL 
+              AND c.gruppo_dropdown != ''
+        """))
+        mapping = {}
+        for row in result.fetchall():
+            mapping[row[0]] = {
+                "sezione_codice": row[1],
+                "sezione_etichetta": row[2]
+            }
+        return mapping
+    except Exception as e:
+        print(f"Errore gruppi-sezioni-map: {e}")
+        return {}
 
 @app.get("/opzioni-dropdown/{gruppo}")
 def get_opzioni_dropdown(gruppo: str, solo_attive: bool = True, db: Session = Depends(get_db)):
@@ -3113,25 +3355,69 @@ def get_opzioni_dropdown(gruppo: str, solo_attive: bool = True, db: Session = De
             q += " AND attivo = 1"
         q += " ORDER BY ordine"
         result = db.execute(text(q), {"g": gruppo})
-        return [{"id": r[0], "gruppo": r[1], "valore": r[2], "label": r[3], "ordine": r[4], "attivo": bool(r[5])} for r in result.fetchall()]
+        return [{
+            "id": r[0], "gruppo": r[1], "valore": r[2],
+            "etichetta": r[3],   # <-- era "label"
+            "label": r[3],       # backward compat
+            "ordine": r[4], "attivo": bool(r[5])
+        } for r in result.fetchall()]
     except:
         return []
 
+
+# SOSTITUIRE @app.post("/opzioni-dropdown") (riga ~2371-2379)
 @app.post("/opzioni-dropdown")
 def create_opzione_dropdown(data: dict, db: Session = Depends(get_db)):
     try:
-        db.execute(text("INSERT INTO opzioni_dropdown (gruppo, valore, etichetta, ordine, attivo) VALUES (:gruppo, :valore, :etichetta, :ordine, 1)"),
-            {"gruppo": data["gruppo"], "valore": data["valore"], "etichetta": data.get("label", data["valore"]), "ordine": data.get("ordine", 0)})
+        # Accetta sia "etichetta" che "label"
+        etichetta = data.get("etichetta") or data.get("label") or data.get("valore", "")
+        db.execute(text(
+            "INSERT INTO opzioni_dropdown (gruppo, valore, etichetta, ordine, attivo) "
+            "VALUES (:gruppo, :valore, :etichetta, :ordine, :attivo)"
+        ), {
+            "gruppo": data["gruppo"],
+            "valore": data["valore"],
+            "etichetta": etichetta,
+            "ordine": data.get("ordine", 0),
+            "attivo": 1 if data.get("attivo", True) else 0,
+        })
         db.commit()
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# SOSTITUIRE @app.put("/opzioni-dropdown/{opzione_id}") (riga ~2381-2389)
 @app.put("/opzioni-dropdown/{opzione_id}")
 def update_opzione_dropdown(opzione_id: int, data: dict, db: Session = Depends(get_db)):
+    """Aggiorna SOLO i campi presenti nel payload."""
     try:
-        db.execute(text("UPDATE opzioni_dropdown SET valore=:valore, etichetta=:etichetta, ordine=:ordine, attivo=:attivo WHERE id=:id"),
-            {"valore": data.get("valore"), "etichetta": data.get("label"), "ordine": data.get("ordine", 0), "attivo": 1 if data.get("attivo", True) else 0, "id": opzione_id})
+        updates = []
+        params = {"id": opzione_id}
+
+        if "valore" in data and data["valore"] is not None:
+            updates.append("valore = :valore")
+            params["valore"] = data["valore"]
+
+        # Accetta sia "etichetta" che "label"
+        etichetta = data.get("etichetta", data.get("label"))
+        if etichetta is not None:
+            updates.append("etichetta = :etichetta")
+            params["etichetta"] = etichetta
+
+        if "ordine" in data:
+            updates.append("ordine = :ordine")
+            params["ordine"] = data["ordine"]
+
+        if "attivo" in data:
+            updates.append("attivo = :attivo")
+            params["attivo"] = 1 if data["attivo"] else 0
+
+        if not updates:
+            return {"status": "noop"}
+
+        sql = f"UPDATE opzioni_dropdown SET {', '.join(updates)} WHERE id = :id"
+        db.execute(text(sql), params)
         db.commit()
         return {"status": "ok"}
     except Exception as e:
@@ -3155,6 +3441,177 @@ def riordina_opzioni(gruppo: str, data: dict, db: Session = Depends(get_db)):
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# DOCUMENT TEMPLATES — CRUD + Export
+# ==========================================
+
+@app.get("/document-templates/available-fields")
+def get_available_fields(db: Session = Depends(get_db)):
+    """Restituisce tutti i campi disponibili (statici + dinamici dal DB)"""
+    return get_available_fields_from_db(db)
+
+
+@app.get("/document-templates/default-config/{tipo}")
+def get_default_config(tipo: str, db: Session = Depends(get_db)):
+    """Restituisce una configurazione template di default per tipo (preventivo/ordine)"""
+    if tipo not in ("preventivo", "ordine"):
+        raise HTTPException(status_code=400, detail="Tipo deve essere 'preventivo' o 'ordine'")
+    return get_default_template_config_from_db(db, tipo)
+
+
+@app.get("/document-templates")
+def list_document_templates(tipo: str = None, db: Session = Depends(get_db)):
+    """Lista tutti i document templates, opzionalmente filtrati per tipo"""
+    query = db.query(DocumentTemplate)
+    if tipo:
+        query = query.filter(DocumentTemplate.tipo == tipo)
+    templates = query.order_by(DocumentTemplate.tipo, DocumentTemplate.nome).all()
+    return [
+        {
+            "id": t.id,
+            "nome": t.nome,
+            "tipo": t.tipo,
+            "descrizione": t.descrizione,
+            "attivo": t.attivo,
+            "is_default": t.is_default,
+            "has_logo": t.logo_data is not None,
+            "logo_filename": t.logo_filename,
+            "config": t.config,
+            "created_at": str(t.created_at) if t.created_at else None,
+            "updated_at": str(t.updated_at) if t.updated_at else None,
+        }
+        for t in templates
+    ]
+
+
+@app.get("/document-templates/{template_id}")
+def get_document_template(template_id: int, db: Session = Depends(get_db)):
+    """Recupera un singolo document template con config completa"""
+    t = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Template non trovato")
+    result = {
+        "id": t.id,
+        "nome": t.nome,
+        "tipo": t.tipo,
+        "descrizione": t.descrizione,
+        "attivo": t.attivo,
+        "is_default": t.is_default,
+        "has_logo": t.logo_data is not None,
+        "logo_filename": t.logo_filename,
+        "logo_mime": t.logo_mime,
+        "config": t.config,
+        "created_at": str(t.created_at) if t.created_at else None,
+        "updated_at": str(t.updated_at) if t.updated_at else None,
+    }
+    if t.logo_data:
+        result["logo_base64"] = base64.b64encode(t.logo_data).decode("utf-8")
+    return result
+
+
+@app.post("/document-templates")
+def create_document_template(
+    nome: str = Form(...),
+    tipo: str = Form(...),
+    descrizione: str = Form(""),
+    config_json: str = Form(...),
+    is_default: bool = Form(False),
+    logo: UploadFile = FastAPIFile(None),
+    db: Session = Depends(get_db)
+):
+    """Crea un nuovo document template"""
+    if tipo not in ("preventivo", "ordine"):
+        raise HTTPException(status_code=400, detail="Tipo deve essere 'preventivo' o 'ordine'")
+
+    try:
+        config = json.loads(config_json)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="config_json non e' un JSON valido")
+
+    if is_default:
+        db.query(DocumentTemplate).filter(
+            DocumentTemplate.tipo == tipo,
+            DocumentTemplate.is_default == True
+        ).update({"is_default": False})
+
+    template = DocumentTemplate(
+        nome=nome, tipo=tipo, descrizione=descrizione,
+        config=config, is_default=is_default, attivo=True,
+    )
+
+    if logo:
+        logo_bytes = logo.file.read()
+        template.logo_data = logo_bytes
+        template.logo_filename = logo.filename
+        template.logo_mime = logo.content_type
+
+    db.add(template)
+    db.commit()
+    db.refresh(template)
+    return {"id": template.id, "nome": template.nome, "message": "Template creato"}
+
+
+@app.put("/document-templates/{template_id}")
+def update_document_template(
+    template_id: int,
+    nome: str = Form(None),
+    tipo: str = Form(None),
+    descrizione: str = Form(None),
+    config_json: str = Form(None),
+    attivo: bool = Form(None),
+    is_default: bool = Form(None),
+    remove_logo: bool = Form(False),
+    logo: UploadFile = FastAPIFile(None),
+    db: Session = Depends(get_db)
+):
+    """Aggiorna un document template esistente"""
+    template = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template non trovato")
+
+    if nome is not None: template.nome = nome
+    if tipo is not None: template.tipo = tipo
+    if descrizione is not None: template.descrizione = descrizione
+    if attivo is not None: template.attivo = attivo
+    if config_json is not None:
+        try:
+            template.config = json.loads(config_json)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="config_json non e' un JSON valido")
+
+    if is_default is not None:
+        if is_default:
+            db.query(DocumentTemplate).filter(
+                DocumentTemplate.tipo == (tipo or template.tipo),
+                DocumentTemplate.is_default == True,
+                DocumentTemplate.id != template_id
+            ).update({"is_default": False})
+        template.is_default = is_default
+
+    if remove_logo:
+        template.logo_data = None
+        template.logo_filename = None
+        template.logo_mime = None
+    elif logo:
+        logo_bytes = logo.file.read()
+        template.logo_data = logo_bytes
+        template.logo_filename = logo.filename
+        template.logo_mime = logo.content_type
+
+    db.commit()
+    return {"id": template.id, "message": "Template aggiornato"}
+
+
+@app.delete("/document-templates/{template_id}")
+def delete_document_template(template_id: int, db: Session = Depends(get_db)):
+    """Elimina un document template"""
+    template = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template non trovato")
+    db.delete(template)
+    db.commit()
+    return {"message": "Template eliminato"}
 
 # ============================================================================
 # SEZIONE A: CRUD sezioni_preventivo (NUOVI endpoint)
@@ -3750,44 +4207,31 @@ def delete_campo(campo_id: int, db: Session = Depends(get_db)):
 def get_valori_sezione(preventivo_id: int, sezione: str, db: Session = Depends(get_db)):
     """
     Legge i valori di una sezione per un preventivo.
-    AUTO-POPULATE: se la sezione non ha ancora valori salvati,
-    popola automaticamente tutti i default da campi_configuratore.
-    Ritorna anche is_readonly per ogni campo.
+    AUTO-POPULATE: popola i default MANCANTI da campi_configuratore,
+    anche se alcuni valori esistono già (es. da template).
     """
     try:
         # 1. Leggi valori esistenti
         result = db.execute(text("""
-            SELECT codice_campo, valore, is_default,
-                   COALESCE(is_readonly, 0) as is_readonly
+            SELECT codice_campo, valore, is_default
             FROM valori_configurazione
             WHERE preventivo_id = :pid AND sezione = :sez
         """), {"pid": preventivo_id, "sez": sezione})
         rows = result.fetchall()
-
-        if rows:
-            valori = {r[0]: r[1] for r in rows}
-            defaults_info = {r[0]: bool(r[2]) for r in rows}
-            readonly_info = {r[0]: bool(r[3]) for r in rows}
-            return {
-                "preventivo_id": preventivo_id,
-                "sezione": sezione,
-                "valori": valori,
-                "is_default": defaults_info,
-                "is_readonly": readonly_info,
-            }
-
-        # 2. Nessun valore -> auto-populate da campi_configuratore
+        
+        valori = {r[0]: r[1] for r in rows}
+        defaults_info = {r[0]: bool(r[2]) for r in rows}
+        
+        # 2. Popola default MANCANTI da campi_configuratore
         campi = db.execute(text("""
             SELECT codice, valore_default, tipo
             FROM campi_configuratore
             WHERE sezione = :sez AND attivo = 1
         """), {"sez": sezione}).fetchall()
-
-        valori = {}
-        defaults_info = {}
-        readonly_info = {}
+        
+        nuovi = 0
         for codice, valore_default, tipo in campi:
-            if valore_default is not None and str(valore_default).strip() != "":
+            if codice not in valori and valore_default is not None and str(valore_default).strip() != "":
                 val = str(valore_default)
                 db.execute(text("""
                     INSERT INTO valori_configurazione
@@ -3796,33 +4240,16 @@ def get_valori_sezione(preventivo_id: int, sezione: str, db: Session = Depends(g
                 """), {"pid": preventivo_id, "sez": sezione, "campo": codice, "val": val})
                 valori[codice] = val
                 defaults_info[codice] = True
-                readonly_info[codice] = False
-
-        if valori:
+                nuovi += 1
+        
+        if nuovi:
             db.commit()
-
-            # Applica field_config dal template se esiste
-            prev = db.execute(text(
-                "SELECT template_id FROM preventivi WHERE id = :pid"
-            ), {"pid": preventivo_id}).fetchone()
-            if prev and prev[0]:
-                _apply_template_field_config(db, preventivo_id, prev[0])
-                db.commit()
-                # Rileggi readonly aggiornati
-                for codice in valori:
-                    row = db.execute(text("""
-                        SELECT COALESCE(is_readonly, 0) FROM valori_configurazione
-                        WHERE preventivo_id = :pid AND codice_campo = :campo
-                    """), {"pid": preventivo_id, "campo": codice}).fetchone()
-                    if row:
-                        readonly_info[codice] = bool(row[0])
 
         return {
             "preventivo_id": preventivo_id,
             "sezione": sezione,
             "valori": valori,
             "is_default": defaults_info,
-            "is_readonly": readonly_info,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

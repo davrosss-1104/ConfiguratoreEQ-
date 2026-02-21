@@ -4,9 +4,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Check, AlertCircle, Zap } from 'lucide-react';
+import { Loader2, Check, AlertCircle, Lock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { useFieldsWithRules } from '@/hooks/useFieldsWithRules';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -17,8 +16,8 @@ const API_BASE = 'http://localhost:8000';
 interface CampoDB {
   id: number;
   codice: string;
-  label: string;
-  tipo: string;
+  label: string;        // etichetta
+  tipo: string;         // testo, numero, booleano, dropdown, data
   sezione: string;
   gruppo_opzioni?: string;
   ordine: number;
@@ -58,11 +57,11 @@ export default function DynamicSectionForm({
   onDataChange,
 }: DynamicSectionFormProps) {
   const { toast } = useToast();
-  const fieldsWithRules = useFieldsWithRules();
 
   // State
   const [campi, setCampi] = useState<CampoDB[]>([]);
   const [valori, setValori] = useState<Record<string, any>>({});
+  const [readonlyMap, setReadonlyMap] = useState<Record<string, boolean>>({});
   const [opzioniMap, setOpzioniMap] = useState<Record<string, Opzione[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -110,11 +109,14 @@ export default function DynamicSectionForm({
       const valoriRes = await fetch(`${API_BASE}/preventivi/${preventivoId}/configurazione/${sezioneCode}`);
       const valoriData = valoriRes.ok ? await valoriRes.json() : {};
       const valoriSalvati = valoriData.valori || {};
+      const readonlyInfo = valoriData.is_readonly || {};
+      setReadonlyMap(readonlyInfo);
 
-      // Merge: valori dal DB hanno priorità, fallback su default campo o valore vuoto
+      // Merge: valori dal DB hanno prioritÃ , fallback su default campo o valore vuoto
       const merged: Record<string, any> = {};
       for (const campo of campiVisibili) {
         if (valoriSalvati[campo.codice] !== undefined && valoriSalvati[campo.codice] !== null) {
+          // Valore dal DB (salvato dall'utente o auto-popolato come default)
           const raw = valoriSalvati[campo.codice];
           if (campo.tipo === 'numero') {
             merged[campo.codice] = parseFloat(raw) || 0;
@@ -124,6 +126,7 @@ export default function DynamicSectionForm({
             merged[campo.codice] = raw;
           }
         } else if (campo.valore_default) {
+          // Fallback: default del campo (non ancora auto-popolato dal backend)
           if (campo.tipo === 'numero') {
             merged[campo.codice] = parseFloat(campo.valore_default) || 0;
           } else if (campo.tipo === 'booleano') {
@@ -175,6 +178,9 @@ export default function DynamicSectionForm({
   }, [preventivoId, sezioneCode, onDataChange]);
 
   const handleChange = useCallback((codice: string, valore: any) => {
+    // Blocca modifiche su campi readonly
+    if (readonlyMap[codice]) return;
+
     setValori(prev => {
       const next = { ...prev, [codice]: valore };
       valoriRef.current = next;
@@ -184,7 +190,7 @@ export default function DynamicSectionForm({
     // Debounce auto-save 3 secondi
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => saveData(), 3000);
-  }, [saveData]);
+  }, [saveData, readonlyMap]);
 
   // Cleanup
   useEffect(() => {
@@ -194,37 +200,35 @@ export default function DynamicSectionForm({
   }, []);
 
   // ==========================================
-  // RULE ICON
-  // ==========================================
-
-  const RuleIcon = ({ codice }: { codice: string }) => {
-    if (!fieldsWithRules.has(codice)) return null;
-    return <Zap className="w-3.5 h-3.5 text-amber-500 inline-block ml-1 flex-shrink-0" title="Collegato a una regola automatica" />;
-  };
-
-  // ==========================================
   // RENDER CAMPO
   // ==========================================
 
   const renderCampo = (campo: CampoDB) => {
     const valore = valori[campo.codice];
+    const isReadonly = readonlyMap[campo.codice] || false;
+    const readonlyCls = isReadonly ? 'opacity-60' : '';
+
+    const labelEl = (
+      <Label className={`text-sm font-medium text-gray-700 ${readonlyCls}`}>
+        {campo.label}
+        {campo.obbligatorio && <span className="text-red-500 ml-1">*</span>}
+        {campo.unita_misura && <span className="text-gray-400 ml-1">({campo.unita_misura})</span>}
+        {isReadonly && <Lock className="inline-block w-3 h-3 ml-1.5 text-amber-500" />}
+      </Label>
+    );
 
     switch (campo.tipo) {
       case 'dropdown': {
         const opzioni = campo.gruppo_opzioni ? (opzioniMap[campo.gruppo_opzioni] || []) : [];
         return (
-          <div key={campo.codice}>
-            <Label className="text-sm font-medium text-gray-700">
-              {campo.label}
-              {campo.obbligatorio && <span className="text-red-500 ml-1">*</span>}
-              {campo.unita_misura && <span className="text-gray-400 ml-1">({campo.unita_misura})</span>}
-              <RuleIcon codice={campo.codice} />
-            </Label>
+          <div key={campo.codice} className={readonlyCls}>
+            {labelEl}
             <Select
               value={String(valore || '')}
               onValueChange={(v) => handleChange(campo.codice, v)}
+              disabled={isReadonly}
             >
-              <SelectTrigger className="mt-1">
+              <SelectTrigger className={`mt-1 ${isReadonly ? 'bg-gray-100 cursor-not-allowed' : ''}`}>
                 <SelectValue placeholder="Seleziona..." />
               </SelectTrigger>
               <SelectContent>
@@ -242,13 +246,8 @@ export default function DynamicSectionForm({
 
       case 'numero':
         return (
-          <div key={campo.codice}>
-            <Label className="text-sm font-medium text-gray-700">
-              {campo.label}
-              {campo.obbligatorio && <span className="text-red-500 ml-1">*</span>}
-              {campo.unita_misura && <span className="text-gray-400 ml-1">({campo.unita_misura})</span>}
-              <RuleIcon codice={campo.codice} />
-            </Label>
+          <div key={campo.codice} className={readonlyCls}>
+            {labelEl}
             <Input
               type="number"
               value={valore ?? ''}
@@ -256,7 +255,8 @@ export default function DynamicSectionForm({
               min={campo.valore_min}
               max={campo.valore_max}
               step={campo.unita_misura === 'm/s' ? 0.1 : 1}
-              className="mt-1"
+              className={`mt-1 ${isReadonly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+              disabled={isReadonly}
             />
             {campo.descrizione && <p className="text-xs text-gray-400 mt-1">{campo.descrizione}</p>}
           </div>
@@ -264,17 +264,18 @@ export default function DynamicSectionForm({
 
       case 'booleano':
         return (
-          <div key={campo.codice} className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+          <div key={campo.codice} className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 ${isReadonly ? 'bg-gray-50 opacity-60' : ''}`}>
             <Checkbox
               id={campo.codice}
               checked={Boolean(valore)}
               onCheckedChange={(checked) => handleChange(campo.codice, !!checked)}
+              disabled={isReadonly}
             />
             <div className="space-y-1 leading-none">
-              <Label htmlFor={campo.codice} className="cursor-pointer">
+              <Label htmlFor={campo.codice} className={isReadonly ? '' : 'cursor-pointer'}>
                 {campo.label}
                 {campo.obbligatorio && <span className="text-red-500 ml-1">*</span>}
-                <RuleIcon codice={campo.codice} />
+                {isReadonly && <Lock className="inline-block w-3 h-3 ml-1.5 text-amber-500" />}
               </Label>
               {campo.descrizione && <p className="text-xs text-gray-400">{campo.descrizione}</p>}
             </div>
@@ -283,17 +284,14 @@ export default function DynamicSectionForm({
 
       case 'data':
         return (
-          <div key={campo.codice}>
-            <Label className="text-sm font-medium text-gray-700">
-              {campo.label}
-              {campo.obbligatorio && <span className="text-red-500 ml-1">*</span>}
-              <RuleIcon codice={campo.codice} />
-            </Label>
+          <div key={campo.codice} className={readonlyCls}>
+            {labelEl}
             <Input
               type="date"
               value={valore || ''}
               onChange={(e) => handleChange(campo.codice, e.target.value)}
-              className="mt-1"
+              className={`mt-1 ${isReadonly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+              disabled={isReadonly}
             />
             {campo.descrizione && <p className="text-xs text-gray-400 mt-1">{campo.descrizione}</p>}
           </div>
@@ -302,18 +300,15 @@ export default function DynamicSectionForm({
       case 'testo':
       default:
         return (
-          <div key={campo.codice}>
-            <Label className="text-sm font-medium text-gray-700">
-              {campo.label}
-              {campo.obbligatorio && <span className="text-red-500 ml-1">*</span>}
-              <RuleIcon codice={campo.codice} />
-            </Label>
+          <div key={campo.codice} className={readonlyCls}>
+            {labelEl}
             <Input
               type="text"
               value={valore || ''}
               onChange={(e) => handleChange(campo.codice, e.target.value)}
               placeholder={campo.descrizione || ''}
-              className="mt-1"
+              className={`mt-1 ${isReadonly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+              disabled={isReadonly}
             />
           </div>
         );
