@@ -1,16 +1,26 @@
 """
-rule_engine.py - Rule Engine unificato (v3 - Two-Phase + Lookup Table)
-Combina il meglio di:
-  - evaluate_rules() da main.py (rimozione orfani smart, trigger automatico, aggiornamento totali)
-  - RuleEngine class da rule_engine.py (AND/OR, placeholder, parametri BOM, operatori estesi)
+rule_engine.py - Rule Engine unificato v4
 
-Funzionalita':
-  - build_config_context() legge da TUTTE le fonti (ORM dedicati + valori_configurazione dinamici)
-  - Supporto regole da DB (tabella regole) E da file JSON (directory rules/)
-  - Chiavi con prefisso sezione (normative.en_81_20) + chiavi piatte per compatibilita' (en_81_20)
-  - Two-phase evaluation: phase 1 (calcolo variabili), phase 2 (selezione materiali)
-  - Action types: set_field, lookup_table, add_material
-  - Variabili volatili _calc.* (solo in-memory per la valutazione corrente)
+Funzionalità:
+  - build_config_context() legge da TUTTE le fonti (ORM + valori_configurazione + JSON legacy)
+  - Regole da DB (tabella regole) E da file JSON (directory rules/)
+  - Chiavi con prefisso sezione (normative.en_81_20) + chiavi piatte (en_81_20)
+  - Esecuzione sequenziale: le azioni dentro una regola si eseguono in ordine,
+    aggiornando il context ad ogni passo. Un singolo file JSON può contenere
+    accumulate → catalog_match → add_material tutto insieme.
+  - Data tables: carica JSON da ./data/ (generati da excel_data_loader.py)
+
+Action types supportati:
+  - add_material:            aggiunge materiale alla BOM
+  - set_field:               imposta variabile _calc.* nel context
+  - lookup_table:            cerca in tabella dati (range/mapping) → set variabili _calc.*
+  - accumulate_from_lookup:  somma valori da lookup raggruppando per campo
+  - catalog_match:           matching multi-criterio dinamico su catalogo prodotti
+
+Compatibilità:
+  - Regole vecchie con solo "conditions" + "materials" → funzionano identiche
+  - Regole vecchie con solo "conditions" + "actions" con solo add_material → identiche
+  - Regole nuove con "actions" misti (calc + material) → esecuzione sequenziale
 """
 from typing import List, Dict, Any, Tuple, Optional, Set
 from sqlalchemy.orm import Session
@@ -24,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# CONFIGURAZIONE SEZIONI DEDICATE
+# CONFIGURAZIONE
 # ============================================================================
 SEZIONI_DEDICATE = {
     "dati_principali": "dati_principali",
@@ -37,23 +47,30 @@ SEZIONI_DEDICATE = {
 
 CAMPI_ESCLUSI = {"id", "preventivo_id", "created_at", "updated_at"}
 
+DATA_DIR = "./data"
+RULES_DIR = "./rules"
+
 
 class RuleEngine:
     """
-    Motore valutazione regole business unificato.
-    
+    Motore valutazione regole business.
+
     Flusso:
-    1. build_config_context() -> raccoglie tutti i dati configurazione
-    2. Carica regole attive (DB + file JSON)
-    3. PASS 1: valuta regole phase=1 -> esegue set_field/lookup_table -> arricchisce context
-    4. PASS 2: valuta TUTTE le regole -> determina active_rules -> aggiunge/rimuove materiali
-    5. Aggiorna totale preventivo
+    1. build_config_context() → raccoglie tutti i dati configurazione
+    2. Carica data tables da ./data/
+    3. Carica regole (DB + file JSON), ordinate per priorità
+    4. Per ogni regola: valuta conditions → se attiva, esegue actions in sequenza
+    5. Ogni action aggiorna il context in-place → le action successive vedono i risultati
+    6. Rimuove materiali orfani (regole non più attive)
+    7. Aggiorna totale preventivo
     """
 
     def __init__(self, db: Session):
         self.db = db
         self.warnings: List[str] = []
         self.errors: List[str] = []
+        self._data_tables: Dict[str, Dict] = {}
+        self._action_trace: List[Dict[str, Any]] = []
 
     # ========================================================================
     # 1. CONTEXT BUILDING
@@ -61,15 +78,10 @@ class RuleEngine:
     def build_config_context(self, preventivo) -> Dict[str, Any]:
         """
         Costruisce il context completo per la valutazione regole.
-        
-        Legge da:
-        - Tabelle ORM dedicate (dati_principali, normative, argano, ...)
-        - Tabella valori_configurazione (sezioni dinamiche)
-        - Metadati preventivo
-        
+
         Produce chiavi con DUE formati per ogni valore:
-        - Con prefisso: "normative.en_81_20" -> "2020"
-        - Senza prefisso: "en_81_20" -> "2020"  (per compatibilita' regole esistenti)
+        - Con prefisso: "normative.en_81_20" → "2020"
+        - Senza prefisso: "en_81_20" → "2020"
         """
         context: Dict[str, Any] = {}
 
@@ -85,7 +97,6 @@ class RuleEngine:
             obj = getattr(preventivo, relationship_name, None)
             if obj is None:
                 continue
-            
             campi = self._extract_fields_from_orm(obj)
             for campo, valore in campi.items():
                 context[f"{sezione_nome}.{campo}"] = valore
@@ -95,23 +106,23 @@ class RuleEngine:
         try:
             rows = self.db.execute(
                 text("""
-                    SELECT sezione, codice_campo, valore 
-                    FROM valori_configurazione 
+                    SELECT sezione, codice_campo, valore
+                    FROM valori_configurazione
                     WHERE preventivo_id = :pid
                 """),
                 {"pid": preventivo.id}
             ).fetchall()
-            
+
             for row in rows:
                 sezione, codice_campo, valore = row[0], row[1], row[2]
                 valore_convertito = self._try_convert_value(valore)
                 context[f"{sezione}.{codice_campo}"] = valore_convertito
                 context[codice_campo] = valore_convertito
-                
+
         except Exception as e:
             self.warnings.append(f"Tabella valori_configurazione non disponibile: {e}")
 
-        # --- JSON legacy (preventivo.configurazione) come fallback ---
+        # --- JSON legacy come fallback ---
         config_json = getattr(preventivo, "configurazione", None)
         if config_json and isinstance(config_json, dict):
             for k, v in config_json.items():
@@ -140,8 +151,8 @@ class RuleEngine:
                     campi[key] = value
         return campi
 
-    def _try_convert_value(self, valore: str) -> Any:
-        """Tenta conversione stringa -> numero se possibile."""
+    def _try_convert_value(self, valore) -> Any:
+        """Tenta conversione stringa → numero se possibile."""
         if valore is None:
             return None
         if isinstance(valore, (int, float, bool)):
@@ -160,10 +171,38 @@ class RuleEngine:
         return valore_str
 
     # ========================================================================
-    # 2. CARICAMENTO REGOLE
+    # 2. DATA TABLES (da ./data/)
+    # ========================================================================
+    def _load_data_tables(self):
+        """Carica tutte le tabelle JSON da ./data/ (lazy, cached)."""
+        if self._data_tables:
+            return
+
+        if not os.path.exists(DATA_DIR):
+            return
+
+        for fname in os.listdir(DATA_DIR):
+            if not fname.endswith(".json"):
+                continue
+            try:
+                filepath = os.path.join(DATA_DIR, fname)
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                nome = data.get("_meta", {}).get("nome", fname.replace(".json", ""))
+                self._data_tables[nome] = data
+            except Exception as e:
+                self.warnings.append(f"Errore caricamento data table {fname}: {e}")
+
+    def get_data_table(self, nome: str) -> Optional[Dict]:
+        """Ottieni una tabella dati per nome."""
+        self._load_data_tables()
+        return self._data_tables.get(nome)
+
+    # ========================================================================
+    # 3. CARICAMENTO REGOLE
     # ========================================================================
     def _load_rules_from_db(self) -> List[Dict[str, Any]]:
-        """Carica regole attive dalla tabella regole, ordinate per priorita'."""
+        """Carica regole attive dalla tabella regole."""
         try:
             rows = self.db.execute(
                 text("""
@@ -173,7 +212,7 @@ class RuleEngine:
                     ORDER BY priorita ASC
                 """)
             ).fetchall()
-            
+
             rules = []
             for row in rows:
                 rule_id, nome, rule_json_raw, priorita, categoria = (
@@ -183,7 +222,7 @@ class RuleEngine:
                     rule_json = json.loads(rule_json_raw)
                 else:
                     rule_json = rule_json_raw or {}
-                
+
                 rules.append({
                     "id": rule_id,
                     "nome": nome,
@@ -192,18 +231,18 @@ class RuleEngine:
                     "categoria": categoria,
                     **rule_json
                 })
-            
             return rules
         except Exception as e:
             self.warnings.append(f"Errore caricamento regole da DB: {e}")
             return []
 
-    def _load_rules_from_files(self, rules_dir: str = "./rules") -> List[Dict[str, Any]]:
-        """Carica regole da file JSON nella directory rules/."""
+    def _load_rules_from_files(self, rules_dir: str = None) -> List[Dict[str, Any]]:
+        """Carica regole da file JSON."""
+        rules_dir = rules_dir or RULES_DIR
         rules = []
         if not os.path.exists(rules_dir):
             return rules
-        
+
         for filename in sorted(os.listdir(rules_dir)):
             if not filename.endswith(".json"):
                 continue
@@ -217,28 +256,39 @@ class RuleEngine:
                 rules.append(rule)
             except Exception as e:
                 self.errors.append(f"Errore caricamento {filename}: {e}")
-        
+
         return rules
 
     def load_all_rules(self) -> List[Dict[str, Any]]:
-        """
-        Carica regole da TUTTE le fonti (DB + file), 
-        deduplica per rule_id (DB ha priorita'), ordina per priorita'.
-        """
+        """Carica regole da tutte le fonti, deduplica (DB ha priorità), ordina."""
         rules_db = self._load_rules_from_db()
         rules_file = self._load_rules_from_files()
-        
+
         db_ids = {r["id"] for r in rules_db}
         rules_file_unique = [r for r in rules_file if r["id"] not in db_ids]
-        
+
         all_rules = rules_db + rules_file_unique
         all_rules.sort(key=lambda r: r.get("priorita", 100))
-        
+
         return all_rules
 
     # ========================================================================
-    # 3. VALUTAZIONE CONDIZIONI
+    # 4. VALUTAZIONE CONDIZIONI
     # ========================================================================
+    def _context_get(self, context: Dict[str, Any], field: str) -> Any:
+        """Cerca un campo nel context con fallback flessibile."""
+        val = context.get(field)
+        if val is not None:
+            return val
+        val = context.get(field.lower())
+        if val is not None:
+            return val
+        if "." not in field:
+            for key, v in context.items():
+                if key.endswith(f".{field}") or key.endswith(f".{field.lower()}"):
+                    return v
+        return None
+
     def evaluate_condition(self, condition: Dict[str, Any], context: Dict[str, Any]) -> bool:
         """Valuta una singola condizione."""
         if isinstance(condition, str):
@@ -248,20 +298,20 @@ class RuleEngine:
         operator = condition.get("operator", "equals")
         expected_value = condition.get("value")
 
-        actual_value = context.get(field)
-        if actual_value is None:
-            actual_value = context.get(field.lower())
-        
-        if actual_value is None and "." not in field:
-            for key, val in context.items():
-                if key.endswith(f".{field}") or key.endswith(f".{field.lower()}"):
-                    actual_value = val
-                    break
+        actual_value = self._context_get(context, field)
 
         if actual_value is None:
+            if operator == "is_empty":
+                return True
+            if operator == "is_not_empty":
+                return False
             return False
 
         if isinstance(actual_value, str) and actual_value.strip() == "":
+            if operator == "is_empty":
+                return True
+            if operator == "is_not_empty":
+                return False
             return False
 
         return self._compare(actual_value, operator, expected_value)
@@ -269,9 +319,9 @@ class RuleEngine:
     def _compare(self, actual: Any, operator: str, expected: Any) -> bool:
         """Confronta actual vs expected con l'operatore dato."""
         try:
-            if operator == "equals":
+            if operator in ("equals", "=="):
                 return str(actual).lower() == str(expected).lower()
-            elif operator == "not_equals":
+            elif operator in ("not_equals", "!="):
                 return str(actual).lower() != str(expected).lower()
             elif operator == "contains":
                 return str(expected).lower() in str(actual).lower()
@@ -279,13 +329,13 @@ class RuleEngine:
                 return str(expected).lower() not in str(actual).lower()
             elif operator == "starts_with":
                 return str(actual).lower().startswith(str(expected).lower())
-            elif operator == "greater_than":
+            elif operator in ("greater_than", ">"):
                 return float(actual) > float(expected)
-            elif operator == "less_than":
+            elif operator in ("less_than", "<"):
                 return float(actual) < float(expected)
-            elif operator == "greater_equal":
+            elif operator in ("greater_equal", ">="):
                 return float(actual) >= float(expected)
-            elif operator == "less_equal":
+            elif operator in ("less_equal", "<="):
                 return float(actual) <= float(expected)
             elif operator == "in":
                 if isinstance(expected, list):
@@ -308,10 +358,14 @@ class RuleEngine:
     def should_apply_rule(self, rule: Dict[str, Any], context: Dict[str, Any]) -> bool:
         """
         Valuta se una regola deve essere applicata.
-        Supporta: lista (AND implicito), condizione singola, logica esplicita AND/OR.
+
+        Supporta:
+        1. Lista condizioni (AND implicito): "conditions": [...]
+        2. Condizione singola: "conditions": {"field": ...}
+        3. Logica esplicita: "conditions": {"logic": "OR", "conditions": [...]}
         """
         conditions = rule.get("conditions")
-        
+
         if not conditions:
             return True
 
@@ -324,69 +378,548 @@ class RuleEngine:
         if isinstance(conditions, dict) and "logic" in conditions:
             logic = conditions.get("logic", "AND").upper()
             sub_conditions = conditions.get("conditions", [])
-            
             if not sub_conditions:
                 return True
-            
             results = [self.evaluate_condition(c, context) for c in sub_conditions]
-            
             if logic == "AND":
                 return all(results)
             elif logic == "OR":
                 return any(results)
-            else:
-                self.warnings.append(f"Logic operator sconosciuto: {logic}")
-                return False
 
         self.warnings.append(f"Formato conditions non riconosciuto: {type(conditions)}")
         return False
 
     # ========================================================================
-    # 4. ESECUZIONE AZIONI
+    # 5. ESECUZIONE AZIONI (SEQUENZIALE)
     # ========================================================================
-    def apply_rule_actions(self, rule: Dict[str, Any], preventivo, context: Dict[str, Any]) -> int:
+    def apply_rule_actions(self, rule: Dict[str, Any], preventivo,
+                           context: Dict[str, Any]) -> int:
         """
-        Esegue le azioni di una regola. Supporta due formati:
-        - materials array diretto (file JSON)
-        - actions array con tipo (DB)
+        Esegue le azioni di una regola IN SEQUENZA.
+        Ogni azione aggiorna il context → le successive vedono i risultati.
+        Include trace debug per ogni azione eseguita.
         """
         materiali_aggiunti = 0
         rule_id = rule.get("id", "unknown")
 
-        # Formato 1: materials array diretto (file JSON)
-        materials = rule.get("materials", [])
-        for mat_data in materials:
-            if self._add_material(preventivo, mat_data, rule_id, context):
-                materiali_aggiunti += 1
+        # Costruisci lista azioni unificata (actions + materials legacy)
+        unified_actions = []
+        for action in rule.get("actions", []):
+            unified_actions.append(action)
+        for mat_data in rule.get("materials", []):
+            unified_actions.append({"action": "add_material", "material": mat_data})
 
-        # Formato 2: actions array (DB)
-        actions = rule.get("actions", [])
-        for action in actions:
-            action_type = action.get("action")
+        # Esegui in sequenza con trace
+        for i, action in enumerate(unified_actions):
+            action_type = action.get("action", action.get("type", ""))
+            trace_entry = {
+                "rule": rule_id,
+                "step": i + 1,
+                "action": action_type,
+            }
+
+            # skip_if
+            skip_if = action.get("skip_if", "")
+            if skip_if:
+                skip_field = skip_if.split(None, 2)[0] if skip_if.strip() else ""
+                skip_actual = self._context_get(context, skip_field) if skip_field else None
+                trace_entry["skip_if"] = skip_if
+                trace_entry["skip_if_field_value"] = skip_actual
+                if self._evaluate_skip_if(skip_if, context):
+                    trace_entry["result"] = "SKIPPED"
+                    self._action_trace.append(trace_entry)
+                    continue
+
             if action_type == "add_material":
                 mat_data = action.get("material", {})
+                codice_raw = mat_data.get("codice", "")
+                codice_resolved = self._replace_placeholders(codice_raw, context)
+                trace_entry["codice_raw"] = codice_raw
+                trace_entry["codice_resolved"] = codice_resolved
                 if self._add_material(preventivo, mat_data, rule_id, context):
                     materiali_aggiunti += 1
+                    trace_entry["result"] = "ADDED"
+                else:
+                    trace_entry["result"] = "DUPLICATE_OR_EMPTY"
+
             elif action_type == "set_field":
-                self._set_field(preventivo, action, context)
+                field = action.get("field", "")
+                val_before = context.get(field)
+                self._action_set_field(action, context)
+                val_after = context.get(field)
+                trace_entry["field"] = field
+                trace_entry["value_before"] = val_before
+                trace_entry["value_after"] = val_after
+                trace_entry["result"] = "OK"
+
             elif action_type == "lookup_table":
-                self._lookup_table(preventivo, action, context)
+                tabella = action.get("tabella", "")
+                input_field = action.get("input_field", "")
+                partition_field = action.get("partition_field", "")
+                input_val = self._context_get(context, input_field)
+                part_val = self._context_get(context, partition_field) if partition_field else None
+                calc_before = {k: v for k, v in context.items() if k.startswith("_calc.")}
+                self._action_lookup_table(action, context)
+                calc_after = {k: v for k, v in context.items() if k.startswith("_calc.")}
+                new_keys = {k: v for k, v in calc_after.items() if k not in calc_before or calc_before[k] != v}
+                trace_entry["tabella"] = tabella
+                trace_entry["input_field"] = input_field
+                trace_entry["input_value"] = input_val
+                trace_entry["partition_field"] = partition_field
+                trace_entry["partition_value"] = part_val
+                trace_entry["new_calc_vars"] = new_keys
+                trace_entry["result"] = "OK" if new_keys else "NO_MATCH"
+
+            elif action_type == "accumulate_from_lookup":
+                calc_before = {k: v for k, v in context.items() if k.startswith("_calc.")}
+                self._action_accumulate_from_lookup(action, context)
+                calc_after = {k: v for k, v in context.items() if k.startswith("_calc.")}
+                new_keys = {k: v for k, v in calc_after.items() if k not in calc_before or calc_before[k] != v}
+                trace_entry["new_calc_vars"] = new_keys
+                trace_entry["result"] = "OK" if new_keys else "NO_DATA"
+
+            elif action_type == "catalog_match":
+                calc_before = {k: v for k, v in context.items() if k.startswith("_calc.")}
+                self._action_catalog_match(action, context)
+                calc_after = {k: v for k, v in context.items() if k.startswith("_calc.")}
+                new_keys = {k: v for k, v in calc_after.items() if k not in calc_before or calc_before[k] != v}
+                trace_entry["new_calc_vars"] = new_keys
+                trace_entry["result"] = "OK" if new_keys else "NO_MATCH"
+
             else:
                 self.warnings.append(f"Action type sconosciuto: {action_type}")
+                trace_entry["result"] = "UNKNOWN_TYPE"
+
+            self._action_trace.append(trace_entry)
 
         return materiali_aggiunti
 
-    def _add_material(self, preventivo, material_data: Dict[str, Any], 
+    def _evaluate_skip_if(self, expr: str, context: Dict[str, Any]) -> bool:
+        """
+        Valuta un'espressione skip_if. Ritorna True se l'action va saltata.
+        
+        Formati supportati:
+          "campo is_empty"           → salta se campo è vuoto/None
+          "campo is_not_empty"       → salta se campo NON è vuoto
+          "campo <= 0"               → salta se campo <= 0
+          "campo == valore"          → salta se campo == valore
+          ecc. (tutti gli operatori di _compare)
+        """
+        expr = expr.strip()
+        if not expr:
+            return False
+
+        # Prova formati: "campo operatore valore" o "campo operatore"
+        # Operatori senza valore: is_empty, is_not_empty
+        parts = expr.split(None, 2)  # max 3 parti
+        
+        if len(parts) < 2:
+            return False
+
+        field = parts[0]
+        operator = parts[1]
+        value = parts[2] if len(parts) > 2 else None
+
+        actual = self._context_get(context, field)
+        
+        # Gestione speciale per is_empty / is_not_empty
+        if operator == "is_empty":
+            return actual is None or str(actual).strip() == ""
+        if operator == "is_not_empty":
+            return actual is not None and str(actual).strip() != ""
+        
+        if actual is None:
+            return True  # campo non trovato → salta per sicurezza
+
+        return self._compare(actual, operator, value)
+
+    # ========================================================================
+    # ACTION: set_field
+    # ========================================================================
+    def _action_set_field(self, action: Dict[str, Any], context: Dict[str, Any]):
+        """
+        Imposta una variabile nel context.
+
+        Modalità:
+        - Valore diretto:   {"field": "_calc.x", "value": 150}
+        - Da altro campo:   {"field": "_calc.x", "value_from": "argano.potenza", "multiply_by": 1.2}
+        - Addizione:         {"field": "_calc.x", "add_value": 150}
+        """
+        field = action.get("field", "")
+        if not field:
+            return
+
+        if "add_value" in action:
+            current = context.get(field, 0) or 0
+            try:
+                context[field] = float(current) + float(action["add_value"])
+            except (ValueError, TypeError):
+                self.warnings.append(f"set_field add_value non numerico: {action['add_value']}")
+            return
+
+        if "value_from" in action:
+            source = self._context_get(context, action["value_from"])
+            if source is not None:
+                try:
+                    val = float(source)
+                    if "multiply_by" in action:
+                        val *= float(action["multiply_by"])
+                    if "add" in action:
+                        val += float(action["add"])
+                    context[field] = val
+                except (ValueError, TypeError):
+                    context[field] = source
+            return
+
+        value = action.get("value")
+        if isinstance(value, str):
+            value = self._replace_placeholders(value, context)
+            value = self._try_convert_value(value)
+        context[field] = value
+
+    # ========================================================================
+    # ACTION: lookup_table
+    # ========================================================================
+    def _action_lookup_table(self, action: Dict[str, Any], context: Dict[str, Any]):
+        """
+        Cerca un valore in una data table e imposta variabili nel context.
+
+        Supporta lookup_range (numerico) e lookup_mapping (testuale).
+        """
+        tabella_nome = action.get("tabella", "")
+        input_field = action.get("input_field", "")
+        partition_field = action.get("partition_field", "")
+        output_prefix = action.get("output_prefix", "_calc.")
+
+        table = self.get_data_table(tabella_nome)
+        if not table:
+            self.warnings.append(f"lookup_table: tabella '{tabella_nome}' non trovata in {DATA_DIR}/")
+            return
+
+        input_value = self._context_get(context, input_field)
+        if input_value is None:
+            self.warnings.append(f"lookup_table: campo input '{input_field}' non trovato nel context")
+            return
+
+        tipo = table.get("tipo", "")
+
+        if tipo == "lookup_range":
+            self._lookup_range(table, input_value, partition_field, output_prefix, context)
+        elif tipo in ("lookup_mapping", "constants"):
+            self._lookup_mapping(table, input_value, output_prefix, context)
+        else:
+            self.warnings.append(f"lookup_table: tipo tabella '{tipo}' non supportato")
+
+    def _lookup_range(self, table: Dict, input_value: Any, partition_field: str,
+                      output_prefix: str, context: Dict[str, Any]):
+        """Esegue lookup range (con partizioni opzionali)."""
+        try:
+            val = float(input_value)
+        except (ValueError, TypeError):
+            self.warnings.append(f"lookup_range: valore input '{input_value}' non numerico")
+            return
+
+        if "partizioni" in table and table.get("partizionato_per"):
+            part_key = self._context_get(context, partition_field) if partition_field else None
+            if part_key is None and table.get("partizionato_per"):
+                part_key = self._context_get(context, table["partizionato_per"])
+
+            if part_key is None:
+                self.warnings.append(f"lookup_range: campo partizione non trovato")
+                return
+
+            part_key_str = str(part_key).strip()
+            ranges = table["partizioni"].get(part_key_str)
+
+            if ranges is None:
+                for k, v in table["partizioni"].items():
+                    if k.lower().replace(" ", "_") == part_key_str.lower().replace(" ", "_"):
+                        ranges = v
+                        break
+
+            if ranges is None:
+                self.warnings.append(
+                    f"lookup_range: partizione '{part_key_str}' non trovata. "
+                    f"Disponibili: {list(table['partizioni'].keys())}"
+                )
+                return
+        elif "ranges" in table:
+            ranges = table["ranges"]
+        else:
+            self.warnings.append("lookup_range: né 'ranges' né 'partizioni' nella tabella")
+            return
+
+        for r in ranges:
+            da = r.get("da", 0) or 0
+            a = r.get("a")
+            if val >= float(da) and (a is None or val < float(a)):
+                for k, v in r.get("output", {}).items():
+                    context[f"{output_prefix}{k}"] = v
+                return
+
+        self.warnings.append(f"lookup_range: nessun range trovato per valore {val}")
+
+    def _lookup_mapping(self, table: Dict, input_value: Any, output_prefix: str,
+                        context: Dict[str, Any]):
+        """Esegue lookup mapping (chiave→valori)."""
+        valori = table.get("valori", {})
+        key = str(input_value).strip().lower().replace(" ", "_")
+
+        match = valori.get(key)
+        if match is None:
+            for k, v in valori.items():
+                if k.lower() == key:
+                    match = v
+                    break
+
+        if match is None:
+            self.warnings.append(f"lookup_mapping: chiave '{key}' non trovata")
+            return
+
+        if isinstance(match, dict):
+            for k, v in match.items():
+                context[f"{output_prefix}{k}"] = v
+        else:
+            context[f"{output_prefix}value"] = match
+
+    # ========================================================================
+    # ACTION: accumulate_from_lookup
+    # ========================================================================
+    def _action_accumulate_from_lookup(self, action: Dict[str, Any], context: Dict[str, Any]):
+        """
+        Per ogni campo attivo nel context, cerca nel lookup i suoi attributi
+        e accumula (somma) un valore raggruppando per un campo.
+        """
+        tabella_nome = action.get("tabella", "")
+        campi = action.get("campi_da_verificare", [])
+        campo_qta = action.get("campo_quantita")
+        accumula_campo = action.get("accumula_campo", "")
+        raggruppa_per = action.get("raggruppa_per", "")
+        output_prefix = action.get("output_prefix", "_calc.acc_")
+        output_suffix = action.get("output_suffix", "")
+        output_totale = action.get("output_totale", "")
+
+        table = self.get_data_table(tabella_nome)
+        if not table:
+            self.warnings.append(f"accumulate: tabella '{tabella_nome}' non trovata")
+            return
+
+        valori = table.get("valori", {})
+        accumulatore: Dict[str, float] = {}
+        totale = 0.0
+
+        for campo_nome in campi:
+            val = self._context_get(context, campo_nome)
+            if not val:
+                continue
+            if isinstance(val, str) and val.lower() in ("false", "no", "0", ""):
+                continue
+            if isinstance(val, bool) and not val:
+                continue
+
+            key = campo_nome.strip().lower().replace(" ", "_")
+            entry = valori.get(key)
+            if entry is None:
+                self.warnings.append(f"accumulate: '{campo_nome}' non trovato nel lookup '{tabella_nome}'")
+                continue
+
+            valore_da_accumulare = entry.get(accumula_campo, 0) or 0
+            gruppo = str(entry.get(raggruppa_per, "altro"))
+
+            qta = 1
+            if campo_qta:
+                qta_val = self._context_get(context, f"{campo_nome}_{campo_qta}")
+                if qta_val is None:
+                    qta_val = self._context_get(context, campo_qta)
+                if qta_val is not None:
+                    try:
+                        qta = float(qta_val)
+                    except (ValueError, TypeError):
+                        pass
+
+            contributo = float(valore_da_accumulare) * qta
+            accumulatore[gruppo] = accumulatore.get(gruppo, 0) + contributo
+            totale += contributo
+
+        for gruppo, somma in accumulatore.items():
+            context[f"{output_prefix}{gruppo}{output_suffix}"] = somma
+
+        if output_totale:
+            context[output_totale] = totale
+
+        logger.debug(f"accumulate: {len(accumulatore)} gruppi, totale={totale}")
+
+    # ========================================================================
+    # ACTION: catalog_match
+    # ========================================================================
+    def _action_catalog_match(self, action: Dict[str, Any], context: Dict[str, Any]):
+        """
+        Cerca nel catalogo il record che soddisfa criteri multipli.
+        """
+        tabella_nome = action.get("tabella", "")
+        table = self.get_data_table(tabella_nome)
+        if not table:
+            self.warnings.append(f"catalog_match: tabella '{tabella_nome}' non trovata")
+            return
+
+        if table.get("tipo") != "catalog":
+            self.warnings.append(f"catalog_match: tabella '{tabella_nome}' non è tipo 'catalog'")
+            return
+
+        records = table.get("records", [])
+        if not records:
+            return
+
+        # 1. Costruisci criteri dinamici dal context
+        criteri = []
+        cd = action.get("criteri_dinamici")
+        if cd:
+            pattern = cd.get("pattern", "")
+            prefix = cd.get("sorgente_prefix", "_calc.")
+            suffix = cd.get("sorgente_suffix", "")
+            operatore = cd.get("operatore", ">=")
+            soglia = cd.get("solo_se_maggiore_di", 0)
+
+            for ctx_key, ctx_val in context.items():
+                if ctx_key.startswith(prefix) and (not suffix or ctx_key.endswith(suffix)):
+                    try:
+                        val_num = float(ctx_val)
+                    except (ValueError, TypeError):
+                        continue
+
+                    if soglia is not None and val_num <= float(soglia):
+                        continue
+
+                    key_part = ctx_key[len(prefix):]
+                    if suffix and key_part.endswith(suffix):
+                        key_part = key_part[:-len(suffix)]
+
+                    col_name = pattern.replace("{key}", key_part)
+                    criteri.append({
+                        "colonna": col_name,
+                        "operatore": operatore,
+                        "valore": val_num
+                    })
+
+        # 2. Criteri fissi
+        for cf in action.get("criteri_fissi", []):
+            valore = cf.get("valore")
+            if isinstance(valore, str):
+                valore = self._replace_placeholders(valore, context)
+                valore = self._try_convert_value(valore)
+            criteri.append({
+                "colonna": cf["colonna"],
+                "operatore": cf.get("operatore", ">="),
+                "valore": valore
+            })
+
+        # 3. Filtri
+        for filt in action.get("filtri", []):
+            valore = filt.get("valore")
+            if isinstance(valore, str):
+                valore = self._replace_placeholders(valore, context)
+            criteri.append({
+                "colonna": filt["colonna"],
+                "operatore": filt.get("operatore", "=="),
+                "valore": valore
+            })
+
+        # 4. Filtra records
+        candidati = []
+        for record in records:
+            match = True
+            for criterio in criteri:
+                col = criterio["colonna"]
+                op = criterio["operatore"]
+                val_atteso = criterio["valore"]
+
+                val_record = record.get(col)
+                if val_record is None:
+                    match = False
+                    break
+
+                if not self._compare(val_record, op, val_atteso):
+                    match = False
+                    break
+
+            if match:
+                candidati.append(record)
+
+        if not candidati:
+            self.warnings.append(
+                f"catalog_match: nessun record trovato in '{tabella_nome}' "
+                f"con {len(criteri)} criteri"
+            )
+            return
+
+        # 5. Ordina e prendi il primo
+        ordinamento = action.get("ordinamento", {})
+        if ordinamento:
+            col_ord = ordinamento.get("colonna", "")
+            asc = ordinamento.get("direzione", "ASC").upper() == "ASC"
+            try:
+                candidati.sort(
+                    key=lambda r: float(r.get(col_ord, 0) or 0),
+                    reverse=not asc
+                )
+            except (ValueError, TypeError):
+                pass
+
+        best = candidati[0]
+
+        # 6. Scrivi output nel context
+        for ctx_field, catalog_col in action.get("output", {}).items():
+            context[ctx_field] = best.get(catalog_col)
+
+        logger.debug(
+            f"catalog_match: trovato '{best.get('codice', '?')}' "
+            f"tra {len(candidati)}/{len(records)}"
+        )
+
+    # ========================================================================
+    # 6. PLACEHOLDER E PARAMETRI
+    # ========================================================================
+    def _replace_placeholders(self, text_val: str, context: Dict[str, Any]) -> str:
+        """Sostituisce placeholder: {{campo}}, {CAMPO}, [CAMPO]"""
+        if not text_val:
+            return text_val
+
+        pattern = r'\{\{([\w.]+)\}\}|\{(\w+)\}|\[(\w+)\]'
+
+        def replacer(match):
+            field_name = match.group(1) or match.group(2) or match.group(3)
+            value = self._context_get(context, field_name)
+            if value is not None:
+                return str(value)
+            return match.group(0)
+
+        return re.sub(pattern, replacer, text_val)
+
+    def _extract_parameters(self, codice: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Estrae parametri da codice parametrico es. TRAVERSO-[LUNG]."""
+        parametri = {}
+        matches = re.findall(r'\[(\w+)\]', codice)
+        for param_name in matches:
+            value = self._context_get(context, param_name)
+            if value is not None:
+                parametri[param_name.upper()] = value
+        return parametri
+
+    # ========================================================================
+    # 7. ADD MATERIAL
+    # ========================================================================
+    def _add_material(self, preventivo, material_data: Dict[str, Any],
                       rule_id: str, context: Dict[str, Any]) -> bool:
         """Aggiunge materiale al preventivo con supporto placeholder e parametri."""
         from models import Materiale
-        
+
         try:
             codice = self._replace_placeholders(material_data.get("codice", ""), context)
             descrizione = self._replace_placeholders(
                 material_data.get("descrizione", ""), context
             )
 
+            # Verifica duplicato
             existing = self.db.query(Materiale).filter(
                 Materiale.preventivo_id == preventivo.id,
                 Materiale.codice == codice,
@@ -397,7 +930,21 @@ class RuleEngine:
                 return False
 
             quantita = material_data.get("quantita", 1.0)
+            if isinstance(quantita, str):
+                quantita = self._replace_placeholders(quantita, context)
+                try:
+                    quantita = float(quantita)
+                except (ValueError, TypeError):
+                    quantita = 1.0
+
             prezzo_unitario = material_data.get("prezzo_unitario", 0.0)
+            if isinstance(prezzo_unitario, str):
+                prezzo_unitario = self._replace_placeholders(prezzo_unitario, context)
+                try:
+                    prezzo_unitario = float(prezzo_unitario)
+                except (ValueError, TypeError):
+                    prezzo_unitario = 0.0
+
             parametri = self._extract_parameters(codice, context)
 
             materiale = Materiale(
@@ -406,7 +953,7 @@ class RuleEngine:
                 descrizione=descrizione,
                 categoria=material_data.get("categoria", "Materiale Automatico"),
                 quantita=quantita,
-                unita_misura=material_data.get("unita_misura", 
+                unita_misura=material_data.get("unita_misura",
                              material_data.get("unita", "pz")),
                 prezzo_unitario=prezzo_unitario,
                 prezzo_totale=quantita * prezzo_unitario,
@@ -432,307 +979,64 @@ class RuleEngine:
             )
             return False
 
-    def _set_field(self, preventivo, action: Dict[str, Any], context: Dict[str, Any]):
-        """
-        Imposta un campo nel context in-place.
-        
-        - Campi con prefisso _calc. -> volatili (solo in-memory)
-        - Campi senza _calc.       -> persistiti in valori_configurazione
-        """
-        field = action.get("field", "")
-        value = action.get("value", "")
-        
-        if not field:
-            return
-        
-        # Risolvi placeholder nel valore
-        if isinstance(value, str) and "{{" in value:
-            value = self._replace_placeholders(value, context)
-        
-        # Scrivi nel context (con e senza prefisso per compatibilita')
-        context[field] = value
-        if "." in field:
-            short_key = field.split(".", 1)[1]
-            context[short_key] = value
-        
-        logger.debug(f"set_field: {field} = {value}")
-        
-        # Persisti se non e' variabile volatile _calc.*
-        if not field.startswith("_calc."):
-            try:
-                if "." in field:
-                    sezione, nome = field.split(".", 1)
-                else:
-                    sezione, nome = "calcolati", field
-                
-                existing = self.db.execute(text("""
-                    SELECT id FROM valori_configurazione 
-                    WHERE preventivo_id = :pid AND codice_campo = :campo
-                """), {"pid": preventivo.id, "campo": field}).fetchone()
-                
-                if existing:
-                    self.db.execute(text("""
-                        UPDATE valori_configurazione SET valore = :val 
-                        WHERE preventivo_id = :pid AND codice_campo = :campo
-                    """), {"val": str(value), "pid": preventivo.id, "campo": field})
-                else:
-                    self.db.execute(text("""
-                        INSERT INTO valori_configurazione (preventivo_id, sezione, codice_campo, valore)
-                        VALUES (:pid, :sez, :campo, :val)
-                    """), {"pid": preventivo.id, "sez": sezione, "campo": field, "val": str(value)})
-                    
-            except Exception as e:
-                self.warnings.append(f"set_field persist error ({field}): {e}")
-
-    def _lookup_table(self, preventivo, action: dict, context: dict):
-        """
-        Cerca un valore in una tabella inline e imposta le variabili trovate.
-        
-        Formato action:
-        {
-            "action": "lookup_table",
-            "lookup_field": "argano.potenza_motore_kw",
-            "partition_field": "tensioni.frequenza_rete",  (opzionale)
-            "rows": {
-                "50": [{"min": 0, "max": 5.15, "set": {"_calc.cont_dir": "D18"}}, ...],
-                "60": [...]
-            }
-            // OPPURE senza partizione:
-            "rows": [{"min": 0, "max": 5.15, "set": {"_calc.qualcosa": "valore"}}, ...]
-        }
-        
-        Logica: trova la riga dove min <= lookup_value < max, poi esegue set_field
-        per ogni coppia in "set".
-        """
-        lookup_field = action.get("lookup_field", "")
-        partition_field = action.get("partition_field", "")
-        rows_data = action.get("rows", {})
-        
-        lookup_raw = self._get_context_value(context, lookup_field)
-        if lookup_raw is None:
-            logger.debug(f"lookup_table: campo {lookup_field} non trovato nel context")
-            return
-        
-        try:
-            lookup_value = float(lookup_raw)
-        except (ValueError, TypeError):
-            self.warnings.append(
-                f"lookup_table: {lookup_field}='{lookup_raw}' non e' numerico"
-            )
-            return
-        
-        # Seleziona la tabella (con o senza partizione)
-        if partition_field and isinstance(rows_data, dict):
-            partition_raw = self._get_context_value(context, partition_field)
-            if partition_raw is None:
-                logger.debug(f"lookup_table: partition {partition_field} non trovata")
-                return
-            
-            # Normalizza chiave partizione (50.0 -> "50", "50" -> "50")
-            partition_key = str(partition_raw).strip()
-            try:
-                pf = float(partition_key)
-                if pf == int(pf):
-                    partition_key = str(int(pf))
-            except (ValueError, TypeError):
-                pass
-            
-            rows = rows_data.get(partition_key, [])
-            if not rows:
-                self.warnings.append(
-                    f"lookup_table: nessuna partizione per {partition_field}='{partition_key}'"
-                )
-                return
-        elif isinstance(rows_data, list):
-            rows = rows_data
-        else:
-            self.warnings.append("lookup_table: formato rows non riconosciuto")
-            return
-        
-        # Cerca la riga corrispondente (min <= value < max)
-        matched_row = None
-        for row in rows:
-            row_min = float(row.get("min", 0))
-            row_max = float(row.get("max", 999999))
-            if row_min <= lookup_value < row_max:
-                matched_row = row
-                break
-        
-        if matched_row is None:
-            logger.debug(
-                f"lookup_table: nessuna riga per {lookup_field}={lookup_value}"
-            )
-            return
-        
-        # Imposta tutte le variabili dalla riga trovata
-        vars_to_set = matched_row.get("set", {})
-        for var_field, var_value in vars_to_set.items():
-            self._set_field(preventivo, {
-                "field": var_field, 
-                "value": var_value
-            }, context)
-        
-        logger.info(
-            f"lookup_table: {lookup_field}={lookup_value} -> "
-            f"matched row [{matched_row.get('min')}, {matched_row.get('max')}), "
-            f"set {len(vars_to_set)} variables"
-        )
-
-    def _get_context_value(self, context: dict, field: str):
-        """Helper: cerca un campo nel context con fallback."""
-        val = context.get(field)
-        if val is not None:
-            return val
-        val = context.get(field.lower())
-        if val is not None:
-            return val
-        if "." in field:
-            short = field.split(".", 1)[1]
-            val = context.get(short)
-            if val is not None:
-                return val
-            val = context.get(short.lower())
-        return val
-
     # ========================================================================
-    # 5. PLACEHOLDER E PARAMETRI
-    # ========================================================================
-    def _replace_placeholders(self, text_val: str, context: Dict[str, Any]) -> str:
-        """
-        Sostituisce placeholder nel testo con valori dal context.
-        Supporta: {FIELD}, [FIELD], {{sezione.campo}}
-        """
-        if not text_val:
-            return text_val
-
-        pattern = r'\{\{([\w.]+)\}\}|\{(\w+)\}|\[(\w+)\]'
-
-        def replacer(match):
-            field_name = match.group(1) or match.group(2) or match.group(3)
-            field_lower = field_name.lower()
-            
-            value = context.get(field_lower)
-            if value is None:
-                value = context.get(field_name)
-            if value is None and "." not in field_lower:
-                for key, val in context.items():
-                    if key.endswith(f".{field_lower}"):
-                        value = val
-                        break
-            
-            if value is not None:
-                return str(value)
-            return match.group(0)
-
-        return re.sub(pattern, replacer, text_val)
-
-    def _extract_parameters(self, codice: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Estrae parametri da codice parametrico es. TRAVERSO-[LUNG]."""
-        parametri = {}
-        pattern = r'\[(\w+)\]'
-        matches = re.findall(pattern, codice)
-
-        for param_name in matches:
-            param_lower = param_name.lower()
-            value = context.get(param_lower)
-            if value is None:
-                for key, val in context.items():
-                    if key.endswith(f".{param_lower}"):
-                        value = val
-                        break
-            if value is not None:
-                parametri[param_name.upper()] = value
-
-        return parametri
-
-    # ========================================================================
-    # 6. ORCHESTRAZIONE PRINCIPALE - TWO-PASS EVALUATION
+    # 8. ORCHESTRAZIONE PRINCIPALE
     # ========================================================================
     def evaluate_rules(self, preventivo) -> Dict[str, Any]:
         """
-        Entry point principale - TWO-PASS evaluation.
-        
-        PASS 1 (phase=1, calcolo):
-          - Pulisce variabili _calc.* dal context
-          - Valuta regole con phase=1 (ordinate per priority)
-          - Esegue solo le actions (set_field, lookup_table) -> arricchisce context
-          - NON aggiunge materiali
-        
-        PASS 2 (phase=2 o assente, materiali):
-          - Valuta TUTTE le regole enabled con il context arricchito
-          - Determina active_rules
-          - Rimuove materiali orfani, aggiunge nuovi
-          - Aggiorna totale
+        Entry point principale. Valuta tutte le regole per un preventivo.
+
+        Per ogni regola:
+        1. Valuta conditions sul context corrente
+        2. Se attiva, esegue tutte le actions in sequenza
+        3. Ogni action aggiorna il context → le successive lo vedono
+
+        Le regole sono ordinate per priorità. Regole con priorità bassa
+        (es: 10) vengono eseguite prima → i loro _calc.* sono disponibili
+        per regole con priorità più alta (es: 50).
+
+        Regole vecchie (solo conditions + materials) funzionano identiche.
         """
         from models import Materiale
-        
+
         self.warnings = []
         self.errors = []
+        self._data_tables = {}
+        self._action_trace = []
 
         # 1. Costruisci context
         context = self.build_config_context(preventivo)
-        
-        # 2. Carica regole
+
+        # 2. Carica data tables
+        self._load_data_tables()
+
+        # 3. Carica regole ordinate per priorità
         all_rules = self.load_all_rules()
         if not all_rules:
             self.warnings.append("Nessuna regola trovata")
-            return self._build_result(set(), 0, 0, preventivo)
+            return self._build_result(set(), 0, 0, preventivo, context)
 
-        # Separa regole per fase
-        phase1_rules = []
-        phase2_rules = []
-        for rule in all_rules:
-            if not rule.get("enabled", True):
-                continue
-            if rule.get("phase") == 1:
-                phase1_rules.append(rule)
-            else:
-                phase2_rules.append(rule)
-        
-        # Ordina per priority (piu' basso = prima)
-        phase1_rules.sort(key=lambda r: r.get("priority", r.get("priorita", 50)))
-        phase2_rules.sort(key=lambda r: r.get("priority", r.get("priorita", 50)))
-
-        # -- PASS 1: CALCOLO VARIABILI --
-        calc_keys = [k for k in context if k.startswith("_calc.")]
-        for k in calc_keys:
-            del context[k]
-        
-        for rule in phase1_rules:
-            rule_id = rule.get("id", "unknown")
-            try:
-                if self.should_apply_rule(rule, context):
-                    for action in rule.get("actions", []):
-                        action_type = action.get("action")
-                        if action_type == "set_field":
-                            self._set_field(preventivo, action, context)
-                        elif action_type == "lookup_table":
-                            self._lookup_table(preventivo, action, context)
-                        else:
-                            logger.debug(f"Phase 1 skip action type: {action_type}")
-            except Exception as e:
-                self.errors.append(f"Errore phase 1 regola {rule_id}: {e}")
-        
-        computed = {k: v for k, v in context.items() if k.startswith("_calc.")}
-        if computed:
-            logger.info(f"Phase 1 computed {len(computed)} variables: "
-                        f"{list(computed.keys())[:10]}...")
-
-        # -- PASS 2: SELEZIONE MATERIALI --
+        # 4. Esegui ogni regola in ordine di priorità
         active_rules: Set[str] = set()
-        rules_to_apply: List[Dict[str, Any]] = []
+        added_count = 0
 
-        for rule in (phase1_rules + phase2_rules):
+        for rule in all_rules:
             rule_id = rule.get("id", "unknown")
+            enabled = rule.get("enabled", True)
+
+            if not enabled:
+                continue
+
             try:
+                # Valuta conditions sul context CORRENTE (include _calc.* da regole precedenti)
                 if self.should_apply_rule(rule, context):
                     active_rules.add(rule_id)
-                    if rule.get("phase") != 1:
-                        rules_to_apply.append(rule)
+                    added = self.apply_rule_actions(rule, preventivo, context)
+                    added_count += added
             except Exception as e:
-                self.errors.append(f"Errore valutazione regola {rule_id}: {e}")
+                self.errors.append(f"Errore regola {rule_id}: {e}")
 
-        # Rimuovi materiali orfani
+        # 5. Rimuovi materiali orfani (regole non più attive)
         existing_auto_materials = self.db.query(Materiale).filter(
             Materiale.preventivo_id == preventivo.id,
             Materiale.aggiunto_da_regola == True
@@ -744,67 +1048,50 @@ class RuleEngine:
                 self.db.delete(mat)
                 removed_count += 1
 
-        # Aggiungi materiali nuovi (solo da phase 2)
-        added_count = 0
-        for rule in rules_to_apply:
-            try:
-                added = self.apply_rule_actions(rule, preventivo, context)
-                added_count += added
-            except Exception as e:
-                self.errors.append(
-                    f"Errore applicazione regola {rule.get('id')}: {e}"
-                )
-
-        # Commit e aggiorna totale
+        # 6. Commit e aggiorna totale
         try:
             self.db.commit()
         except Exception as e:
             self.errors.append(f"Errore commit: {e}")
             self.db.rollback()
-            return self._build_result(active_rules, 0, 0, preventivo)
+            return self._build_result(active_rules, 0, 0, preventivo, context)
 
         self._update_totale(preventivo)
 
-        result = self._build_result(active_rules, added_count, removed_count, preventivo)
-        result["computed_variables"] = computed
-        return result
+        return self._build_result(active_rules, added_count, removed_count, preventivo, context)
 
     def _update_totale(self, preventivo):
-        """Ricalcola il totale del preventivo sommando tutti i materiali."""
+        """Ricalcola il totale del preventivo."""
         from models import Materiale
-        
         try:
             all_materials = self.db.query(Materiale).filter(
                 Materiale.preventivo_id == preventivo.id
             ).all()
-            
             totale = sum(m.prezzo_totale or 0 for m in all_materials)
-            
             if hasattr(preventivo, "total_price"):
                 preventivo.total_price = totale
             if hasattr(preventivo, "totale_materiali"):
                 preventivo.totale_materiali = totale
-            
             self.db.commit()
         except Exception as e:
             self.errors.append(f"Errore aggiornamento totale: {e}")
 
     def _build_result(self, active_rules: Set[str], added: int, removed: int,
-                      preventivo) -> Dict[str, Any]:
+                      preventivo, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Costruisce il dizionario risultato."""
         from models import Materiale
-        
+
         total_materials = self.db.query(Materiale).filter(
             Materiale.preventivo_id == preventivo.id
         ).count()
-        
+
         total_price = 0.0
         if hasattr(preventivo, "total_price"):
             total_price = preventivo.total_price or 0.0
         elif hasattr(preventivo, "totale_materiali"):
             total_price = preventivo.totale_materiali or 0.0
 
-        return {
+        result = {
             "active_rules": sorted(active_rules),
             "materials_added": added,
             "materials_removed": removed,
@@ -812,53 +1099,31 @@ class RuleEngine:
             "total_price": total_price,
             "warnings": self.warnings,
             "errors": self.errors,
+            "action_trace": getattr(self, '_action_trace', []),
         }
 
+        if context:
+            calc_vars = {k: v for k, v in context.items() if k.startswith("_calc.")}
+            if calc_vars:
+                result["calc_variables"] = calc_vars
+
+        return result
+
     # ========================================================================
-    # UTILITY: debug context
+    # UTILITY: debug
     # ========================================================================
     def get_context_debug(self, preventivo) -> Dict[str, Any]:
-        """
-        Restituisce il context completo per debug/diagnostica.
-        Simula anche il pass 1 per mostrare le variabili calcolate.
-        """
+        """Restituisce il context completo + data tables per debug."""
+        self._data_tables = {}
+        self._load_data_tables()
         context = self.build_config_context(preventivo)
-        
-        # Simula phase 1 per mostrare variabili calcolate
-        all_rules = self.load_all_rules()
-        phase1_rules = sorted(
-            [r for r in all_rules if r.get("enabled", True) and r.get("phase") == 1],
-            key=lambda r: r.get("priority", r.get("priorita", 50))
-        )
-        
-        for rule in phase1_rules:
-            try:
-                if self.should_apply_rule(rule, context):
-                    for action in rule.get("actions", []):
-                        action_type = action.get("action")
-                        if action_type == "set_field":
-                            # Simula set_field solo in-memory (senza persistere)
-                            field = action.get("field", "")
-                            value = action.get("value", "")
-                            if isinstance(value, str) and "{{" in value:
-                                value = self._replace_placeholders(value, context)
-                            context[field] = value
-                            if "." in field:
-                                context[field.split(".", 1)[1]] = value
-                        elif action_type == "lookup_table":
-                            self._lookup_table(preventivo, action, context)
-            except Exception:
-                pass
-        
-        computed = {k: v for k, v in context.items() if k.startswith("_calc.")}
-        
         return {
             "preventivo_id": preventivo.id,
             "total_keys": len(context),
             "context": context,
-            "computed_variables": computed,
             "sezioni_dedicate_trovate": [
                 sez for sez, rel in SEZIONI_DEDICATE.items()
                 if getattr(preventivo, rel, None) is not None
             ],
+            "data_tables": list(self._data_tables.keys()),
         }

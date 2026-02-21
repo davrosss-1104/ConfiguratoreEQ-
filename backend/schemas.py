@@ -187,6 +187,7 @@ class PreventivoUpdate(PermissiveBase):
     data_scadenza: Optional[str] = None
     note: Optional[str] = None
     lead_time_giorni: Optional[int] = None
+    revisione_corrente: Optional[int] = None
 
 
 class PreventivoOut(PermissiveBase):

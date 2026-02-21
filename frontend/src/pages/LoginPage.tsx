@@ -31,7 +31,7 @@ export default function LoginPage() {
 
       const data = await response.json();
       
-      // Salva token e user
+      // Salva token e user (ora include permessi, ruolo, gruppo)
       localStorage.setItem('token', data.access_token);
       localStorage.setItem('user', JSON.stringify(data.user));
       
@@ -50,7 +50,11 @@ export default function LoginPage() {
     localStorage.setItem('user', JSON.stringify({
       id: 1,
       username: 'admin',
-      is_admin: true
+      is_admin: true,
+      gruppo_nome: 'Elettroquadri',
+      ruolo_nome: 'Super Amministratore',
+      ruolo_codice: 'superadmin',
+      permessi: [],  // vuoto = nessun filtro (retrocompatibilità)
     }));
     navigate('/preventivi');
   };

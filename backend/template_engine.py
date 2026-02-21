@@ -306,6 +306,18 @@ def load_valori_dinamici(db, preventivo_id: int) -> Dict[str, str]:
         return {}
 
 
+def load_defaults_info(db, preventivo_id: int) -> Dict[str, bool]:
+    """Carica info is_default per ogni campo del preventivo"""
+    try:
+        result = db.execute(
+            text("SELECT codice_campo, COALESCE(is_default, 1) FROM valori_configurazione WHERE preventivo_id = :pid"),
+            {"pid": preventivo_id}
+        )
+        return {row[0]: bool(row[1]) for row in result.fetchall()}
+    except Exception:
+        return {}
+
+
 # ═══════════════════════════════════════════════════════
 # FORMATTAZIONE
 # ═══════════════════════════════════════════════════════
@@ -348,7 +360,9 @@ def _format_value(val, fmt=None):
 def genera_docx_da_template(template_config, preventivo, dati_commessa, dati_principali,
                              normative, argano, materiali, cliente,
                              logo_data=None, logo_mime=None,
-                             valori_dinamici=None, available_fields=None):
+                             valori_dinamici=None, available_fields=None,
+                             defaults_info=None,
+                             product_icon_png=None, product_name="", product_category=""):
     """
     Genera un DOCX professionale basato sulla configurazione del template.
     
@@ -369,6 +383,7 @@ def genera_docx_da_template(template_config, preventivo, dati_commessa, dati_pri
         normative, argano, materiali, cliente,
         valori_dinamici=valori_dinamici
     )
+    ctx["_defaults_info"] = defaults_info or {}
 
     af = available_fields or STATIC_SECTIONS
     config = template_config
@@ -426,12 +441,87 @@ def genera_docx_da_template(template_config, preventivo, dati_commessa, dati_pri
                 except Exception: pass
 
             ef = {f["key"]: f for f in fields if f.get("enabled", True)}
-            if "company_name" in ef:
-                cn = ef["company_name"].get("value") or _fl.get("company_name", {}).get("default", "")
+
+            # ── Product icon + nome prodotto ──
+            if product_icon_png or product_name:
+                num_cols = 2 if product_icon_png else 1
+                t_hdr = doc.add_table(rows=1, cols=num_cols)
+                # Rimuovi bordi tabella
+                tbl = t_hdr._tbl
+                tbl_pr = tbl.tblPr if tbl.tblPr is not None else tbl.makeelement(qn('w:tblPr'), {})
+                borders = tbl_pr.makeelement(qn('w:tblBorders'), {})
+                for edge in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
+                    el = borders.makeelement(qn(f'w:{edge}'), {
+                        qn('w:val'): 'none', qn('w:sz'): '0', qn('w:space'): '0', qn('w:color'): 'auto'
+                    })
+                    borders.append(el)
+                tbl_pr.append(borders)
+                if tbl.tblPr is None:
+                    tbl.insert(0, tbl_pr)
+
+                col_idx = 0
+                if product_icon_png:
+                    cell_icon = t_hdr.cell(0, 0)
+                    p_icon = cell_icon.paragraphs[0]
+                    p_icon.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    run_icon = p_icon.add_run()
+                    icon_ratio = 1.0
+                    try:
+                        from PIL import Image as PILImage
+                        img_buf = io.BytesIO(product_icon_png)
+                        pil_img = PILImage.open(img_buf)
+                        iw, ih = pil_img.size
+                        pil_img.close()
+                        icon_ratio = iw / ih if ih > 0 else 1.0
+                        img_buf2 = io.BytesIO(product_icon_png)
+                        if icon_ratio > 1.5:
+                            pic_w = Cm(4)
+                            pic_h = Cm(4 / icon_ratio)
+                        else:
+                            pic_w = Cm(2.5)
+                            pic_h = Cm(2.5 / icon_ratio)
+                        run_icon.add_picture(img_buf2, width=pic_w, height=pic_h)
+                    except Exception as e:
+                        print(f"WARN: Errore inserimento icona nel DOCX: {e}")
+                    tc_pr = cell_icon._element.get_or_add_tcPr()
+                    col_w = '2800' if icon_ratio > 1.5 else '1800'
+                    tc_w = tc_pr.makeelement(qn('w:tcW'), {qn('w:w'): col_w, qn('w:type'): 'dxa'})
+                    tc_pr.append(tc_w)
+                    col_idx = 1
+
+                cell_title = t_hdr.cell(0, col_idx)
+                cn = ""
+                if "company_name" in ef:
+                    cn = ef["company_name"].get("value") or _fl.get("company_name", {}).get("default", "")
                 if cn:
-                    h = doc.add_heading(cn, level=1)
-                    h.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    for run in h.runs: run.font.color.rgb = _hc()
+                    p_cn = cell_title.paragraphs[0]
+                    p_cn.alignment = WD_ALIGN_PARAGRAPH.LEFT if product_icon_png else WD_ALIGN_PARAGRAPH.CENTER
+                    r = p_cn.add_run(cn)
+                    r.font.size = Pt(14); r.font.bold = True
+                    r.font.color.rgb = _hc(); r.font.name = font_name
+
+                if product_name:
+                    p_pn = cell_title.add_paragraph()
+                    p_pn.alignment = WD_ALIGN_PARAGRAPH.LEFT if product_icon_png else WD_ALIGN_PARAGRAPH.CENTER
+                    rn = p_pn.add_run(product_name.upper())
+                    rn.font.size = Pt(11); rn.font.bold = True
+                    rn.font.color.rgb = RGBColor(0x33, 0x33, 0x33); rn.font.name = font_name
+
+                if product_category:
+                    p_pc = cell_title.add_paragraph()
+                    p_pc.alignment = WD_ALIGN_PARAGRAPH.LEFT if product_icon_png else WD_ALIGN_PARAGRAPH.CENTER
+                    cat_clr = RGBColor(0x16, 0xA3, 0x4A) if product_category == "RISE" else RGBColor(0xD9, 0x77, 0x06)
+                    rc = p_pc.add_run(f"● {product_category}")
+                    rc.font.size = Pt(9); rc.font.bold = True
+                    rc.font.color.rgb = cat_clr; rc.font.name = font_name
+            else:
+                # Fallback senza icona prodotto
+                if "company_name" in ef:
+                    cn = ef["company_name"].get("value") or _fl.get("company_name", {}).get("default", "")
+                    if cn:
+                        h = doc.add_heading(cn, level=1)
+                        h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        for run in h.runs: run.font.color.rgb = _hc()
 
             parts = []
             for fk in ["company_address", "company_phone", "company_email", "company_web"]:
@@ -454,32 +544,66 @@ def genera_docx_da_template(template_config, preventivo, dati_commessa, dati_pri
                 src = lookup.get("source", "")
                 fmt = lookup.get("format")
                 val = _resolve_value(src, ctx) if src else ""
-                rows.append((f.get("label", f["key"]), _format_value(val, fmt)))
-            if not any(v for _, v in rows): continue
+                # Controlla is_default dai valori dinamici
+                is_def = False
+                if src and src.startswith("dinamico."):
+                    campo_cod = src.split(".", 1)[1]
+                    is_def = ctx.get("_defaults_info", {}).get(campo_cod, False)
+                    if not is_def:
+                        print(f"[DEBUG DEFAULT] key={f['key']} src={src} campo_cod={campo_cod} is_def={is_def} keys_sample={list(ctx.get('_defaults_info', {}).keys())[:5]}")
+                else:
+                    print(f"[DEBUG DEFAULT] key={f['key']} src='{src}' NON DINAMICO")
+                rows.append((f.get("label", f["key"]), _format_value(val, fmt), is_def))
+            if not any(v for _, v, _ in rows): continue
 
             doc.add_heading(title, level=2)
+            has_defaults = False
             if len(rows) <= 6:
                 t = doc.add_table(rows=len(rows), cols=2)
                 t.style = 'Table Grid'
-                for i, (l, v) in enumerate(rows):
+                for i, (l, v, is_def) in enumerate(rows):
                     t.cell(i, 0).text = l
                     t.cell(i, 1).text = v
-                    for r in t.cell(i, 0).paragraphs[0].runs: r.font.bold = True; r.font.size = Pt(font_size - 1)
-                    for r in t.cell(i, 1).paragraphs[0].runs: r.font.size = Pt(font_size - 1)
+                    for r in t.cell(i, 0).paragraphs[0].runs:
+                        r.font.bold = True; r.font.size = Pt(font_size - 1)
+                        if is_def:
+                            r.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+                    for r in t.cell(i, 1).paragraphs[0].runs:
+                        r.font.size = Pt(font_size - 1)
+                        if is_def:
+                            r.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+                            r.font.italic = True
+                    if is_def:
+                        has_defaults = True
             else:
                 half = (len(rows) + 1) // 2
                 t = doc.add_table(rows=half, cols=4)
                 t.style = 'Table Grid'
                 for i in range(half):
-                    l1, v1 = rows[i]
+                    l1, v1, is_def1 = rows[i]
                     t.cell(i, 0).text = l1; t.cell(i, 1).text = v1
+                    is_def2 = False
                     if i + half < len(rows):
-                        l2, v2 = rows[i + half]
+                        l2, v2, is_def2 = rows[i + half]
                         t.cell(i, 2).text = l2; t.cell(i, 3).text = v2
-                    for j in [0, 2]:
-                        for r in t.cell(i, j).paragraphs[0].runs: r.font.bold = True; r.font.size = Pt(font_size - 1)
-                    for j in [1, 3]:
-                        for r in t.cell(i, j).paragraphs[0].runs: r.font.size = Pt(font_size - 1)
+                    for j, isd in [(0, is_def1), (2, is_def2 if i + half < len(rows) else False)]:
+                        for r in t.cell(i, j).paragraphs[0].runs:
+                            r.font.bold = True; r.font.size = Pt(font_size - 1)
+                            if isd: r.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+                    for j, isd in [(1, is_def1), (3, is_def2 if i + half < len(rows) else False)]:
+                        for r in t.cell(i, j).paragraphs[0].runs:
+                            r.font.size = Pt(font_size - 1)
+                            if isd:
+                                r.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+                                r.font.italic = True
+                    if is_def1 or (i + half < len(rows) and is_def2):
+                        has_defaults = True
+
+            if has_defaults:
+                p_leg = doc.add_paragraph()
+                run_leg = p_leg.add_run("I valori in grigio corsivo non sono stati modificati rispetto alla configurazione standard.")
+                run_leg.font.size = Pt(7); run_leg.font.italic = True
+                run_leg.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
             doc.add_paragraph('')
 
         # ─────── NORMATIVE ───────

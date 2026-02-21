@@ -12,13 +12,18 @@
       "value": "true"
     }
   ],
-  "materials": [
+  "actions": [
     {
-      "codice": "ENC-ABS",
-      "descrizione": "Encoder assoluto",
-      "quantita": 1,
-      "prezzo_unitario": 320,
-      "categoria": "ACQUISTO"
+      "action": "add_material",
+      "material": {
+        "codice": "ENC-ABS",
+        "descrizione": "Encoder assoluto",
+        "quantita": 1,
+        "prezzo_unitario": 320,
+        "categoria": "ACQUISTO"
+      }
     }
-  ]
+  ],
+  "group": "Norme",
+  "materials": []
 }

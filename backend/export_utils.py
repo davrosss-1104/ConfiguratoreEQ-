@@ -2,10 +2,192 @@
 export_utils.py — Generazione DOCX e XLSX per Preventivi e Ordini
 Posizionare in: backend/export_utils.py
 
-Dipendenze: pip install python-docx openpyxl --break-system-packages
+Dipendenze: pip install python-docx openpyxl cairosvg --break-system-packages
 """
 import io
+import os
 from datetime import datetime
+from pathlib import Path
+
+
+# ═══════════════════════════════════════════════════════
+# PRODUCT ICON LOADER — SVG → PNG per DOCX
+# ═══════════════════════════════════════════════════════
+
+# Percorsi dove cercare le icone SVG del prodotto.
+# Il backend prova ciascun percorso in ordine (relativi a CWD,
+# poi assoluti comuni) finché trova il file.
+ICON_SEARCH_PATHS = [
+    "frontend/public/icons",         # dev: CWD = root progetto
+    "../frontend/public/icons",      # dev: CWD = backend/
+    "public/icons",                  # build / static
+    "static/icons",
+    "icons",
+    "../public/icons",
+]
+
+
+def load_product_icon_png(icon_name: str, size: int = 120) -> bytes | None:
+    """
+    Cerca l'icona prodotto come PNG (preferito) o SVG convertito.
+    Ritorna bytes PNG oppure None se non trovata.
+    """
+    if not icon_name:
+        return None
+
+    # 1. Cerca PNG diretto (pre-convertito) — normalizza DPI
+    png_path = _find_icon_file(icon_name, ".png")
+    if png_path:
+        try:
+            from PIL import Image
+            img = Image.open(png_path)
+            # Forza DPI uniforme per evitare distorsioni in Word
+            buf = io.BytesIO()
+            img.save(buf, format="PNG", dpi=(150, 150))
+            buf.seek(0)
+            print(f"[DEBUG ICON] {icon_name}: {img.size[0]}x{img.size[1]} dpi={img.info.get('dpi', 'N/A')}")
+            return buf.read()
+        except Exception as e:
+            print(f"WARN: Errore caricamento PNG ({icon_name}): {e}")
+
+    # 2. Fallback: SVG con cairosvg (se disponibile)
+    svg_path = _find_icon_file(icon_name, ".svg")
+    if svg_path:
+        try:
+            import cairosvg
+            return cairosvg.svg2png(url=str(svg_path), output_width=size, output_height=size)
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+    print(f"WARN: Icona non trovata ({icon_name}) — salva un .png nella cartella icons/")
+    return None
+
+
+def _find_icon_file(icon_name: str, ext: str) -> Path | None:
+    """Cerca un file icona con l'estensione specificata"""
+    filename = f"{icon_name}{ext}"
+    for base in ICON_SEARCH_PATHS:
+        candidate = Path(base) / filename
+        if candidate.exists():
+            return candidate
+    for base_dir in [os.path.expanduser("~")]:
+        for rel in ICON_SEARCH_PATHS:
+            candidate = Path(base_dir) / rel / filename
+            if candidate.exists():
+                return candidate
+    return None
+
+
+def _find_icon_svg(icon_name: str) -> Path | None:
+    """Cerca il file SVG dell'icona in tutti i percorsi configurati"""
+    filename = f"{icon_name}.svg"
+    # Percorsi relativi a CWD
+    for base in ICON_SEARCH_PATHS:
+        candidate = Path(base) / filename
+        if candidate.exists():
+            return candidate
+    # Percorsi assoluti comuni
+    for base_dir in ["/app", "/opt/app", os.path.expanduser("~")]:
+        for rel in ICON_SEARCH_PATHS:
+            candidate = Path(base_dir) / rel / filename
+            if candidate.exists():
+                return candidate
+    return None
+
+
+# ═══════════════════════════════════════════════════════
+# HELPER: Product Icon Header per DOCX
+# ═══════════════════════════════════════════════════════
+def _add_product_icon_header(doc, product_icon_png: bytes = None,
+                              product_name: str = "", product_category: str = ""):
+    """
+    Aggiunge header con icona prodotto + titolo ELETTROQUADRI + nome prodotto.
+    Layout: tabella senza bordi [Icona | Intestazione]
+    """
+    from docx.shared import Pt, Cm, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+
+    num_cols = 2 if product_icon_png else 1
+    t = doc.add_table(rows=1, cols=num_cols)
+
+    # Rimuovi bordi dalla tabella
+    tbl = t._tbl
+    tbl_pr = tbl.tblPr if tbl.tblPr is not None else tbl.makeelement(qn('w:tblPr'), {})
+    borders = tbl_pr.makeelement(qn('w:tblBorders'), {})
+    for edge in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
+        el = borders.makeelement(qn(f'w:{edge}'), {
+            qn('w:val'): 'none', qn('w:sz'): '0', qn('w:space'): '0', qn('w:color'): 'auto'
+        })
+        borders.append(el)
+    tbl_pr.append(borders)
+    if tbl.tblPr is None:
+        tbl.insert(0, tbl_pr)
+
+    col_idx = 0
+
+    # Colonna icona
+    if product_icon_png:
+        cell_icon = t.cell(0, 0)
+        p_icon = cell_icon.paragraphs[0]
+        p_icon.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run_icon = p_icon.add_run()
+        try:
+            run_icon.add_picture(io.BytesIO(product_icon_png), width=Cm(2.5))
+        except Exception as e:
+            print(f"WARN: Errore inserimento icona nel DOCX: {e}")
+
+        # Larghezza colonna icona fissa
+        tc_pr = cell_icon._element.get_or_add_tcPr()
+        tc_w = tc_pr.makeelement(qn('w:tcW'), {qn('w:w'): '1800', qn('w:type'): 'dxa'})
+        tc_pr.append(tc_w)
+        col_idx = 1
+
+    # Colonna titolo
+    cell_title = t.cell(0, col_idx)
+
+    # ELETTROQUADRI S.r.l.
+    p_company = cell_title.paragraphs[0]
+    p_company.alignment = WD_ALIGN_PARAGRAPH.LEFT if product_icon_png else WD_ALIGN_PARAGRAPH.CENTER
+    r = p_company.add_run("ELETTROQUADRI S.r.l.")
+    r.font.size = Pt(14)
+    r.font.bold = True
+    r.font.color.rgb = RGBColor(0xCC, 0x00, 0x00)
+    r.font.name = 'Arial'
+
+    # Nome prodotto
+    if product_name:
+        p_prod = cell_title.add_paragraph()
+        p_prod.alignment = WD_ALIGN_PARAGRAPH.LEFT if product_icon_png else WD_ALIGN_PARAGRAPH.CENTER
+        r_prod = p_prod.add_run(product_name.upper())
+        r_prod.font.size = Pt(11)
+        r_prod.font.bold = True
+        r_prod.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
+        r_prod.font.name = 'Arial'
+
+    # Badge categoria
+    if product_category:
+        p_cat = cell_title.add_paragraph()
+        p_cat.alignment = WD_ALIGN_PARAGRAPH.LEFT if product_icon_png else WD_ALIGN_PARAGRAPH.CENTER
+        cat_color = RGBColor(0x16, 0xA3, 0x4A) if product_category == "RISE" else RGBColor(0xD9, 0x77, 0x06)
+        r_cat = p_cat.add_run(f"● {product_category}")
+        r_cat.font.size = Pt(9)
+        r_cat.font.bold = True
+        r_cat.font.color.rgb = cat_color
+        r_cat.font.name = 'Arial'
+
+
+def _set_repeat_header_row(table):
+    """Imposta la prima riga della tabella come intestazione ripetuta su ogni pagina"""
+    from docx.oxml.ns import qn
+    try:
+        tr = table.rows[0]._tr
+        trPr = tr.get_or_add_trPr()
+        trPr.append(trPr.makeelement(qn('w:tblHeader'), {}))
+    except Exception:
+        pass
 
 
 # ═══════════════════════════════════════════════════════
@@ -33,7 +215,8 @@ def safe_float(val, default=0.0):
 # ═══════════════════════════════════════════════════════
 # DOCX: PREVENTIVO
 # ═══════════════════════════════════════════════════════
-def genera_docx_preventivo(preventivo, dati_commessa, dati_principali, normative, argano, materiali, cliente=None):
+def genera_docx_preventivo(preventivo, dati_commessa, dati_principali, normative, argano, materiali,
+                           cliente=None, product_icon_png=None, product_name="", product_category=""):
     """
     Genera un documento DOCX professionale per il preventivo.
     Ritorna un io.BytesIO pronto per StreamingResponse.
@@ -51,10 +234,13 @@ def genera_docx_preventivo(preventivo, dati_commessa, dati_principali, normative
     style.font.size = Pt(10)
 
     # ── INTESTAZIONE ──
-    h = doc.add_heading('ELETTROQUADRI S.r.l.', level=1)
-    h.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    for run in h.runs:
-        run.font.color.rgb = RGBColor(0xCC, 0x00, 0x00)
+    if product_icon_png or product_name:
+        _add_product_icon_header(doc, product_icon_png, product_name, product_category)
+    else:
+        h = doc.add_heading('ELETTROQUADRI S.r.l.', level=1)
+        h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in h.runs:
+            run.font.color.rgb = RGBColor(0xCC, 0x00, 0x00)
 
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -65,6 +251,9 @@ def genera_docx_preventivo(preventivo, dati_commessa, dati_principali, normative
 
     # ── DATI OFFERTA ──
     numero = getattr(preventivo, 'numero', None) or getattr(preventivo, 'numero_preventivo', '') or ''
+    rev = getattr(preventivo, 'revisione_corrente', 0) or 0
+    if rev > 0:
+        numero = f"{numero} REV.{rev}"
     stato = getattr(preventivo, 'stato', None) or getattr(preventivo, 'status', 'bozza') or 'bozza'
     customer = getattr(preventivo, 'customer_name', '') or ''
     if cliente:
@@ -170,6 +359,8 @@ def genera_docx_preventivo(preventivo, dati_commessa, dati_principali, normative
             })
             shading.append(shading_elm)
 
+        _set_repeat_header_row(t4)
+
         # Righe materiali
         totale_mat = 0.0
         for m in materiali:
@@ -239,7 +430,9 @@ def genera_docx_preventivo(preventivo, dati_commessa, dati_principali, normative
 # ═══════════════════════════════════════════════════════
 # DOCX: PREVENTIVO v2 — Data-driven da /dati-documento
 # ═══════════════════════════════════════════════════════
-def genera_docx_preventivo_v2(preventivo_info: dict, dati_documento: dict, materiali: list):
+def genera_docx_preventivo_v2(preventivo_info: dict, dati_documento: dict, materiali: list,
+                              product_icon_png: bytes = None, product_name: str = "",
+                              product_category: str = ""):
     """
     Genera documento DOCX leggendo la struttura dinamica da /dati-documento.
     
@@ -248,6 +441,9 @@ def genera_docx_preventivo_v2(preventivo_info: dict, dati_documento: dict, mater
                           "totale": float, "sconto": float, "netto": float, "note": str}
         dati_documento:  output di GET /preventivi/{id}/dati-documento
         materiali:       lista ORM Materiale (per tabella materiali dettagliata)
+        product_icon_png: bytes PNG dell'icona prodotto (opzionale)
+        product_name:    nome display del prodotto (opzionale)
+        product_category: categoria "RISE" o "HOME" (opzionale)
     """
     from docx import Document
     from docx.shared import Pt, Cm, RGBColor
@@ -276,10 +472,13 @@ def genera_docx_preventivo_v2(preventivo_info: dict, dati_documento: dict, mater
 
         # ── INTESTAZIONE ──
         if tipo == "intestazione" or codice == "intestazione":
-            h = doc.add_heading('ELETTROQUADRI S.r.l.', level=1)
-            h.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            for run in h.runs:
-                run.font.color.rgb = RGBColor(0xCC, 0x00, 0x00)
+            if product_icon_png or product_name:
+                _add_product_icon_header(doc, product_icon_png, product_name, product_category)
+            else:
+                h = doc.add_heading('ELETTROQUADRI S.r.l.', level=1)
+                h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                for run in h.runs:
+                    run.font.color.rgb = RGBColor(0xCC, 0x00, 0x00)
 
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -295,8 +494,12 @@ def genera_docx_preventivo_v2(preventivo_info: dict, dati_documento: dict, mater
             t = doc.add_table(rows=2, cols=4)
             t.alignment = WD_TABLE_ALIGNMENT.CENTER
             t.style = 'Table Grid'
+            revisione = preventivo_info.get("revisione", 0)
+            numero_display = safe_str(numero)
+            if revisione:
+                numero_display += f" — REV.{revisione}"
             rows_data = [
-                ("Offerta N°", safe_str(numero), "Stato", safe_str(status).upper()),
+                ("Offerta N°", numero_display, "Stato", safe_str(status).upper()),
                 ("Cliente", safe_str(customer), "", ""),
             ]
             for i, (l1, v1, l2, v2) in enumerate(rows_data):
@@ -337,6 +540,8 @@ def genera_docx_preventivo_v2(preventivo_info: dict, dati_documento: dict, mater
                         qn('w:fill'): '333333', qn('w:val'): 'clear'
                     })
                     shading.append(shading_elm)
+
+                _set_repeat_header_row(t_mat)
 
                 totale_mat = 0.0
                 for m in materiali:
@@ -415,6 +620,7 @@ def genera_docx_preventivo_v2(preventivo_info: dict, dati_documento: dict, mater
                     for run in cell.paragraphs[0].runs:
                         run.font.bold = True
                         run.font.size = Pt(9)
+                _set_repeat_header_row(t_std)
                 for campo in campi:
                     row = t_std.add_row().cells
                     row[0].text = safe_str(campo.get("etichetta", ""))
@@ -436,20 +642,38 @@ def genera_docx_preventivo_v2(preventivo_info: dict, dati_documento: dict, mater
 
             t_sez = doc.add_table(rows=len(campi), cols=2)
             t_sez.style = 'Table Grid'
+            has_defaults = False
             for i, campo in enumerate(campi):
                 etichetta = safe_str(campo.get("etichetta", ""))
                 valore = safe_str(campo.get("valore", ""))
                 um = campo.get("unita_misura")
                 if um:
                     valore += f" {um}"
+                is_def = campo.get("is_default", False)
 
                 t_sez.cell(i, 0).text = etichetta
                 t_sez.cell(i, 1).text = valore
                 for run in t_sez.cell(i, 0).paragraphs[0].runs:
                     run.font.bold = True
                     run.font.size = Pt(9)
+                    if is_def:
+                        run.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
                 for run in t_sez.cell(i, 1).paragraphs[0].runs:
                     run.font.size = Pt(9)
+                    if is_def:
+                        run.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+                        run.font.italic = True
+
+                if is_def:
+                    has_defaults = True
+
+            # Nota a piè di sezione se ci sono valori di default
+            if has_defaults:
+                p_leg = doc.add_paragraph()
+                run_leg = p_leg.add_run("I valori in grigio corsivo non sono stati modificati rispetto alla configurazione standard.")
+                run_leg.font.size = Pt(7)
+                run_leg.font.italic = True
+                run_leg.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
 
     # ── NOTE PREVENTIVO ──
     note = preventivo_info.get("note", "")
@@ -492,6 +716,9 @@ def genera_xlsx_preventivo(preventivo, dati_commessa, dati_principali, normative
     )
 
     numero = getattr(preventivo, 'numero', None) or getattr(preventivo, 'numero_preventivo', '') or ''
+    rev = getattr(preventivo, 'revisione_corrente', 0) or 0
+    if rev > 0:
+        numero = f"{numero} REV.{rev}"
     customer = getattr(preventivo, 'customer_name', '') or ''
     if cliente:
         customer = getattr(cliente, 'ragione_sociale', customer) or customer
@@ -699,6 +926,7 @@ def genera_docx_ordine(ordine_data, materiali, esplosi=None, lista_acquisti=None
             for run in t2.rows[0].cells[i].paragraphs[0].runs:
                 run.font.bold = True
                 run.font.size = Pt(9)
+        _set_repeat_header_row(t2)
 
         for m in materiali:
             row = t2.add_row().cells
@@ -730,6 +958,7 @@ def genera_docx_ordine(ordine_data, materiali, esplosi=None, lista_acquisti=None
                 for run in t3.rows[0].cells[i].paragraphs[0].runs:
                     run.font.bold = True
                     run.font.size = Pt(9)
+            _set_repeat_header_row(t3)
 
             for e in items:
                 row = t3.add_row().cells
@@ -751,6 +980,7 @@ def genera_docx_ordine(ordine_data, materiali, esplosi=None, lista_acquisti=None
                 for run in t4.rows[0].cells[i].paragraphs[0].runs:
                     run.font.bold = True
                     run.font.size = Pt(9)
+            _set_repeat_header_row(t4)
             for art in data['articoli']:
                 row = t4.add_row().cells
                 row[0].text = safe_str(art.get('codice'))

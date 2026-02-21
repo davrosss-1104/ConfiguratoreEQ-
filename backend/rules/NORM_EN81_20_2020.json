@@ -13,27 +13,38 @@
       "description": "EN 81-20 edizione 2020"
     }
   ],
-  "materials": [
+  "actions": [
     {
-      "codice": "UCM-EN81-20",
-      "descrizione": "Dispositivo UCM (Unintended Car Movement)",
-      "quantita": 1,
-      "prezzo_unitario": 580,
-      "categoria": "Sicurezza"
+      "action": "add_material",
+      "material": {
+        "codice": "UCM-EN81-20",
+        "descrizione": "Dispositivo UCM (Unintended Car Movement)",
+        "quantita": 1,
+        "prezzo_unitario": 580,
+        "categoria": "Sicurezza"
+      }
     },
     {
-      "codice": "BOTT-LIS-LID",
-      "descrizione": "Bottoniera tetto cabina LIS/LID (EN81-20)",
-      "quantita": 1,
-      "prezzo_unitario": 85,
-      "categoria": "Sicurezza"
+      "action": "add_material",
+      "material": {
+        "codice": "BOTT-LIS-LID",
+        "descrizione": "Bottoniera tetto cabina LIS/LID (EN81-20)",
+        "quantita": 1,
+        "prezzo_unitario": 85,
+        "categoria": "Sicurezza"
+      }
     },
     {
-      "codice": "LUCE-EMERG-81-20",
-      "descrizione": "Luce emergenza cabina EN81-20",
-      "quantita": 1,
-      "prezzo_unitario": 42,
-      "categoria": "Illuminazione"
+      "action": "add_material",
+      "material": {
+        "codice": "LUCE-EMERG-81-20",
+        "descrizione": "Luce emergenza cabina EN81-20",
+        "quantita": 1,
+        "prezzo_unitario": 42,
+        "categoria": "Illuminazione"
+      }
     }
-  ]
+  ],
+  "group": "Norme",
+  "materials": []
 }

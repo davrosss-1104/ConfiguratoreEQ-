@@ -1,7 +1,8 @@
 /**
- * OrdinePanel.tsx - Flusso Preventivo -> Ordine -> BOM + Revisioni + Sconti
+ * OrdinePanel.tsx - Flusso Preventivo → Ordine → BOM
+ * Con tracciamento revisioni, auto-snapshot, conflict dialogs, filiera compatta
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -9,65 +10,160 @@ import {
   CheckCircle2, Package, Loader2, AlertTriangle,
   ArrowRight, Boxes, Truck, ChevronDown, ChevronRight,
   ClipboardList, FileText, History,
-  Tag, Percent, RotateCcw, Plus, Eye
+  Tag, Percent, RotateCcw, Plus, Eye, RefreshCw, X, GitBranch
 } from 'lucide-react';
 
 const API = 'http://localhost:8000';
 const fmt = (n: number) => n.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
 
+// --- Types ---
 interface MaterialeItem {
-  id: number;
-  codice: string;
-  descrizione: string;
-  quantita: number;
-  prezzo_unitario: number;
-  prezzo_totale: number;
+  id: number; codice: string; descrizione: string;
+  quantita: number; prezzo_unitario: number; prezzo_totale: number;
   aggiunto_da_regola: boolean;
 }
-
 interface ClienteInfo {
-  id: number;
-  ragione_sociale: string;
-  codice: string;
-  sconto_produzione?: number;
-  sconto_acquisto?: number;
+  id: number; ragione_sociale: string; codice: string;
+  sconto_produzione?: number; sconto_acquisto?: number;
 }
-
 interface OrdineInfo {
-  id: number;
-  numero_ordine: string;
-  stato: string;
-  tipo_impianto: string;
-  totale_materiali: number;
-  totale_netto: number;
-  lead_time_giorni: number;
-  data_consegna_prevista: string;
-  bom_esplosa: boolean;
-  created_at: string;
-  preventivo_id: number;
+  id: number; numero_ordine: string; stato: string; tipo_impianto: string;
+  totale_materiali: number; totale_netto: number;
+  lead_time_giorni: number; data_consegna_prevista: string;
+  bom_esplosa: boolean; created_at: string; preventivo_id: number;
+  revisione_id?: number; numero_revisione_origine?: number;
+  bom_revisione_id?: number; bom_numero_revisione?: number; bom_esplosa_at?: string;
+  outdated?: boolean; revisioni_dietro?: number;
+  bom_outdated?: boolean; bom_revisioni_dietro?: number;
 }
-
 interface RevisioneInfo {
-  id: number;
-  preventivo_id: number;
-  numero_revisione: number;
-  motivo: string;
-  created_by: string;
-  created_at: string;
+  id: number; preventivo_id: number; numero_revisione: number;
+  motivo: string; created_by: string; created_at: string;
+}
+interface EsplosoItem {
+  codice: string; descrizione: string; tipo: string; categoria: string;
+  quantita: number; unita_misura: string; costo_unitario: number;
+  costo_totale: number; livello_esplosione: number; lead_time_giorni: number;
+}
+interface FilieraData {
+  preventivo: any;
+  ordini: OrdineInfo[];
+  revisione_corrente: number;
 }
 
-interface EsplosoItem {
-  codice: string;
-  descrizione: string;
-  tipo: string;
-  categoria: string;
-  quantita: number;
-  unita_misura: string;
-  costo_unitario: number;
-  costo_totale: number;
-  livello_esplosione: number;
-  lead_time_giorni: number;
+// --- Conflict Dialog ---
+function ConflictDialog({ open, title, children, onClose }: {
+  open: boolean; title: string; children: React.ReactNode; onClose: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b bg-gray-50">
+          <h3 className="font-bold text-gray-900 flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-amber-500" />
+            {title}
+          </h3>
+          <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
 }
+
+// --- Filiera Compatta ---
+function FilieraCompatta({ filiera, revCorrente }: { filiera: FilieraData | null; revCorrente: number }) {
+  if (!filiera) return null;
+  const ordine = filiera.ordini?.[0];
+  const hasBom = ordine?.bom_esplosa;
+
+  const prevColor = ordine ? 'bg-green-100 text-green-800 border-green-300' : 'bg-indigo-100 text-indigo-800 border-indigo-300';
+  const ordColor = ordine
+    ? ordine.outdated
+      ? 'bg-amber-100 text-amber-800 border-amber-300'
+      : 'bg-green-100 text-green-800 border-green-300'
+    : 'bg-gray-100 text-gray-400 border-gray-200';
+  const bomColor = hasBom
+    ? ordine?.bom_outdated
+      ? 'bg-amber-100 text-amber-800 border-amber-300'
+      : 'bg-green-100 text-green-800 border-green-300'
+    : 'bg-gray-100 text-gray-400 border-gray-200';
+
+  return (
+    <div className="flex items-stretch gap-2 text-xs">
+      {/* PREVENTIVO */}
+      <div className={`flex-1 border rounded-lg p-3 ${prevColor}`}>
+        <div className="flex items-center gap-1.5 font-bold mb-1">
+          <FileText className="w-3.5 h-3.5" /> PREVENTIVO
+          {ordine && <CheckCircle2 className="w-3.5 h-3.5" />}
+        </div>
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-1">
+            <GitBranch className="w-3 h-3" /> REV.{revCorrente}
+          </div>
+        </div>
+      </div>
+
+      <ArrowRight className="w-4 h-4 text-gray-300 self-center flex-shrink-0" />
+
+      {/* ORDINE */}
+      <div className={`flex-1 border rounded-lg p-3 ${ordColor}`}>
+        <div className="flex items-center gap-1.5 font-bold mb-1">
+          <Package className="w-3.5 h-3.5" /> ORDINE
+          {ordine && !ordine.outdated && <CheckCircle2 className="w-3.5 h-3.5" />}
+          {ordine?.outdated && <AlertTriangle className="w-3.5 h-3.5" />}
+        </div>
+        {ordine ? (
+          <div className="space-y-0.5">
+            <div className="font-mono font-medium">{ordine.numero_ordine}</div>
+            <div className="flex items-center gap-1">
+              <GitBranch className="w-3 h-3" /> da REV.{ordine.numero_revisione_origine || '?'}
+            </div>
+            {ordine.outdated && (
+              <div className="text-amber-700 font-medium">
+                +{ordine.revisioni_dietro} rev dopo
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-gray-400 italic">Non generato</div>
+        )}
+      </div>
+
+      <ArrowRight className="w-4 h-4 text-gray-300 self-center flex-shrink-0" />
+
+      {/* BOM */}
+      <div className={`flex-1 border rounded-lg p-3 ${bomColor}`}>
+        <div className="flex items-center gap-1.5 font-bold mb-1">
+          <Boxes className="w-3.5 h-3.5" /> BOM
+          {hasBom && !ordine?.bom_outdated && <CheckCircle2 className="w-3.5 h-3.5" />}
+          {ordine?.bom_outdated && <AlertTriangle className="w-3.5 h-3.5" />}
+        </div>
+        {hasBom ? (
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-1">
+              <GitBranch className="w-3 h-3" /> da REV.{ordine?.bom_numero_revisione || '?'}
+            </div>
+            {ordine?.bom_outdated && (
+              <div className="text-amber-700 font-medium">
+                +{ordine.bom_revisioni_dietro} rev dopo
+              </div>
+            )}
+            {ordine?.bom_esplosa_at && (
+              <div className="text-[10px] opacity-70">
+                {new Date(ordine.bom_esplosa_at).toLocaleDateString('it-IT')}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-gray-400 italic">Non esplosa</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 export default function OrdinePanel() {
   const { id } = useParams<{ id: string }>();
@@ -78,6 +174,28 @@ export default function OrdinePanel() {
   const [scontoExtra, setScontoExtra] = useState<number>(0);
   const [showRevisioni, setShowRevisioni] = useState(false);
   const [revisioneDettaglio, setRevisioneDettaglio] = useState<any>(null);
+
+  // Conflict dialogs
+  const [showOrdineConflict, setShowOrdineConflict] = useState(false);
+  const [conflictOrdini, setConflictOrdini] = useState<OrdineInfo[]>([]);
+  const [showBomConflict, setShowBomConflict] = useState(false);
+  const [bomConflictInfo, setBomConflictInfo] = useState<any>(null);
+
+  // Auto-snapshot on unmount
+  const prevIdRef = useRef(preventivoId);
+  useEffect(() => {
+    prevIdRef.current = preventivoId;
+  }, [preventivoId]);
+
+  useEffect(() => {
+    return () => {
+      // Fire-and-forget auto-snapshot when leaving
+      const pid = prevIdRef.current;
+      if (pid > 0) {
+        fetch(`${API}/preventivi/${pid}/auto-snapshot`, { method: 'POST' }).catch(() => {});
+      }
+    };
+  }, []);
 
   // --- Queries ---
   const { data: preventivo } = useQuery({
@@ -99,17 +217,15 @@ export default function OrdinePanel() {
     enabled: !!clienteId,
   });
 
-  const { data: ordini = [] } = useQuery<OrdineInfo[]>({
-    queryKey: ['ordini-preventivo', preventivoId],
-    queryFn: async () => {
-      const r = await fetch(`${API}/ordini`);
-      if (!r.ok) return [];
-      const all = await r.json();
-      return all.filter((o: any) => o.preventivo_id === preventivoId);
-    },
+  const { data: filiera, refetch: refetchFiliera } = useQuery<FilieraData>({
+    queryKey: ['filiera', preventivoId],
+    queryFn: async () => { const r = await fetch(`${API}/preventivi/${preventivoId}/filiera`); return r.ok ? r.json() : null; },
     enabled: preventivoId > 0,
   });
+
+  const ordini = filiera?.ordini || [];
   const ordine = ordini.length > 0 ? ordini[0] : null;
+  const revCorrente = filiera?.revisione_corrente || preventivo?.revisione_corrente || 0;
 
   const { data: revisioni = [] } = useQuery<RevisioneInfo[]>({
     queryKey: ['revisioni', preventivoId],
@@ -143,36 +259,101 @@ export default function OrdinePanel() {
   const importoScontoExtra = prezzoDopoScontoCliente * (scontoExtra / 100);
   const totaleFinale = prezzoDopoScontoCliente - importoScontoExtra;
 
+  // --- Invalidate all ---
+  const invalidateAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['filiera'] });
+    queryClient.invalidateQueries({ queryKey: ['preventivo'] });
+    queryClient.invalidateQueries({ queryKey: ['revisioni'] });
+    queryClient.invalidateQueries({ queryKey: ['materiali'] });
+    queryClient.invalidateQueries({ queryKey: ['esplosi'] });
+    queryClient.invalidateQueries({ queryKey: ['lista-acquisti'] });
+  }, [queryClient]);
+
   // --- Mutations ---
+
+  // Conferma con check conflitto
+  const handleConferma = async () => {
+    try {
+      const r = await fetch(`${API}/preventivi/${preventivoId}/conferma`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'check' }),
+      });
+      const data = await r.json();
+
+      if (data.existing_ordini && data.existing_ordini.length > 0) {
+        setConflictOrdini(data.existing_ordini);
+        setShowOrdineConflict(true);
+      } else {
+        doConferma('new');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Errore check ordine');
+    }
+  };
+
   const confermaMutation = useMutation({
-    mutationFn: async () => {
-      const r = await fetch(`${API}/preventivi/${preventivoId}/conferma`, { method: 'POST' });
+    mutationFn: async ({ action, ordine_id }: { action: string; ordine_id?: number }) => {
+      const r = await fetch(`${API}/preventivi/${preventivoId}/conferma`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ordine_id }),
+      });
       if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Errore conferma'); }
       return r.json();
     },
     onSuccess: (data) => {
-      toast.success(`Ordine ${data.numero_ordine} creato!`);
-      queryClient.invalidateQueries({ queryKey: ['ordini-preventivo'] });
-      queryClient.invalidateQueries({ queryKey: ['preventivo'] });
-      queryClient.invalidateQueries({ queryKey: ['revisioni'] });
+      const msg = data.status === 'aggiornato'
+        ? `Ordine ${data.numero_ordine} aggiornato a REV.${data.revisione_origine}!`
+        : `Ordine ${data.numero_ordine} creato (REV.${data.revisione_origine})!`;
+      toast.success(msg);
+      setShowOrdineConflict(false);
+      invalidateAll();
     },
     onError: (err: Error) => toast.error(err.message),
   });
 
+  const doConferma = (action: string, ordine_id?: number) => {
+    confermaMutation.mutate({ action, ordine_id });
+  };
+
+  // Esplodi BOM con check conflitto
+  const handleEsplodiBom = async () => {
+    if (!ordine) return;
+    if (ordine.bom_esplosa) {
+      // BOM gia esplosa — check
+      try {
+        const r = await fetch(`${API}/ordini/${ordine.id}/esplodi-bom`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'check' }),
+        });
+        const data = await r.json();
+        setBomConflictInfo(data);
+        setShowBomConflict(true);
+      } catch (err: any) {
+        toast.error(err.message);
+      }
+    } else {
+      doEsplodiBom();
+    }
+  };
+
   const esplodiMutation = useMutation({
     mutationFn: async () => {
-      const r = await fetch(`${API}/ordini/${ordine!.id}/esplodi-bom`, { method: 'POST' });
+      const r = await fetch(`${API}/ordini/${ordine!.id}/esplodi-bom`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'esplodi' }),
+      });
       if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Errore BOM'); }
       return r.json();
     },
     onSuccess: (data) => {
-      toast.success(`BOM esplosa: ${data.componenti_aggregati} componenti`);
-      queryClient.invalidateQueries({ queryKey: ['ordini-preventivo'] });
-      queryClient.invalidateQueries({ queryKey: ['esplosi'] });
-      queryClient.invalidateQueries({ queryKey: ['lista-acquisti'] });
+      toast.success(`BOM esplosa: ${data.componenti_aggregati} componenti (REV.${data.revisione_bom || '?'})`);
+      setShowBomConflict(false);
+      invalidateAll();
     },
     onError: (err: Error) => toast.error(err.message),
   });
+
+  const doEsplodiBom = () => esplodiMutation.mutate();
 
   const creaRevisioneMutation = useMutation({
     mutationFn: async () => {
@@ -185,7 +366,7 @@ export default function OrdinePanel() {
     },
     onSuccess: (data) => {
       toast.success(`Revisione #${data.numero_revisione} creata`);
-      queryClient.invalidateQueries({ queryKey: ['revisioni'] });
+      invalidateAll();
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -198,9 +379,7 @@ export default function OrdinePanel() {
     },
     onSuccess: () => {
       toast.success('Preventivo ripristinato dalla revisione');
-      queryClient.invalidateQueries({ queryKey: ['preventivo'] });
-      queryClient.invalidateQueries({ queryKey: ['materiali'] });
-      queryClient.invalidateQueries({ queryKey: ['revisioni'] });
+      invalidateAll();
       setRevisioneDettaglio(null);
     },
     onError: (err: Error) => toast.error(err.message),
@@ -220,6 +399,8 @@ export default function OrdinePanel() {
 
   const isConfermato = preventivo?.status === 'confermato';
   const canConferma = preventivo && ['draft', 'bozza', 'inviato'].includes(preventivo.status);
+  const canRiconferma = isConfermato && ordine; // Ha ordine, può aggiornarlo o crearne uno nuovo
+  const missingCliente = !preventivo?.cliente_id;
 
   const raggruppati = (esplosiData?.esplosi || []).reduce((acc: Record<string, EsplosoItem[]>, item: EsplosoItem) => {
     const key = viewMode === 'tipo' ? (item.tipo || 'ALTRO') : (item.categoria || 'Altro');
@@ -240,6 +421,19 @@ export default function OrdinePanel() {
 
   return (
     <div className="space-y-4">
+
+      {/* === FILIERA COMPATTA === */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide flex items-center gap-2">
+            <GitBranch className="w-4 h-4 text-indigo-500" /> Filiera Preventivo
+          </h2>
+          <button onClick={() => refetchFiliera()} className="p-1 text-gray-400 hover:text-gray-600 rounded">
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <FilieraCompatta filiera={filiera || null} revCorrente={revCorrente} />
+      </div>
 
       {/* === RIEPILOGO MATERIALI + SCONTI === */}
       <div className="bg-white rounded-lg shadow">
@@ -327,6 +521,11 @@ export default function OrdinePanel() {
           <div className="flex items-center gap-2">
             <History className="w-5 h-5 text-purple-600" />
             <span className="font-bold text-gray-900">Revisioni</span>
+            {revCorrente > 0 && (
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-600 text-white">
+                REV.{revCorrente}
+              </span>
+            )}
             <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">{revisioni.length}</span>
           </div>
           {showRevisioni ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
@@ -344,36 +543,58 @@ export default function OrdinePanel() {
               <p className="text-sm text-gray-400 italic">Nessuna revisione ancora</p>
             ) : (
               <div className="space-y-2">
-                {revisioni.map(rev => (
-                  <div key={rev.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-2.5 text-sm">
-                    <div className="flex items-center gap-3">
-                      <span className="bg-purple-200 text-purple-800 font-bold text-xs w-7 h-7 rounded-full flex items-center justify-center">
-                        #{rev.numero_revisione}
-                      </span>
-                      <div>
-                        <span className="font-medium text-gray-800">{rev.motivo || 'Revisione'}</span>
-                        <p className="text-xs text-gray-400">
-                          {rev.created_at ? new Date(rev.created_at).toLocaleString('it-IT') : ''}
-                          {rev.created_by && <span> - {rev.created_by}</span>}
-                        </p>
+                {revisioni.map(rev => {
+                  // Check se un ordine o BOM nasce da questa revisione
+                  const ordineFromRev = ordini.find(o => o.numero_revisione_origine === rev.numero_revisione);
+                  const bomFromRev = ordini.find(o => o.bom_numero_revisione === rev.numero_revisione);
+
+                  return (
+                    <div key={rev.id} className={`flex items-center justify-between rounded-lg px-4 py-2.5 text-sm ${
+                      revCorrente === rev.numero_revisione
+                        ? 'bg-purple-50 border border-purple-200'
+                        : 'bg-gray-50'
+                    }`}>
+                      <div className="flex items-center gap-3">
+                        <span className="bg-purple-200 text-purple-800 font-bold text-xs w-7 h-7 rounded-full flex items-center justify-center">
+                          #{rev.numero_revisione}
+                        </span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-gray-800">{rev.motivo || 'Revisione'}</span>
+                            {ordineFromRev && (
+                              <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-medium">
+                                ORD
+                              </span>
+                            )}
+                            {bomFromRev && (
+                              <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">
+                                BOM
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400">
+                            {rev.created_at ? new Date(rev.created_at).toLocaleString('it-IT') : ''}
+                            {rev.created_by && <span> - {rev.created_by}</span>}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => caricaDettaglioRevisione(rev)}
+                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Visualizza">
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => {
+                            if (confirm(`Ripristinare la revisione #${rev.numero_revisione}? Lo stato attuale verra' salvato automaticamente.`))
+                              ripristinaMutation.mutate(rev.id);
+                          }}
+                          disabled={ripristinaMutation.isPending}
+                          className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded" title="Ripristina">
+                          <RotateCcw className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => caricaDettaglioRevisione(rev)}
-                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Visualizza">
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => {
-                          if (confirm(`Ripristinare la revisione #${rev.numero_revisione}? Lo stato attuale verra' salvato automaticamente.`))
-                            ripristinaMutation.mutate(rev.id);
-                        }}
-                        disabled={ripristinaMutation.isPending}
-                        className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded" title="Ripristina">
-                        <RotateCcw className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
@@ -424,33 +645,54 @@ export default function OrdinePanel() {
           Ordine e Distinta Base
         </h2>
 
-        {/* Timeline */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium ${isConfermato || ordine ? 'bg-green-100 text-green-800' : 'bg-indigo-100 text-indigo-800'}`}>
-            <FileText className="w-4 h-4" /> Preventivo {(isConfermato || ordine) && <CheckCircle2 className="w-4 h-4" />}
+        {/* Avviso cliente mancante */}
+        {missingCliente && (canConferma || canRiconferma) && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-medium text-red-900">Cliente non selezionato</p>
+              <p className="text-sm text-red-700 mt-1">Seleziona un cliente nella sezione Dati Commessa prima di confermare il preventivo.</p>
+            </div>
           </div>
-          <ArrowRight className="w-4 h-4 text-gray-400" />
-          <div className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium ${ordine ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}`}>
-            <Package className="w-4 h-4" /> Ordine {ordine && <CheckCircle2 className="w-4 h-4" />}
-          </div>
-          <ArrowRight className="w-4 h-4 text-gray-400" />
-          <div className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium ${ordine?.bom_esplosa ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}`}>
-            <Boxes className="w-4 h-4" /> BOM {ordine?.bom_esplosa && <CheckCircle2 className="w-4 h-4" />}
-          </div>
-        </div>
+        )}
 
-        {/* Conferma */}
+        {/* Conferma: nuovo ordine (primo) */}
         {canConferma && !ordine && (
-          <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+          <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-4">
             <p className="text-sm text-indigo-800 mb-3">
               Totale netto: <strong>{fmt(totaleFinale)}</strong>
               {scontoCliente > 0 && <span className="text-indigo-500 ml-2">(listino {fmt(subtotale)} - {scontoCliente}%{scontoExtra > 0 ? ` - ${scontoExtra}%` : ''})</span>}
             </p>
-            <button onClick={() => confermaMutation.mutate()} disabled={confermaMutation.isPending}
+            <button onClick={handleConferma} disabled={confermaMutation.isPending || missingCliente}
               className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium">
               {confermaMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
               Conferma Preventivo e Genera Ordine
             </button>
+          </div>
+        )}
+
+        {/* Ordine esistente outdated — pulsante aggiorna */}
+        {ordine?.outdated && (
+          <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 mb-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="font-medium text-amber-900">
+                  L'ordine {ordine.numero_ordine} e' stato creato dalla REV.{ordine.numero_revisione_origine || '?'}.
+                  Il preventivo e' ora alla REV.{revCorrente} (+{ordine.revisioni_dietro} revisioni dopo).
+                </p>
+                <div className="flex gap-2 mt-3">
+                  <button onClick={() => { setConflictOrdini([ordine]); setShowOrdineConflict(true); }}
+                    className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-sm font-medium">
+                    <RefreshCw className="w-4 h-4" /> Aggiorna ordine
+                  </button>
+                  <button onClick={handleConferma}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium">
+                    <Plus className="w-4 h-4" /> Nuovo ordine
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -461,7 +703,8 @@ export default function OrdinePanel() {
               <div>
                 <p className="font-bold text-green-900 text-lg">{ordine.numero_ordine}</p>
                 <p className="text-sm text-green-700">
-                  Preventivo {preventivo?.numero_preventivo} confermato il {ordine.created_at ? new Date(ordine.created_at).toLocaleDateString('it-IT') : ''}
+                  Confermato il {ordine.created_at ? new Date(ordine.created_at).toLocaleDateString('it-IT') : ''}
+                  {ordine.numero_revisione_origine ? ` dalla REV.${ordine.numero_revisione_origine}` : ''}
                 </p>
               </div>
               <span className="bg-green-200 text-green-800 px-3 py-1 rounded-full text-xs font-bold uppercase">{ordine.stato}</span>
@@ -469,19 +712,46 @@ export default function OrdinePanel() {
             <div className="grid grid-cols-3 gap-4 text-sm">
               <div><span className="text-green-600">Totale</span><p className="font-bold text-green-900">{fmt(ordine.totale_netto || ordine.totale_materiali || 0)}</p></div>
               <div><span className="text-green-600">Lead time</span><p className="font-bold text-green-900">{ordine.lead_time_giorni || 15} giorni</p></div>
-              <div><span className="text-green-600">Consegna prevista</span><p className="font-bold text-green-900">{ordine.data_consegna_prevista ? new Date(ordine.data_consegna_prevista).toLocaleDateString('it-IT') : '-'}</p></div>
+              <div><span className="text-green-600">Consegna</span><p className="font-bold text-green-900">{ordine.data_consegna_prevista ? new Date(ordine.data_consegna_prevista).toLocaleDateString('it-IT') : '-'}</p></div>
             </div>
-            {!ordine.bom_esplosa && (
-              <button onClick={() => esplodiMutation.mutate()} disabled={esplodiMutation.isPending}
+
+            {/* BOM button */}
+            {!ordine.bom_esplosa ? (
+              <button onClick={handleEsplodiBom} disabled={esplodiMutation.isPending}
                 className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50 font-medium text-sm">
                 {esplodiMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Boxes className="w-4 h-4" />}
                 Esplodi Distinta Base
               </button>
-            )}
+            ) : ordine.bom_outdated ? (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-amber-700">
+                  BOM esplosa da REV.{ordine.bom_numero_revisione} (ora REV.{revCorrente})
+                </span>
+                <button onClick={handleEsplodiBom} disabled={esplodiMutation.isPending}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-xs font-medium">
+                  <RefreshCw className="w-3.5 h-3.5" /> Riesplodi BOM
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
 
-        {!ordine && !canConferma && (
+        {/* Confermato senza ordine (ordine perso o errore) — permetti riconferma */}
+        {isConfermato && !ordine && (
+          <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-4">
+            <p className="text-sm text-indigo-800 mb-3">
+              Il preventivo e' confermato ma non risulta nessun ordine associato.
+              Totale netto: <strong>{fmt(totaleFinale)}</strong>
+            </p>
+            <button onClick={() => doConferma('new')} disabled={confermaMutation.isPending || missingCliente}
+              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium">
+              {confermaMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              Genera Ordine
+            </button>
+          </div>
+        )}
+
+        {!ordine && !canConferma && !isConfermato && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5" />
             <div>
@@ -593,6 +863,83 @@ export default function OrdinePanel() {
           </div>
         </div>
       )}
+
+      {/* === DIALOG: Conflitto Ordine Esistente === */}
+      <ConflictDialog open={showOrdineConflict} title="Ordine esistente" onClose={() => setShowOrdineConflict(false)}>
+        <div className="space-y-4">
+          {conflictOrdini.map(o => (
+            <div key={o.id} className="bg-gray-50 rounded-lg p-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-gray-900">{o.numero_ordine}</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  o.stato === 'in_produzione' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'
+                }`}>{o.stato}</span>
+              </div>
+              <p className="text-gray-600 mt-1">
+                Creato dalla REV.{o.numero_revisione_origine || '?'}
+                {o.bom_esplosa && <span> &middot; BOM esplosa (REV.{o.bom_numero_revisione || '?'})</span>}
+              </p>
+            </div>
+          ))}
+
+          <p className="text-sm text-gray-700">
+            Il preventivo e' ora alla <strong>REV.{revCorrente}</strong>. Come vuoi procedere?
+          </p>
+
+          <div className="flex flex-col gap-2">
+            <button onClick={() => doConferma('update', conflictOrdini[0]?.id)}
+              disabled={confermaMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-medium text-sm disabled:opacity-50">
+              {confermaMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              Aggiorna ordine esistente ({conflictOrdini[0]?.numero_ordine})
+            </button>
+            <button onClick={() => doConferma('new')}
+              disabled={confermaMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium text-sm disabled:opacity-50">
+              {confermaMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              Crea nuovo ordine
+            </button>
+            <button onClick={() => setShowOrdineConflict(false)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-sm">
+              <X className="w-4 h-4" /> Annulla
+            </button>
+          </div>
+        </div>
+      </ConflictDialog>
+
+      {/* === DIALOG: Conflitto BOM === */}
+      <ConflictDialog open={showBomConflict} title="BOM gia' esplosa" onClose={() => setShowBomConflict(false)}>
+        <div className="space-y-4">
+          <div className="bg-gray-50 rounded-lg p-3 text-sm">
+            <p className="text-gray-700">
+              La BOM e' stata esplosa dalla <strong>REV.{bomConflictInfo?.bom_numero_revisione || '?'}</strong>
+              {bomConflictInfo?.bom_esplosa_at && (
+                <span> il {new Date(bomConflictInfo.bom_esplosa_at).toLocaleDateString('it-IT')}</span>
+              )}
+            </p>
+            <p className="text-gray-700 mt-1">
+              Il preventivo e' ora alla <strong>REV.{bomConflictInfo?.revisione_corrente || revCorrente}</strong>.
+              {bomConflictInfo?.outdated && (
+                <span className="text-amber-700 font-medium"> La BOM non e' aggiornata.</span>
+              )}
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <button onClick={doEsplodiBom}
+              disabled={esplodiMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-medium text-sm disabled:opacity-50">
+              {esplodiMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              Riesplodi BOM dalla REV.{revCorrente}
+            </button>
+            <button onClick={() => setShowBomConflict(false)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-sm">
+              <X className="w-4 h-4" /> Lascia BOM attuale
+            </button>
+          </div>
+        </div>
+      </ConflictDialog>
+
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Check, AlertCircle, Lock } from 'lucide-react';
+import { Loader2, Check, AlertCircle, Lock, Settings } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 const API_BASE = 'http://localhost:8000';
@@ -44,6 +44,7 @@ interface DynamicSectionFormProps {
   sezioneCode: string;
   sezioneName: string;
   onDataChange?: () => void;
+  onNavigate?: (section: string) => void;
 }
 
 // ==========================================
@@ -55,6 +56,7 @@ export default function DynamicSectionForm({
   sezioneCode,
   sezioneName,
   onDataChange,
+  onNavigate,
 }: DynamicSectionFormProps) {
   const { toast } = useToast();
 
@@ -62,6 +64,7 @@ export default function DynamicSectionForm({
   const [campi, setCampi] = useState<CampoDB[]>([]);
   const [valori, setValori] = useState<Record<string, any>>({});
   const [readonlyMap, setReadonlyMap] = useState<Record<string, boolean>>({});
+  const [defaultsMap, setDefaultsMap] = useState<Record<string, boolean>>({});
   const [opzioniMap, setOpzioniMap] = useState<Record<string, Opzione[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -83,8 +86,8 @@ export default function DynamicSectionForm({
   const loadAll = async () => {
     setIsLoading(true);
     try {
-      // 1. Carica definizione campi
-      const campiRes = await fetch(`${API_BASE}/campi-configuratore/${sezioneCode}?solo_attivi=true`);
+      // 1. Carica definizione campi (filtrati per prodotto del preventivo)
+      const campiRes = await fetch(`${API_BASE}/campi-configuratore/${sezioneCode}?solo_attivi=true&preventivo_id=${preventivoId}`);
       const campiData: CampoDB[] = campiRes.ok ? await campiRes.json() : [];
       
       // Filtra solo visibili nel form
@@ -110,7 +113,9 @@ export default function DynamicSectionForm({
       const valoriData = valoriRes.ok ? await valoriRes.json() : {};
       const valoriSalvati = valoriData.valori || {};
       const readonlyInfo = valoriData.is_readonly || {};
+      const defaultsInfo = valoriData.is_default || {};
       setReadonlyMap(readonlyInfo);
+      setDefaultsMap(defaultsInfo);
 
       // Merge: valori dal DB hanno prioritÃ , fallback su default campo o valore vuoto
       const merged: Record<string, any> = {};
@@ -165,6 +170,12 @@ export default function DynamicSectionForm({
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
+      // Aggiorna is_default dalla risposta del backend
+      const result = await res.json();
+      if (result.is_default) {
+        setDefaultsMap(result.is_default);
+      }
+
       setSaveStatus('saved');
       onDataChange?.();
       setTimeout(() => setSaveStatus('idle'), 2000);
@@ -187,6 +198,14 @@ export default function DynamicSectionForm({
       return next;
     });
 
+    // Marca immediatamente come non-default per feedback istantaneo
+    setDefaultsMap(prev => {
+      if (prev[codice]) {
+        return { ...prev, [codice]: false };
+      }
+      return prev;
+    });
+
     // Debounce auto-save 3 secondi
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => saveData(), 3000);
@@ -206,7 +225,15 @@ export default function DynamicSectionForm({
   const renderCampo = (campo: CampoDB) => {
     const valore = valori[campo.codice];
     const isReadonly = readonlyMap[campo.codice] || false;
+    const isDefault = defaultsMap[campo.codice] || false;
     const readonlyCls = isReadonly ? 'opacity-60' : '';
+
+    const defaultBadge = isDefault ? (
+      <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 border border-gray-200"
+            title="Valore di default — non modificato dall'utente">
+        default
+      </span>
+    ) : null;
 
     const labelEl = (
       <Label className={`text-sm font-medium text-gray-700 ${readonlyCls}`}>
@@ -214,6 +241,7 @@ export default function DynamicSectionForm({
         {campo.obbligatorio && <span className="text-red-500 ml-1">*</span>}
         {campo.unita_misura && <span className="text-gray-400 ml-1">({campo.unita_misura})</span>}
         {isReadonly && <Lock className="inline-block w-3 h-3 ml-1.5 text-amber-500" />}
+        {defaultBadge}
       </Label>
     );
 
@@ -276,6 +304,7 @@ export default function DynamicSectionForm({
                 {campo.label}
                 {campo.obbligatorio && <span className="text-red-500 ml-1">*</span>}
                 {isReadonly && <Lock className="inline-block w-3 h-3 ml-1.5 text-amber-500" />}
+                {defaultBadge}
               </Label>
               {campo.descrizione && <p className="text-xs text-gray-400">{campo.descrizione}</p>}
             </div>
@@ -351,6 +380,15 @@ export default function DynamicSectionForm({
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>{sezioneName}</CardTitle>
         <div className="flex items-center gap-2 text-sm">
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('gestione-campi')}
+              className="flex items-center gap-1 text-gray-400 hover:text-blue-600 transition-colors"
+              title={`Gestisci campi di "${sezioneName}"`}
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+          )}
           {saveStatus === 'saving' && (
             <span className="flex items-center gap-1 text-blue-600">
               <Loader2 className="h-4 w-4 animate-spin" />

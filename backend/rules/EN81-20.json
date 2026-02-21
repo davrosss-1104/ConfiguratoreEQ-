@@ -13,24 +13,32 @@
       "description": "Campo normative.en_81_20 == 2014"
     }
   ],
-  "materials": [
+  "actions": [
     {
-      "codice": "PCB-CTRL",
-      "descrizione": "Scheda controllo principale",
-      "quantita": 1,
-      "prezzo_unitario": 251.99999999999997,
-      "categoria": "",
-      "unita": "pz",
-      "codice_fonte": "DB_EQ"
+      "action": "add_material",
+      "material": {
+        "codice": "PCB-CTRL",
+        "descrizione": "Scheda controllo principale",
+        "quantita": 1,
+        "prezzo_unitario": 251.99999999999997,
+        "categoria": "",
+        "unita": "pz",
+        "codice_fonte": "DB_EQ"
+      }
     },
     {
-      "codice": "CAV-3G25",
-      "descrizione": "Cavo FG7OR 3G2.5",
-      "quantita": 1,
-      "prezzo_unitario": 0,
-      "categoria": "",
-      "unita": "pz",
-      "codice_fonte": "DB_EQ"
+      "action": "add_material",
+      "material": {
+        "codice": "CAV-3G25",
+        "descrizione": "Cavo FG7OR 3G2.5",
+        "quantita": 1,
+        "prezzo_unitario": 0,
+        "categoria": "",
+        "unita": "pz",
+        "codice_fonte": "DB_EQ"
+      }
     }
-  ]
+  ],
+  "group": "Norme",
+  "materials": []
 }

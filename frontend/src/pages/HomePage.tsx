@@ -317,6 +317,8 @@ export const HomePage = () => {
                 const badgeClass = cat === 'RISE' ? catColors.RISE.badge
                   : cat === 'HOME' ? catColors.HOME.badge
                   : '';
+                const tmpl = templates.find((t: any) => t.id === (preventivo as any).template_id);
+                const prodName = tmpl?.nome_display || tmpl?.sottocategoria || '';
 
                 return (
                   <div
@@ -333,6 +335,11 @@ export const HomePage = () => {
                           {cat && (
                             <span className={`text-xs font-bold px-1.5 py-0.5 rounded border ${badgeClass}`}>
                               {cat}
+                            </span>
+                          )}
+                          {prodName && (
+                            <span className="text-xs text-gray-500 font-medium">
+                              {prodName}
                             </span>
                           )}
                         </div>

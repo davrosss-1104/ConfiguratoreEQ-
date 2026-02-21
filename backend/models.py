@@ -19,11 +19,54 @@ class GruppoUtenti(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     utenti = relationship("Utente", back_populates="gruppo")
-    permessi = relationship("PermessoGruppo", back_populates="gruppo", cascade="all, delete-orphan")
+    ruoli = relationship("Ruolo", back_populates="gruppo")
 
 
 # ==========================================
-# PERMESSI GRUPPI
+# RUOLI
+# ==========================================
+class Ruolo(Base):
+    __tablename__ = "ruoli"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(100), nullable=False)
+    codice = Column(String(50), unique=True, nullable=False)
+    descrizione = Column(String(500), nullable=True)
+    gruppo_id = Column(Integer, ForeignKey("gruppi_utenti.id", ondelete="SET NULL"), nullable=True)
+    is_superadmin = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    gruppo = relationship("GruppoUtenti", back_populates="ruoli")
+    permessi = relationship("PermessoRuolo", back_populates="ruolo", cascade="all, delete-orphan")
+    utenti = relationship("Utente", back_populates="ruolo")
+
+
+# ==========================================
+# PERMESSI RUOLO
+# ==========================================
+class PermessoRuolo(Base):
+    """
+    Ogni riga rappresenta UN permesso assegnato a un ruolo.
+    
+    codice_permesso segue il formato: risorsa.azione
+    Esempi:
+      - sezione.dati_principali.view
+      - sezione.dati_principali.edit
+      - preventivi.create
+      - admin.utenti
+      - prezzi.view
+    """
+    __tablename__ = "permessi_ruolo"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ruolo_id = Column(Integer, ForeignKey("ruoli.id", ondelete="CASCADE"), nullable=False)
+    codice_permesso = Column(String(150), nullable=False)
+
+    ruolo = relationship("Ruolo", back_populates="permessi")
+
+
+# ==========================================
+# PERMESSI GRUPPI (legacy, mantenuto per retrocompatibilità)
 # ==========================================
 class PermessoGruppo(Base):
     __tablename__ = "permessi_gruppi"
@@ -33,7 +76,7 @@ class PermessoGruppo(Base):
     codice_permesso = Column(String(100), nullable=False)
     descrizione = Column(String(500), nullable=True)
 
-    gruppo = relationship("GruppoUtenti", back_populates="permessi")
+    gruppo = relationship("GruppoUtenti")
 
 
 # ==========================================
@@ -49,12 +92,14 @@ class Utente(Base):
     cognome = Column(String(100), nullable=True)
     email = Column(String(255), nullable=True)
     gruppo_id = Column(Integer, ForeignKey("gruppi_utenti.id"), nullable=True)
+    ruolo_id = Column(Integer, ForeignKey("ruoli.id", ondelete="SET NULL"), nullable=True)
     is_admin = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
 
     gruppo = relationship("GruppoUtenti", back_populates="utenti")
+    ruolo = relationship("Ruolo", back_populates="utenti")
 
 
 # ==========================================
@@ -314,6 +359,7 @@ class DisposizioneVano(Base):
     posizioni_elementi = Column(Text, nullable=True)
     sbarchi = Column(Text, nullable=True)
     note = Column(Text, nullable=True)
+    revisione_corrente = Column(Integer, default=0)
 
     preventivo = relationship("Preventivo", back_populates="disposizione_vano")
 

@@ -1,0 +1,612 @@
+{
+  "tipo": "lookup_range",
+  "parametro_lookup": "potenza_motore_kw",
+  "partizionato_per": "partizione_contattori",
+  "partizioni": {
+    "diretto_50Hz": [
+      {
+        "da": 0,
+        "a": 5.2,
+        "output": {
+          "cont_km": "CONT-D18-KM",
+          "sezione_filo": "2.5",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 5.2,
+        "a": 6.8,
+        "output": {
+          "cont_km": "CONT-D18-KM",
+          "sezione_filo": "4",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 6.8,
+        "a": 8.7,
+        "output": {
+          "cont_km": "CONT-D25-KM",
+          "sezione_filo": "4",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 8.7,
+        "a": 10.7,
+        "output": {
+          "cont_km": "CONT-D25-KM",
+          "sezione_filo": "4",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 10.7,
+        "a": 13.2,
+        "output": {
+          "cont_km": "CONT-D32-KM",
+          "sezione_filo": "6",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 13.2,
+        "a": 16.5,
+        "output": {
+          "cont_km": "CONT-D50-KM",
+          "sezione_filo": "10",
+          "sezione_morsetti": "16"
+        }
+      },
+      {
+        "da": 16.5,
+        "a": 20.2,
+        "output": {
+          "cont_km": "CONT-D80-KM",
+          "sezione_filo": "16",
+          "sezione_morsetti": "35"
+        }
+      },
+      {
+        "da": 20.2,
+        "a": 25.8,
+        "output": {
+          "cont_km": "CONT-D80-KM",
+          "sezione_filo": "16",
+          "sezione_morsetti": "35"
+        }
+      }
+    ],
+    "diretto_60Hz": [
+      {
+        "da": 0,
+        "a": 4.5,
+        "output": {
+          "cont_km": "CONT-D18-KM",
+          "sezione_filo": "2.5",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 4.5,
+        "a": 6.3,
+        "output": {
+          "cont_km": "CONT-D18-KM",
+          "sezione_filo": "2.5",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 6.3,
+        "a": 8.2,
+        "output": {
+          "cont_km": "CONT-D25-KM",
+          "sezione_filo": "4",
+          "sezione_morsetti": "16"
+        }
+      },
+      {
+        "da": 8.2,
+        "a": 10.1,
+        "output": {
+          "cont_km": "CONT-D25-KM",
+          "sezione_filo": "4",
+          "sezione_morsetti": "16"
+        }
+      },
+      {
+        "da": 10.1,
+        "a": 13.0,
+        "output": {
+          "cont_km": "CONT-D32-KM",
+          "sezione_filo": "6",
+          "sezione_morsetti": "16"
+        }
+      },
+      {
+        "da": 13.0,
+        "a": 16.8,
+        "output": {
+          "cont_km": "CONT-D50-KM",
+          "sezione_filo": "10",
+          "sezione_morsetti": "16"
+        }
+      },
+      {
+        "da": 16.8,
+        "a": 21.2,
+        "output": {
+          "cont_km": "CONT-D50-KM",
+          "sezione_filo": "10",
+          "sezione_morsetti": "35"
+        }
+      },
+      {
+        "da": 21.2,
+        "a": 26.5,
+        "output": {
+          "cont_km": "CONT-D80-KM",
+          "sezione_filo": "16",
+          "sezione_morsetti": "35"
+        }
+      },
+      {
+        "da": 26.5,
+        "a": 33.0,
+        "output": {
+          "cont_km": "CONT-D80-KM",
+          "sezione_filo": "16",
+          "sezione_morsetti": "35"
+        }
+      }
+    ],
+    "soft_starter_50Hz": [
+      {
+        "da": 0,
+        "a": 5.2,
+        "output": {
+          "cont_km": "CONT-D18-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "2.5",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 5.2,
+        "a": 6.8,
+        "output": {
+          "cont_km": "CONT-D18-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "2.5",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 6.8,
+        "a": 8.7,
+        "output": {
+          "cont_km": "CONT-D18-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "2.5",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 8.7,
+        "a": 10.7,
+        "output": {
+          "cont_km": "CONT-D18-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "2.5",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 10.7,
+        "a": 13.2,
+        "output": {
+          "cont_km": "CONT-D25-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "4",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 13.2,
+        "a": 16.5,
+        "output": {
+          "cont_km": "CONT-D25-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "4",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 16.5,
+        "a": 20.2,
+        "output": {
+          "cont_km": "CONT-D32-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "6",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 20.2,
+        "a": 25.8,
+        "output": {
+          "cont_km": "CONT-D50-KM",
+          "soft_starter": "SS-V70",
+          "sezione_filo": "10",
+          "sezione_morsetti": "16"
+        }
+      },
+      {
+        "da": 25.8,
+        "a": 33.1,
+        "output": {
+          "cont_km": "CONT-D50-KM",
+          "soft_starter": "SS-V70",
+          "sezione_filo": "10",
+          "sezione_morsetti": "16"
+        }
+      },
+      {
+        "da": 33.1,
+        "a": 40.5,
+        "output": {
+          "cont_km": "CONT-D80-KM",
+          "soft_starter": "SS-V70",
+          "sezione_filo": "16",
+          "sezione_morsetti": "35"
+        }
+      },
+      {
+        "da": 40.5,
+        "a": 51.5,
+        "output": {
+          "soft_starter": "SS-V105"
+        }
+      },
+      {
+        "da": 51.5,
+        "a": 66.2,
+        "output": {
+          "soft_starter": "SS-V105"
+        }
+      },
+      {
+        "da": 66.2,
+        "a": 999,
+        "output": {
+          "soft_starter": "SS-V150"
+        }
+      }
+    ],
+    "soft_starter_60Hz": [
+      {
+        "da": 0,
+        "a": 4.5,
+        "output": {
+          "cont_km": "CONT-D18-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "4",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 4.5,
+        "a": 6.3,
+        "output": {
+          "cont_km": "CONT-D18-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "4",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 6.3,
+        "a": 8.2,
+        "output": {
+          "cont_km": "CONT-D18-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "4",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 8.2,
+        "a": 10.1,
+        "output": {
+          "cont_km": "CONT-D18-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "4",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 10.1,
+        "a": 13.0,
+        "output": {
+          "cont_km": "CONT-D25-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "6",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 13.0,
+        "a": 16.8,
+        "output": {
+          "cont_km": "CONT-D25-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "6",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 16.8,
+        "a": 21.2,
+        "output": {
+          "cont_km": "CONT-D32-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "6",
+          "sezione_morsetti": "16"
+        }
+      },
+      {
+        "da": 21.2,
+        "a": 26.5,
+        "output": {
+          "cont_km": "CONT-D50-KM",
+          "soft_starter": "SS-V40",
+          "sezione_filo": "10",
+          "sezione_morsetti": "16"
+        }
+      },
+      {
+        "da": 26.5,
+        "a": 33.0,
+        "output": {
+          "cont_km": "CONT-D50-KM",
+          "soft_starter": "SS-V70",
+          "sezione_filo": "10",
+          "sezione_morsetti": "16"
+        }
+      },
+      {
+        "da": 33.0,
+        "a": 42.5,
+        "output": {
+          "cont_km": "CONT-D80-KM",
+          "soft_starter": "SS-V70",
+          "sezione_filo": "16",
+          "sezione_morsetti": "35"
+        }
+      },
+      {
+        "da": 42.5,
+        "a": 52.5,
+        "output": {
+          "soft_starter": "SS-V105"
+        }
+      },
+      {
+        "da": 52.5,
+        "a": 64.5,
+        "output": {
+          "soft_starter": "SS-V105"
+        }
+      },
+      {
+        "da": 64.5,
+        "a": 999,
+        "output": {
+          "soft_starter": "SS-V150"
+        }
+      }
+    ],
+    "stella_triangolo_50Hz": [
+      {
+        "da": 0,
+        "a": 5.2,
+        "output": {
+          "cont_km": "CONT-D12-KM",
+          "cont_ks": "CONT-D18-KS",
+          "sezione_filo": "2.5",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 5.2,
+        "a": 6.8,
+        "output": {
+          "cont_km": "CONT-D12-KM",
+          "cont_ks": "CONT-D18-KS",
+          "sezione_filo": "2.5",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 6.8,
+        "a": 8.7,
+        "output": {
+          "cont_km": "CONT-D12-KM",
+          "cont_ks": "CONT-D18-KS",
+          "sezione_filo": "2.5",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 8.7,
+        "a": 10.7,
+        "output": {
+          "cont_km": "CONT-D12-KM",
+          "cont_ks": "CONT-D18-KS",
+          "sezione_filo": "2.5",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 10.7,
+        "a": 13.2,
+        "output": {
+          "cont_km": "CONT-D18-KM",
+          "cont_ks": "CONT-D25-KS",
+          "sezione_filo": "4",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 13.2,
+        "a": 16.5,
+        "output": {
+          "cont_km": "CONT-D25-KM",
+          "cont_ks": "CONT-D32-KS",
+          "sezione_filo": "6",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 16.5,
+        "a": 20.2,
+        "output": {
+          "cont_km": "CONT-D32-KM",
+          "cont_ks": "CONT-D50-KS",
+          "sezione_filo": "10",
+          "sezione_morsetti": "16"
+        }
+      },
+      {
+        "da": 20.2,
+        "a": 25.8,
+        "output": {
+          "cont_km": "CONT-D32-KM",
+          "cont_ks": "CONT-D50-KS",
+          "sezione_filo": "10",
+          "sezione_morsetti": "16"
+        }
+      },
+      {
+        "da": 25.8,
+        "a": 33.1,
+        "output": {
+          "cont_km": "CONT-D50-KM",
+          "cont_ks": "CONT-D80-KS",
+          "sezione_filo": "16",
+          "sezione_morsetti": "35"
+        }
+      },
+      {
+        "da": 33.1,
+        "a": 40.5,
+        "output": {
+          "cont_km": "CONT-D50-KM",
+          "cont_ks": "CONT-D80-KS",
+          "sezione_filo": "16",
+          "sezione_morsetti": "35"
+        }
+      }
+    ],
+    "stella_triangolo_60Hz": [
+      {
+        "da": 0,
+        "a": 4.5,
+        "output": {
+          "cont_ks": "CONT-D18-KS",
+          "sezione_filo": "10",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 4.5,
+        "a": 6.3,
+        "output": {
+          "cont_ks": "CONT-D18-KS",
+          "sezione_filo": "10",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 6.3,
+        "a": 8.2,
+        "output": {
+          "cont_ks": "CONT-D18-KS",
+          "sezione_filo": "10",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 8.2,
+        "a": 10.1,
+        "output": {
+          "cont_ks": "CONT-D18-KS",
+          "sezione_filo": "10",
+          "sezione_morsetti": "10"
+        }
+      },
+      {
+        "da": 10.1,
+        "a": 13.0,
+        "output": {
+          "cont_ks": "CONT-D25-KS",
+          "sezione_filo": "16",
+          "sezione_morsetti": "16"
+        }
+      },
+      {
+        "da": 13.0,
+        "a": 16.8,
+        "output": {
+          "cont_ks": "CONT-D32-KS",
+          "sezione_filo": "16",
+          "sezione_morsetti": "16"
+        }
+      },
+      {
+        "da": 16.8,
+        "a": 21.2,
+        "output": {
+          "cont_ks": "CONT-D50-KS",
+          "sezione_filo": "35",
+          "sezione_morsetti": "35"
+        }
+      },
+      {
+        "da": 21.2,
+        "a": 26.5,
+        "output": {
+          "cont_ks": "CONT-D80-KS",
+          "sezione_filo": "35",
+          "sezione_morsetti": "35"
+        }
+      },
+      {
+        "da": 26.5,
+        "a": 33.0,
+        "output": {
+          "cont_ks": "CONT-D80-KS",
+          "sezione_filo": "35",
+          "sezione_morsetti": "35"
+        }
+      },
+      {
+        "da": 33.0,
+        "a": 42.5,
+        "output": {
+          "cont_ks": "CONT-D80-KS",
+          "sezione_filo": "35",
+          "sezione_morsetti": "35"
+        }
+      }
+    ]
+  },
+  "_meta": {
+    "nome": "contattori_oleo",
+    "tipo": "lookup_range",
+    "file_origine": "estratto da 63 regole JSON",
+    "generato_il": "2026-02-21",
+    "righe": 63,
+    "note": "Partizione = {tipo_avviamento_motore}_{frequenza_rete}Hz"
+  }
+}

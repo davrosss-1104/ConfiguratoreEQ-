@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Shield, User, Check, X, Eye, EyeOff } from 'lucide-react';
+import { Plus, Pencil, Trash2, Shield, User, Check, X, Eye, EyeOff, Users, Key } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
@@ -12,13 +12,34 @@ interface Utente {
   nome: string | null;
   cognome: string | null;
   email: string | null;
+  gruppo_id: number | null;
+  gruppo_nome: string | null;
+  ruolo_id: number | null;
+  ruolo_nome: string | null;
+  ruolo_codice: string | null;
   is_admin: boolean;
   is_active: boolean;
   created_at: string | null;
+  last_login: string | null;
+}
+
+interface Gruppo {
+  id: number;
+  nome: string;
+}
+
+interface Ruolo {
+  id: number;
+  codice: string;
+  nome: string;
+  gruppo_id: number | null;
+  is_superadmin: boolean;
 }
 
 export function GestioneUtentiPage() {
   const [utenti, setUtenti] = useState<Utente[]>([]);
+  const [gruppi, setGruppi] = useState<Gruppo[]>([]);
+  const [ruoli, setRuoli] = useState<Ruolo[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -32,25 +53,36 @@ export function GestioneUtentiPage() {
     nome: '',
     cognome: '',
     email: '',
-    is_admin: false
+    gruppo_id: null as number | null,
+    ruolo_id: null as number | null,
+    is_admin: false,
   });
 
   useEffect(() => {
-    fetchUtenti();
+    fetchAll();
   }, []);
 
-  const fetchUtenti = async () => {
+  const fetchAll = async () => {
     try {
-      const res = await fetch(`${API_BASE}/utenti`);
-      if (res.ok) {
-        setUtenti(await res.json());
-      }
+      const [utentiRes, gruppiRes, ruoliRes] = await Promise.all([
+        fetch(`${API_BASE}/utenti`),
+        fetch(`${API_BASE}/gruppi-utenti`),
+        fetch(`${API_BASE}/ruoli`),
+      ]);
+      if (utentiRes.ok) setUtenti(await utentiRes.json());
+      if (gruppiRes.ok) setGruppi(await gruppiRes.json());
+      if (ruoliRes.ok) setRuoli(await ruoliRes.json());
     } catch (error) {
-      console.error('Errore caricamento utenti:', error);
+      console.error('Errore caricamento:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  // Filtra ruoli in base al gruppo selezionato
+  const ruoliFiltrati = formData.gruppo_id
+    ? ruoli.filter(r => r.gruppo_id === formData.gruppo_id || !r.gruppo_id)
+    : ruoli;
 
   const resetForm = () => {
     setFormData({
@@ -59,7 +91,9 @@ export function GestioneUtentiPage() {
       nome: '',
       cognome: '',
       email: '',
-      is_admin: false
+      gruppo_id: null,
+      ruolo_id: null,
+      is_admin: false,
     });
     setEditingId(null);
     setShowForm(false);
@@ -85,6 +119,8 @@ export function GestioneUtentiPage() {
       if (formData.nome) params.append('nome', formData.nome);
       if (formData.cognome) params.append('cognome', formData.cognome);
       if (formData.email) params.append('email', formData.email);
+      if (formData.gruppo_id !== null) params.append('gruppo_id', String(formData.gruppo_id));
+      if (formData.ruolo_id !== null) params.append('ruolo_id', String(formData.ruolo_id));
       params.append('is_admin', formData.is_admin ? 'true' : 'false');
 
       const url = editingId 
@@ -102,7 +138,7 @@ export function GestioneUtentiPage() {
 
       toast({ title: editingId ? '✓ Utente aggiornato' : '✓ Utente creato' });
       resetForm();
-      fetchUtenti();
+      fetchAll();
     } catch (error: any) {
       toast({ title: 'Errore', description: error.message, variant: 'destructive' });
     }
@@ -115,7 +151,9 @@ export function GestioneUtentiPage() {
       nome: utente.nome || '',
       cognome: utente.cognome || '',
       email: utente.email || '',
-      is_admin: utente.is_admin
+      gruppo_id: utente.gruppo_id,
+      ruolo_id: utente.ruolo_id,
+      is_admin: utente.is_admin,
     });
     setEditingId(utente.id);
     setShowForm(true);
@@ -128,7 +166,7 @@ export function GestioneUtentiPage() {
       const res = await fetch(`${API_BASE}/utenti/${id}`, { method: 'DELETE' });
       if (res.ok) {
         toast({ title: '✓ Utente eliminato' });
-        fetchUtenti();
+        fetchAll();
       }
     } catch (error) {
       toast({ title: 'Errore eliminazione', variant: 'destructive' });
@@ -143,22 +181,7 @@ export function GestioneUtentiPage() {
       );
       if (res.ok) {
         toast({ title: utente.is_active ? '⏸ Utente disabilitato' : '▶ Utente abilitato' });
-        fetchUtenti();
-      }
-    } catch (error) {
-      toast({ title: 'Errore', variant: 'destructive' });
-    }
-  };
-
-  const handleToggleAdmin = async (utente: Utente) => {
-    try {
-      const res = await fetch(
-        `${API_BASE}/utenti/${utente.id}?is_admin=${!utente.is_admin}`,
-        { method: 'PUT' }
-      );
-      if (res.ok) {
-        toast({ title: utente.is_admin ? '👤 Rimosso da admin' : '🛡 Promosso ad admin' });
-        fetchUtenti();
+        fetchAll();
       }
     } catch (error) {
       toast({ title: 'Errore', variant: 'destructive' });
@@ -247,6 +270,58 @@ export function GestioneUtentiPage() {
                   placeholder="mario.rossi@azienda.it"
                 />
               </div>
+
+              {/* Gruppo */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                  <Users className="h-3.5 w-3.5 text-blue-500" />
+                  Gruppo
+                </label>
+                <select
+                  value={formData.gruppo_id || ''}
+                  onChange={(e) => {
+                    const gid = e.target.value ? Number(e.target.value) : null;
+                    setFormData({ ...formData, gruppo_id: gid, ruolo_id: null }); // Reset ruolo quando cambia gruppo
+                  }}
+                  className="w-full h-10 px-3 border rounded-md text-sm"
+                >
+                  <option value="">— Seleziona gruppo —</option>
+                  {gruppi.map(g => (
+                    <option key={g.id} value={g.id}>{g.nome}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Ruolo */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                  <Shield className="h-3.5 w-3.5 text-purple-500" />
+                  Ruolo
+                </label>
+                <select
+                  value={formData.ruolo_id || ''}
+                  onChange={(e) => {
+                    const rid = e.target.value ? Number(e.target.value) : null;
+                    // Se il ruolo è superadmin, imposta anche is_admin
+                    const ruoloSel = ruoli.find(r => r.id === rid);
+                    setFormData({ 
+                      ...formData, 
+                      ruolo_id: rid,
+                      is_admin: ruoloSel?.is_superadmin || false,
+                    });
+                  }}
+                  className="w-full h-10 px-3 border rounded-md text-sm"
+                >
+                  <option value="">— Seleziona ruolo —</option>
+                  {ruoliFiltrati.map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.nome}{r.is_superadmin ? ' ⭐' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Admin flag (legacy, nascosto se ruolo è superadmin) */}
               <div className="flex items-center gap-3 pt-6">
                 <input
                   type="checkbox"
@@ -257,7 +332,7 @@ export function GestioneUtentiPage() {
                 />
                 <label htmlFor="is_admin" className="text-sm font-medium text-gray-700 flex items-center gap-1">
                   <Shield className="h-4 w-4 text-purple-500" />
-                  Amministratore
+                  Admin (flag legacy)
                 </label>
               </div>
             </div>
@@ -278,10 +353,10 @@ export function GestioneUtentiPage() {
         <table className="w-full">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Username</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nome</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Gruppo</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Ruolo</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Stato</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Azioni</th>
@@ -290,36 +365,40 @@ export function GestioneUtentiPage() {
           <tbody className="divide-y">
             {utenti.map((utente) => (
               <tr key={utente.id} className={!utente.is_active ? 'bg-gray-50 opacity-60' : ''}>
-                <td className="px-4 py-3 text-sm text-gray-500">{utente.id}</td>
                 <td className="px-4 py-3">
                   <span className="font-medium text-gray-900">{utente.username}</span>
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-700">
                   {utente.nome} {utente.cognome}
                 </td>
-                <td className="px-4 py-3 text-sm text-gray-500">{utente.email || '-'}</td>
+                <td className="px-4 py-3 text-sm text-gray-500">{utente.email || '—'}</td>
                 <td className="px-4 py-3 text-center">
-                  <button
-                    onClick={() => handleToggleAdmin(utente)}
-                    className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
+                  {utente.gruppo_nome ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+                      <Users className="h-3 w-3" />
+                      {utente.gruppo_nome}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-400">—</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-center">
+                  {utente.ruolo_nome ? (
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
                       utente.is_admin
                         ? 'bg-purple-100 text-purple-700'
                         : 'bg-gray-100 text-gray-600'
-                    }`}
-                    title={utente.is_admin ? 'Click per rimuovere admin' : 'Click per promuovere ad admin'}
-                  >
-                    {utente.is_admin ? (
-                      <>
-                        <Shield className="h-3 w-3" />
-                        Admin
-                      </>
-                    ) : (
-                      <>
-                        <User className="h-3 w-3" />
-                        Utente
-                      </>
-                    )}
-                  </button>
+                    }`}>
+                      <Shield className="h-3 w-3" />
+                      {utente.ruolo_nome}
+                    </span>
+                  ) : utente.is_admin ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                      <Shield className="h-3 w-3" /> Admin
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-400">Nessun ruolo</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-center">
                   <button
@@ -332,32 +411,18 @@ export function GestioneUtentiPage() {
                     title={utente.is_active ? 'Click per disabilitare' : 'Click per abilitare'}
                   >
                     {utente.is_active ? (
-                      <>
-                        <Check className="h-3 w-3" />
-                        Attivo
-                      </>
+                      <><Check className="h-3 w-3" /> Attivo</>
                     ) : (
-                      <>
-                        <X className="h-3 w-3" />
-                        Disabilitato
-                      </>
+                      <><X className="h-3 w-3" /> Disabilitato</>
                     )}
                   </button>
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-center gap-1">
-                    <button
-                      onClick={() => handleEdit(utente)}
-                      className="p-1.5 text-gray-400 hover:text-blue-600 rounded"
-                      title="Modifica"
-                    >
+                    <button onClick={() => handleEdit(utente)} className="p-1.5 text-gray-400 hover:text-blue-600 rounded" title="Modifica">
                       <Pencil className="h-4 w-4" />
                     </button>
-                    <button
-                      onClick={() => handleDelete(utente.id)}
-                      className="p-1.5 text-gray-400 hover:text-red-600 rounded"
-                      title="Elimina"
-                    >
+                    <button onClick={() => handleDelete(utente.id)} className="p-1.5 text-gray-400 hover:text-red-600 rounded" title="Elimina">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
@@ -368,8 +433,6 @@ export function GestioneUtentiPage() {
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
                   Nessun utente nel database.
-                  <br />
-                  <span className="text-sm">Gli utenti demo (admin/utente) funzionano comunque.</span>
                 </td>
               </tr>
             )}
@@ -380,10 +443,8 @@ export function GestioneUtentiPage() {
       {/* Info box */}
       <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
         <p className="text-sm text-blue-700">
-          💡 <strong>Utenti Demo:</strong> Anche senza utenti nel database, puoi accedere con:
-          <br />
-          <code className="bg-blue-100 px-1 rounded">admin / admin</code> (Amministratore) oppure{' '}
-          <code className="bg-blue-100 px-1 rounded">utente / utente</code> (Utente normale)
+          Assegna un <strong>Gruppo</strong> per l'organizzazione e un <strong>Ruolo</strong> per definire i permessi.
+          I ruoli si gestiscono dalla pagina <strong>Gestione Ruoli</strong>.
         </p>
       </div>
     </div>

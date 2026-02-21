@@ -13,15 +13,20 @@
       "description": "Campo normative.en_81_20 == 2020"
     }
   ],
-  "materials": [
+  "actions": [
     {
-      "codice": "SEC-UCM-001",
-      "descrizione": "Dispositivo UCM (EN 81-20:2020)",
-      "quantita": 1,
-      "prezzo_unitario": 600,
-      "categoria": "",
-      "unita": "pz",
-      "codice_fonte": "DB_EQ"
+      "action": "add_material",
+      "material": {
+        "codice": "SEC-UCM-001",
+        "descrizione": "Dispositivo UCM (EN 81-20:2020)",
+        "quantita": 1,
+        "prezzo_unitario": 600,
+        "categoria": "",
+        "unita": "pz",
+        "codice_fonte": "DB_EQ"
+      }
     }
-  ]
+  ],
+  "group": "Norme",
+  "materials": []
 }

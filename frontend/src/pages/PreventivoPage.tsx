@@ -2,9 +2,9 @@
  * PreventivoPage.tsx
  * Posizionare in: frontend/src/pages/PreventivoPage.tsx
  */
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { Sidebar } from '@/components/Sidebar';
 import { DatiCommessaForm } from "@/components/sections/DatiCommessaForm";
 import { DatiPrincipaliForm } from "@/components/sections/DatiPrincipaliForm";
@@ -20,12 +20,17 @@ import GestioneOpzioniPage from '@/components/sections/GestioneOpzioniPage';
 import GestioneCampiPage from '@/components/sections/GestioneCampiPage';
 import GestioneSezioniPage from '@/components/sections/GestioneSezioniPage';
 import { GestioneUtentiPage } from '@/components/sections/GestioneUtentiPage';
+import { GestioneRuoliPage } from '@/components/sections/GestioneRuoliPage';
 import RuleBuilderPage from '@/components/sections/RuleBuilderPage';
 import GestioneClientiPage from '@/components/sections/GestioneClientiPage';
 import GestioneBomPage from '@/components/sections/GestioneBomPage';
 import DynamicSectionForm from '@/components/sections/DynamicSectionForm';
 import { Building, ArrowLeft, FileText } from 'lucide-react';
 import DocumentTemplateEditorPage from '@/pages/DocumentTemplateEditorPage';
+import ImportExcelPage from '@/components/sections/ImportExcelPage';
+import InfoAppPage from '@/components/sections/InfoAppPage';
+
+const API = 'http://localhost:8000';
 
 // Colori sfondo per categoria
 const CATEGORY_THEMES = {
@@ -62,9 +67,23 @@ export const PreventivoPage = () => {
     return null;
   }
 
+  // ── Leggi user da localStorage per permessi/admin ──
+  const currentUser = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem('user') || '{}');
+    } catch {
+      return {};
+    }
+  }, []);
+  const userIsAdmin = currentUser.is_admin || false;
+  const userPermessi: string[] = currentUser.permessi || [];
+
   const [activeSection, setActiveSection] = useState('dati_commessa');
 
-  const { data: preventivo } = useQuery({
+  const [showRevDialog, setShowRevDialog] = useState(false);
+  const pendingNavigationRef = useRef<string | null>(null);
+
+  const { data: preventivo, refetch: refetchPreventivo } = useQuery({
     queryKey: ['preventivo', preventivoId],
     queryFn: () => getPreventivo(preventivoId),
   });
@@ -101,11 +120,77 @@ export const PreventivoPage = () => {
     enabled: !!clienteId,
   });
 
+  // ── Dirty check ──
+  const { data: dirtyData } = useQuery({
+    queryKey: ['dirty', preventivoId],
+    queryFn: async () => {
+      const res = await fetch(`${API}/preventivi/${preventivoId}/dirty`);
+      if (!res.ok) return { dirty: false };
+      return res.json();
+    },
+    refetchInterval: 10000,
+  });
+
+  const isDirty = dirtyData?.dirty === true;
+
+  // ── Crea snapshot ──
+  const snapshotMutation = useMutation({
+    mutationFn: async (motivo: string) => {
+      const res = await fetch(`${API}/preventivi/${preventivoId}/revisioni`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo }),
+      });
+      if (!res.ok) throw new Error('Errore creazione snapshot');
+      return res.json();
+    },
+    onSuccess: () => { refetchPreventivo(); },
+  });
+
+  // ── Prompt uscita browser ──
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = 'Hai modifiche non salvate come revisione. Uscire?';
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
+
+  // ── Gestione "Home" con prompt revisione ──
+  const handleGoHome = useCallback(() => {
+    if (isDirty) {
+      pendingNavigationRef.current = '/';
+      setShowRevDialog(true);
+    } else {
+      navigate('/');
+    }
+  }, [isDirty, navigate]);
+
+  const handleRevDialogSave = useCallback(async () => {
+    try { await snapshotMutation.mutateAsync('Snapshot automatico alla uscita'); } catch {}
+    setShowRevDialog(false);
+    if (pendingNavigationRef.current) { navigate(pendingNavigationRef.current); pendingNavigationRef.current = null; }
+  }, [snapshotMutation, navigate]);
+
+  const handleRevDialogSkip = useCallback(() => {
+    setShowRevDialog(false);
+    if (pendingNavigationRef.current) { navigate(pendingNavigationRef.current); pendingNavigationRef.current = null; }
+  }, [navigate]);
+
+  const handleRevDialogCancel = useCallback(() => {
+    setShowRevDialog(false);
+    pendingNavigationRef.current = null;
+  }, []);
+
   const rawCategoria = (preventivo as any)?.categoria as string | undefined;
   const categoria = rawCategoria && rawCategoria in CATEGORY_THEMES 
     ? rawCategoria as keyof typeof CATEGORY_THEMES 
     : undefined;
   const theme = categoria ? CATEGORY_THEMES[categoria] : CATEGORY_THEMES.DEFAULT;
+  const revisioneCorrente = (preventivo as any)?.revisione_corrente ?? 0;
 
   const calcolaProgresso = (): number => {
     let completati = 0;
@@ -120,7 +205,7 @@ export const PreventivoPage = () => {
   const progresso = calcolaProgresso();
 
   const renderSection = () => {
-    // *** Normalizza: sia 'dati-commessa' che 'dati_commessa' Ã¢â€ â€™ stessa chiave ***
+    // *** Normalizza: sia 'dati-commessa' che 'dati_commessa' → stessa chiave ***
     const section = activeSection.replace(/-/g, '_');
 
     switch (section) {
@@ -170,16 +255,9 @@ export const PreventivoPage = () => {
       case 'ordine':
         return <OrdinePanel />;
 
-      // --- Sezioni Admin (sidebar manda con trattino, normalizzato a underscore) ---
+      // --- Sezioni Admin ---
       case 'gestione_articoli':
         return <GestioneArticoliPage />;
-      case 'gestione_clienti':
-        return (
-          <div className="p-6 bg-white/70 rounded-lg shadow">
-            <h2 className="text-2xl font-bold mb-4">Gestione Clienti</h2>
-            <p className="text-gray-500">Sezione in costruzione</p>
-          </div>
-        );
       case 'gestione_opzioni':
         return <GestioneOpzioniPage />;
       case 'gestione_campi':
@@ -188,11 +266,16 @@ export const PreventivoPage = () => {
         return <GestioneSezioniPage />;
       case 'gestione_utenti':
         return <GestioneUtentiPage />;
+      case 'gestione_ruoli':
+        return <GestioneRuoliPage />;
       case 'rule_engine':
         return <RuleBuilderPage />;
-      
       case 'editor_template_doc':
-      return <DocumentTemplateEditorPage />;
+        return <DocumentTemplateEditorPage />;
+      case 'import_excel':
+        return <ImportExcelPage />;
+      case 'info_app':
+        return <InfoAppPage />;
 
       default:
         // Fallback: tutte le sezioni non gestite usano il form dinamico
@@ -212,7 +295,8 @@ export const PreventivoPage = () => {
   const sectionNorm = activeSection.replace(/-/g, '_');
   const hideSideMaterials = sectionNorm === 'materiali' || sectionNorm === 'ordine'
     || sectionNorm.startsWith('gestione_') || sectionNorm === 'rule_engine'
-    || sectionNorm === 'editor_template_doc';
+    || sectionNorm === 'editor_template_doc'
+    || sectionNorm === 'import_excel' || sectionNorm === 'info_app';
 
   return (
     <div className={`flex min-h-screen ${theme.pageBg}`}>
@@ -225,6 +309,8 @@ export const PreventivoPage = () => {
           activeSection={activeSection}
           onSectionChange={(section) => setActiveSection(section)}
           progresso={progresso}
+          isAdmin={userIsAdmin}
+          permessi={userPermessi}
         />
       </div>
 
@@ -237,7 +323,7 @@ export const PreventivoPage = () => {
               {/* Sinistra: Back + N° + Categoria */}
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => navigate('/')}
+                  onClick={handleGoHome}
                   className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
                   title="Torna alla Home"
                 >
@@ -262,6 +348,18 @@ export const PreventivoPage = () => {
                       : (preventivo as any)?.status === 'draft' ? 'Bozza' 
                       : (preventivo as any)?.status || '...'}
                   </span>
+                  {revisioneCorrente > 0 && (
+                    <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300">
+                      REV.{revisioneCorrente}
+                    </span>
+                  )}
+                  {isDirty && (
+                    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-300"
+                      title="Modifiche non salvate come revisione">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                      Modificato
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -313,10 +411,43 @@ export const PreventivoPage = () => {
                 preventivoId={preventivoId} 
                 className="sticky top-6"
               />
-            </div>
-          )}
+              </div>
+            )}
         </div>
       </div>
+
+      {/* Dialog "Salvare revisione prima di uscire?" */}
+      {showRevDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-bold text-gray-900">Salvare come nuova revisione?</h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-6">
+              Hai apportato modifiche dall'ultimo snapshot. Salvare come nuova revisione prima di uscire?
+            </p>
+            <div className="flex gap-3">
+              <button onClick={handleRevDialogSave} disabled={snapshotMutation.isPending}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium py-2.5 px-4 rounded-lg transition-colors disabled:opacity-50">
+                {snapshotMutation.isPending ? 'Salvataggio...' : 'Salva Revisione'}
+              </button>
+              <button onClick={handleRevDialogSkip}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium py-2.5 px-4 rounded-lg transition-colors">
+                Esci senza salvare
+              </button>
+              <button onClick={handleRevDialogCancel}
+                className="px-4 text-sm text-gray-500 hover:text-gray-700 transition-colors">
+                Annulla
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -39,6 +39,7 @@ interface Campo {
   visibile_form: boolean;
   usabile_regole: boolean;
   opzioni?: { value: string; label: string }[];
+  product_template_ids?: number[] | null;
 }
 
 interface SezioneInfo {
@@ -55,6 +56,13 @@ interface OpzioneDD {
   etichetta: string;
   ordine: number;
   attivo: boolean;
+}
+
+interface ProductTemplate {
+  id: number;
+  categoria: string;
+  sottocategoria: string;
+  nome_display: string;
 }
 
 const TIPI_CAMPO = [
@@ -82,6 +90,7 @@ export default function GestioneCampiPage() {
   const [newCampo, setNewCampo] = useState<Partial<Campo> | null>(null);
   const [showJsonPreview, setShowJsonPreview] = useState(false);
   const [jsonSchema, setJsonSchema] = useState<any>(null);
+  const [productTemplates, setProductTemplates] = useState<ProductTemplate[]>([]);
 
   // ── TAB: 'sezione' | 'tutti' ──
   const [activeTab, setActiveTab] = useState<'sezione' | 'tutti'>('sezione');
@@ -108,7 +117,7 @@ export default function GestioneCampiPage() {
   const [newGruppoForm, setNewGruppoForm] = useState({ codice: '', primaOpzione: '' });
 
   // ── Load on mount ──
-  useEffect(() => { fetchSezioni(); fetchGruppiDropdown(); }, []);
+  useEffect(() => { fetchSezioni(); fetchGruppiDropdown(); fetchProductTemplates(); }, []);
   useEffect(() => { if (selectedSezione) fetchCampi(selectedSezione); }, [selectedSezione]);
   useEffect(() => { if (activeTab === 'tutti') fetchAllCampi(); }, [activeTab]);
 
@@ -150,6 +159,16 @@ export default function GestioneCampiPage() {
       const res = await fetch(`${API_BASE}/opzioni-dropdown/gruppi`);
       const data = await res.json();
       setGruppiDropdown(data.map((g: any) => g.gruppo));
+    } catch { /* silent */ }
+  };
+
+  const fetchProductTemplates = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/templates`);
+      if (res.ok) {
+        const data = await res.json();
+        setProductTemplates(data);
+      }
     } catch { /* silent */ }
   };
 
@@ -904,11 +923,69 @@ export default function GestioneCampiPage() {
                       <div className="space-y-1">
                         <Input value={editForm.etichetta || ''} onChange={(e) => setEditForm({ ...editForm, etichetta: e.target.value })} className="h-7 text-sm" />
                         <Input value={editForm.codice || ''} onChange={(e) => setEditForm({ ...editForm, codice: e.target.value })} className="h-7 text-xs font-mono bg-gray-50" />
+                        {/* Product visibility checkboxes */}
+                        {productTemplates.length > 0 && (
+                          <div className="pt-1">
+                            <span className="text-xs text-gray-500 font-medium">Prodotti:</span>
+                            <div className="flex flex-wrap gap-1 mt-0.5">
+                              {productTemplates.map(pt => {
+                                const ptIds = editForm.product_template_ids || [];
+                                const isAll = !ptIds || ptIds.length === 0;
+                                const isChecked = isAll || ptIds.includes(pt.id);
+                                return (
+                                  <button key={pt.id} type="button"
+                                    onClick={() => {
+                                      const current = editForm.product_template_ids || [];
+                                      if (!current || current.length === 0) {
+                                        setEditForm({ ...editForm, product_template_ids: [pt.id] });
+                                      } else if (current.includes(pt.id)) {
+                                        const next = current.filter((id: number) => id !== pt.id);
+                                        setEditForm({ ...editForm, product_template_ids: next.length === 0 ? null : next });
+                                      } else {
+                                        const next = [...current, pt.id];
+                                        setEditForm({ ...editForm, product_template_ids: next.length === productTemplates.length ? null : next });
+                                      }
+                                    }}
+                                    className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                                      isChecked
+                                        ? 'bg-blue-100 border-blue-300 text-blue-700'
+                                        : 'bg-gray-50 border-gray-200 text-gray-400'
+                                    }`}
+                                  >
+                                    {pt.categoria} {pt.sottocategoria}
+                                  </button>
+                                );
+                              })}
+                              <button type="button"
+                                onClick={() => setEditForm({ ...editForm, product_template_ids: null })}
+                                className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                                  !editForm.product_template_ids || editForm.product_template_ids.length === 0
+                                    ? 'bg-green-100 border-green-300 text-green-700 font-medium'
+                                    : 'bg-gray-50 border-gray-200 text-gray-400'
+                                }`}
+                              >
+                                TUTTI
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div>
                         <div className="font-medium">{campo.etichetta}</div>
                         <div className="text-xs text-gray-400 font-mono">{campo.codice}</div>
+                        {campo.product_template_ids && campo.product_template_ids.length > 0 && (
+                          <div className="flex flex-wrap gap-0.5 mt-0.5">
+                            {campo.product_template_ids.map(ptId => {
+                              const pt = productTemplates.find(p => p.id === ptId);
+                              return pt ? (
+                                <span key={ptId} className="text-[9px] px-1 py-0 rounded bg-blue-50 text-blue-600 border border-blue-200">
+                                  {pt.categoria} {pt.sottocategoria}
+                                </span>
+                              ) : null;
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </td>
