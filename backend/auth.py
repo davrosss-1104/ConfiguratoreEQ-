@@ -24,7 +24,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=Fals
 # ==========================================
 PERMESSI_CATALOGO = [
     # --- Preventivi ---
-    {"codice": "preventivi.view", "categoria": "Preventivi", "descrizione": "Visualizzare preventivi"},
+    {"codice": "preventivi.view", "categoria": "Preventivi", "descrizione": "Visualizzare preventivi (propri)"},
+    {"codice": "preventivi.view_all", "categoria": "Preventivi", "descrizione": "Visualizzare TUTTI i preventivi"},
     {"codice": "preventivi.create", "categoria": "Preventivi", "descrizione": "Creare nuovi preventivi"},
     {"codice": "preventivi.edit", "categoria": "Preventivi", "descrizione": "Modificare preventivi"},
     {"codice": "preventivi.delete", "categoria": "Preventivi", "descrizione": "Eliminare preventivi"},
@@ -88,7 +89,7 @@ RUOLI_DEFAULT = {
         "gruppo": "Elettroquadri",
         "is_superadmin": False,
         "permessi": [
-            "preventivi.view", "preventivi.create", "preventivi.edit", "preventivi.delete", "preventivi.export_pdf",
+            "preventivi.view", "preventivi.view_all", "preventivi.create", "preventivi.edit", "preventivi.delete", "preventivi.export_pdf",
             "prezzi.view", "prezzi.edit",
             "clienti.view", "clienti.edit",
             "materiali.view", "materiali.edit",
@@ -110,7 +111,7 @@ RUOLI_DEFAULT = {
         "gruppo": "Elettroquadri",
         "is_superadmin": False,
         "permessi": [
-            "preventivi.view", "preventivi.create", "preventivi.edit", "preventivi.export_pdf",
+            "preventivi.view", "preventivi.view_all", "preventivi.create", "preventivi.edit", "preventivi.export_pdf",
             "prezzi.view",
             "clienti.view", "clienti.edit",
             "materiali.view",
@@ -131,7 +132,7 @@ RUOLI_DEFAULT = {
         "gruppo": "Elettroquadri",
         "is_superadmin": False,
         "permessi": [
-            "preventivi.view", "preventivi.edit",
+            "preventivi.view", "preventivi.view_all", "preventivi.edit",
             "materiali.view", "materiali.edit",
             "sezione.dati_commessa.view",
             "sezione.dati_principali.view", "sezione.dati_principali.edit",
@@ -149,7 +150,7 @@ RUOLI_DEFAULT = {
         "gruppo": "Clienti",
         "is_superadmin": False,
         "permessi": [
-            "preventivi.view",
+            "preventivi.view", "preventivi.export_pdf",
             "sezione.dati_commessa.view",
             "sezione.dati_principali.view",
             "sezione.normative.view",

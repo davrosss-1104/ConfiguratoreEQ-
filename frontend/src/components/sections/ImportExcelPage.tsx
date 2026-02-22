@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import {
   Upload, FileSpreadsheet, CheckCircle2, AlertCircle, ChevronRight,
   ChevronLeft, Loader2, Table2, Eye, Download, RefreshCw, Info, X,
-  ChevronDown, ChevronUp, Package
+  ChevronDown, ChevronUp, Package, Link2, AlertTriangle
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000';
@@ -39,10 +39,21 @@ interface PreviewResult {
   warnings: string[];
 }
 
+interface RuleDetail {
+  rule_id: string;
+  has_todo: boolean;
+  is_draft?: boolean;
+  input_field: string;
+  input_score: number;
+  partition_field: string;
+  partition_score: number;
+}
+
 interface GeneraResult {
   success: boolean;
   tables_generated: string[];
   rules_generated: string[];
+  rules_details: RuleDetail[];
   files_written: string[];
   errors: string[];
   warnings: string[];
@@ -206,77 +217,59 @@ function StepUpload({ file, setFile, loading, error, onNext }: {
     <div className="space-y-6">
       {/* Drop zone */}
       <div
-        className={`border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${
-          dragOver ? 'border-blue-500 bg-blue-50' :
-          file ? 'border-green-400 bg-green-50' :
-          'border-gray-300 bg-white hover:border-blue-400 hover:bg-gray-50'
+        className={`border-2 border-dashed rounded-xl p-12 text-center transition-colors cursor-pointer ${
+          dragOver ? 'border-blue-400 bg-blue-50' :
+          file ? 'border-green-300 bg-green-50' :
+          'border-gray-300 hover:border-gray-400 bg-white'
         }`}
-        onClick={() => inputRef.current?.click()}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          const f = e.dataTransfer.files[0];
-          if (f) handleFile(f);
-        }}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+        onClick={() => inputRef.current?.click()}
       >
         <input
           ref={inputRef}
           type="file"
           accept=".xlsx,.xls"
           className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) handleFile(f);
-          }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
         />
-
         {file ? (
-          <div className="flex flex-col items-center gap-3">
-            <FileSpreadsheet className="w-12 h-12 text-green-600" />
-            <div>
-              <p className="font-semibold text-green-800">{file.name}</p>
-              <p className="text-sm text-green-600">
-                {(file.size / 1024).toFixed(1)} KB — Pronto per l'analisi
-              </p>
+          <div className="flex items-center justify-center gap-3">
+            <FileSpreadsheet className="w-8 h-8 text-green-600" />
+            <div className="text-left">
+              <p className="font-semibold text-gray-900">{file.name}</p>
+              <p className="text-sm text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>
             </div>
             <button
               onClick={(e) => { e.stopPropagation(); setFile(null); }}
-              className="text-sm text-gray-500 hover:text-red-600 flex items-center gap-1"
+              className="ml-4 p-1 hover:bg-gray-200 rounded"
             >
-              <X className="w-4 h-4" /> Cambia file
+              <X className="w-4 h-4 text-gray-400" />
             </button>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-3">
-            <Upload className="w-12 h-12 text-gray-400" />
-            <div>
-              <p className="font-semibold text-gray-700">
-                Trascinate il file Excel qui
-              </p>
-              <p className="text-sm text-gray-500">oppure cliccate per selezionarlo</p>
-            </div>
-            <p className="text-xs text-gray-400 mt-2">
-              Il file deve contenere un foglio chiamato <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono">_MAPPA</code>
+          <>
+            <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
+            <p className="text-gray-600 font-medium">Trascinate il file Excel qui</p>
+            <p className="text-sm text-gray-400 mt-1">oppure cliccate per selezionarlo</p>
+            <p className="text-xs text-gray-400 mt-3">
+              Il file deve contenere un foglio chiamato <code className="bg-gray-100 px-1 rounded font-mono">_MAPPA</code>
             </p>
-          </div>
+          </>
         )}
       </div>
 
       {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex gap-3">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold text-red-800">Errore nella validazione</p>
-            <pre className="text-sm text-red-700 mt-1 whitespace-pre-wrap">{error}</pre>
-          </div>
+          <div className="text-sm text-red-700 whitespace-pre-wrap">{error}</div>
         </div>
       )}
 
-      {/* Info box */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex gap-3">
+      {/* Info */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
         <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
         <div className="text-sm text-blue-800">
           <p className="font-semibold mb-1">Come preparare il file Excel</p>
@@ -478,7 +471,7 @@ function TableCard({ nome, tables }: { nome: string; tables: TablePreview[] }) {
                     {t.fasce_calcolate.map((f, i) => (
                       <div key={i} className="text-xs bg-white border rounded px-2 py-1">
                         <span className="font-semibold">{f.valore}</span>
-                        <span className="text-gray-400 ml-1">[{f.da}, {f.a})</span>
+                        <span className="text-gray-400 ml-1">[{f.da}, {f.a ?? '∞'})</span>
                       </div>
                     ))}
                   </div>
@@ -548,6 +541,9 @@ function StepRisultato({ result, onReset }: {
   result: GeneraResult;
   onReset: () => void;
 }) {
+  const hasAnyTodo = result.rules_details?.some(r => r.has_todo) ?? false;
+  const allMatched = result.rules_details?.length > 0 && !hasAnyTodo;
+
   return (
     <div className="space-y-6">
       {/* Status */}
@@ -591,10 +587,48 @@ function StepRisultato({ result, onReset }: {
           {result.rules_generated.length > 0 && (
             <div>
               <p className="text-sm font-medium text-gray-600 mb-2">Regole lookup</p>
-              {result.rules_generated.map((r) => (
-                <div key={r} className="flex items-center gap-2 py-1.5">
-                  <FileSpreadsheet className="w-4 h-4 text-green-500" />
-                  <code className="text-sm font-mono text-gray-800">{r}</code>
+              {result.rules_details?.map((rd) => (
+                <div key={rd.rule_id} className="py-2 border-b last:border-b-0">
+                  <div className="flex items-center gap-2">
+                    <FileSpreadsheet className={`w-4 h-4 ${rd.is_draft ? 'text-amber-500' : 'text-green-500'}`} />
+                    <code className="text-sm font-mono text-gray-800">{rd.rule_id}</code>
+                    {rd.is_draft ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                        bozza materiali · disabilitata
+                      </span>
+                    ) : rd.has_todo ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                        da completare
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+                        campi collegati
+                      </span>
+                    )}
+                  </div>
+                  {/* Dettaglio matching */}
+                  <div className="ml-6 mt-1 space-y-0.5">
+                    {rd.is_draft ? (
+                      <p className="text-xs text-amber-600">
+                        {rd.input_field} — Abilitatela dopo aver verificato condizioni e codici articolo
+                      </p>
+                    ) : (
+                      <>
+                        <MatchingLine
+                          label="Input"
+                          field={rd.input_field}
+                          score={rd.input_score}
+                        />
+                        {rd.partition_field && (
+                          <MatchingLine
+                            label="Partizione"
+                            field={rd.partition_field}
+                            score={rd.partition_score}
+                          />
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -604,15 +638,35 @@ function StepRisultato({ result, onReset }: {
 
       {/* Prossimi passi */}
       {result.success && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="font-semibold text-blue-800 flex items-center gap-2 mb-2">
-            <Info className="w-4 h-4" /> Prossimi passi
+        <div className={`border rounded-lg p-4 ${
+          hasAnyTodo ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-200'
+        }`}>
+          <p className={`font-semibold flex items-center gap-2 mb-2 ${
+            hasAnyTodo ? 'text-amber-800' : 'text-blue-800'
+          }`}>
+            {hasAnyTodo ? (
+              <><AlertTriangle className="w-4 h-4" /> Attenzione</>
+            ) : (
+              <><Info className="w-4 h-4" /> Prossimi passi</>
+            )}
           </p>
-          <ul className="space-y-1 text-sm text-blue-700">
+          <ul className={`space-y-1 text-sm ${hasAnyTodo ? 'text-amber-700' : 'text-blue-700'}`}>
             <li>• Le tabelle lookup sono state generate e sono pronte per l'uso</li>
-            <li>• Le regole lookup sono state create con campi <code className="bg-blue-100 px-1 rounded font-mono text-xs">TODO_SEZIONE</code> da completare</li>
-            <li>• Aprite le regole nel Rule Designer per collegare i campi del configuratore</li>
-            <li>• Create le regole materiali per definire quali articoli aggiungere al preventivo</li>
+            {allMatched ? (
+              <>
+                <li>• Le regole lookup sono state create con i campi del configuratore collegati automaticamente</li>
+                <li>• Verificate i collegamenti nel Rule Designer e correggete se necessario</li>
+              </>
+            ) : hasAnyTodo ? (
+              <>
+                <li>• Alcune regole hanno campi <code className="bg-amber-100 px-1 rounded font-mono text-xs">TODO.*</code> non trovati nel configuratore</li>
+                <li>• Aprite le regole nel Rule Designer per collegare manualmente i campi mancanti</li>
+              </>
+            ) : (
+              <li>• Aprite le regole nel Rule Designer per verificare i collegamenti</li>
+            )}
+            <li>• Le regole materiali sono state create come <strong>bozze disabilitate</strong> — abilitatele dopo aver verificato condizioni e codici articolo</li>
+            <li>• Se servono scenari diversi (es: diretto vs stella-triangolo), duplicate la regola materiali e aggiungete le condizioni appropriate</li>
           </ul>
         </div>
       )}
@@ -646,6 +700,42 @@ function StepRisultato({ result, onReset }: {
           <RefreshCw className="w-4 h-4" /> Importa un altro file
         </button>
       </div>
+    </div>
+  );
+}
+
+// ==========================================
+// MATCHING LINE (dettaglio collegamento campo)
+// ==========================================
+function MatchingLine({ label, field, score }: {
+  label: string;
+  field: string;
+  score: number;
+}) {
+  const isTodo = field.startsWith('TODO.');
+  const confidence = score >= 80 ? 'high' : score >= 50 ? 'medium' : 'low';
+
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="text-gray-500 w-16">{label}:</span>
+      {isTodo ? (
+        <>
+          <code className="font-mono text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">{field}</code>
+          <span className="text-amber-600">— nessun campo trovato</span>
+        </>
+      ) : (
+        <>
+          <Link2 className="w-3 h-3 text-green-500" />
+          <code className="font-mono text-gray-800 bg-gray-50 px-1.5 py-0.5 rounded">{field}</code>
+          <span className={`px-1.5 py-0.5 rounded-full font-medium ${
+            confidence === 'high' ? 'bg-green-100 text-green-700' :
+            confidence === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+            'bg-orange-100 text-orange-700'
+          }`}>
+            {confidence === 'high' ? 'ottimo' : confidence === 'medium' ? 'buono' : 'da verificare'}
+          </span>
+        </>
+      )}
     </div>
   );
 }

@@ -1,0 +1,50 @@
+{
+  "id": "MAT_CONT_OLEO_STELLA_TRIANGOLO",
+  "name": "Materiali Contattori Oleo - Stella Triangolo",
+  "description": "Aggiunge contattori KS+KM, morsetti RST/UVW e fili per avviamento stella-triangolo",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "trazione.tipo_avviamento_motore",
+      "operator": "equals",
+      "value": "stella_triangolo"
+    },
+    {
+      "field": "_calc.contattori_oleo.art_ks_st",
+      "operator": "is_not_empty"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "{{_calc.contattori_oleo.art_ks_st}}",
+      "descrizione": "Contattore KS stella {{_calc.contattori_oleo.st_ks}}",
+      "quantita": 1,
+      "categoria": "Contattori Oleo",
+      "unita_misura": "pz"
+    },
+    {
+      "codice": "{{_calc.contattori_oleo.art_km_st}}",
+      "descrizione": "Contattore KM triangolo {{_calc.contattori_oleo.st_km}}",
+      "quantita": 1,
+      "categoria": "Contattori Oleo",
+      "unita_misura": "pz"
+    },
+    {
+      "codice": "{{_calc.contattori_oleo.art_mors_rst}}",
+      "descrizione": "Morsetti RST {{_calc.contattori_oleo.st_mors_rst}} mm²",
+      "quantita": 1,
+      "categoria": "Contattori Oleo",
+      "unita_misura": "pz"
+    },
+    {
+      "codice": "{{_calc.contattori_oleo.art_mors_uvw}}",
+      "descrizione": "Morsetti UVW {{_calc.contattori_oleo.st_mors_uvw}} mm²",
+      "quantita": 1,
+      "categoria": "Contattori Oleo",
+      "unita_misura": "pz"
+    }
+  ],
+  "_note": "DISABILITATA: richiede colonne ART nell'Excel: ART: KS ST., ART: KM ST., ART: Mors RST, ART: Mors UVW, ART: Filo RST, ART: Filo UVW"
+}

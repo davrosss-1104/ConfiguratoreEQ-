@@ -2,19 +2,22 @@
 excel_data_loader.py — Loader generico Excel → JSON per il Rule Engine
 
 CONVENZIONE EXCEL:
-Ogni file Excel del cliente DEVE avere un foglio "_META" che descrive i dati.
-Il loader legge _META, valida la struttura, e produce file JSON in ./data/
+Ogni file Excel DEVE avere un foglio "_MAPPA" che descrive i fogli dati.
+Il loader legge _MAPPA, valida la struttura, e produce file JSON in ./data/
 
 TIPI DI TABELLA SUPPORTATI:
 - lookup_range:   input numerico → output multipli, partizionabile (es: contattori)
-- lookup_mapping: chiave testuale → output multipli (es: utilizzatori_elettrici)
-- catalog:        catalogo prodotti, matching multi-criterio (es: trasformatori)
-- constants:      tabella costanti chiave→valore (es: ponti raddrizzatori)
+- catalogo:       catalogo prodotti, matching multi-criterio (es: trasformatori)
+- costanti:       tabella semplice chiave→valore (es: ponti raddrizzatori)
 
-FORMATO FOGLIO _META:
+FORMATO FOGLIO _MAPPA:
 Riga 1: headers
-  foglio | tipo | nome_tabella | colonna_lookup | tipo_lookup | partizionato_per | colonne_output | note
+  foglio | tipo | nome_tabella | colonna_chiave | tipo_chiave | partizionato_per | valore_partizione | riga_intestazioni | note
 Righe successive: una riga per ogni foglio dati
+
+COLONNE ART:
+Le colonne il cui nome inizia con "ART:" vengono trattate come codici articolo.
+Vengono portate nell'output con prefisso "art_" (es. "ART: Cont. dir." → "art_cont._dir.").
 """
 
 import json
@@ -27,13 +30,51 @@ logger = logging.getLogger(__name__)
 
 
 class ExcelDataLoader:
-    """Parser generico: Excel con _META → JSON data tables."""
+    """Parser generico: Excel con _MAPPA → JSON data tables."""
 
-    TIPI_VALIDI = {"lookup_range", "lookup_mapping", "catalog", "constants"}
-    META_COLUMNS = [
-        "foglio", "tipo", "nome_tabella", "colonna_lookup",
-        "tipo_lookup", "partizionato_per", "colonne_output", "note"
+    TIPI_VALIDI = {"lookup_range", "catalogo", "costanti"}
+    
+    # Tipi interni per il rule engine (mapping italiano → engine)
+    TIPO_ENGINE_MAP = {
+        "lookup_range": "lookup_range",
+        "catalogo": "catalog",
+        "costanti": "constants",
+    }
+
+    MAPPA_COLUMNS = [
+        "foglio", "tipo", "nome_tabella", "colonna_chiave",
+        "tipo_chiave", "partizionato_per", "valore_partizione",
+        "riga_intestazioni", "note"
     ]
+
+    @staticmethod
+    def _normalize_key(s: str) -> str:
+        """
+        Normalizza un nome colonna per produrre chiavi JSON valide
+        e compatibili col sistema placeholder del rule engine.
+        
+        Regole:
+        - lowercase
+        - spazi → underscore
+        - caratteri non alfanumerici (: . ( ) ecc.) → underscore
+        - underscore multipli → singolo
+        - rimuovi underscore iniziali/finali
+        
+        Esempi:
+          "kW"             → "kw"
+          "IN (A)"         → "in_a"
+          "DIR: Cont."     → "dir_cont"
+          "ART: Cont. Dir." → "art_cont_dir"
+          "ST: Mors RST"   → "st_mors_rst"
+        """
+        import re
+        if not s:
+            return ""
+        n = str(s).strip().lower()
+        n = re.sub(r'[^a-zA-Z0-9_]', '_', n)
+        n = re.sub(r'_+', '_', n)
+        n = n.strip('_')
+        return n
 
     def __init__(self, data_dir: str = "./data"):
         self.data_dir = data_dir
@@ -46,7 +87,11 @@ class ExcelDataLoader:
     # ========================================================================
     def load_excel(self, filepath: str, overwrite: bool = True) -> Dict[str, Any]:
         """
-        Carica un Excel con _META, valida, genera JSON in ./data/.
+        Carica un Excel con _MAPPA, valida, genera JSON in ./data/.
+        
+        Gestisce automaticamente le partizioni: se più righe in _MAPPA hanno 
+        lo stesso nome_tabella ma valore_partizione diverso, produce un'unica
+        tabella partizionata.
         
         Returns:
             {
@@ -70,64 +115,36 @@ class ExcelDataLoader:
         except Exception as e:
             return {"success": False, "errors": [f"Errore apertura file: {e}"]}
 
-        # 1. Leggi e valida _META
-        meta_entries = self._read_meta(wb)
-        if not meta_entries:
+        # 1. Leggi e valida _MAPPA
+        mappa_entries = self._read_mappa(wb)
+        if not mappa_entries:
             wb.close()
             return {
                 "success": False,
                 "tables_generated": [],
                 "files_written": [],
-                "errors": self.errors or ["Foglio _META mancante o vuoto"],
+                "errors": self.errors or ["Foglio _MAPPA mancante o vuoto"],
                 "warnings": self.warnings
             }
 
-        # 2. Per ogni entry in _META, parsa il foglio corrispondente
+        # 2. Raggruppa entries per nome_tabella (per gestire partizioni automatiche)
+        tabelle_group: Dict[str, List[Dict]] = {}
+        for entry in mappa_entries:
+            nome = entry["nome_tabella"]
+            tabelle_group.setdefault(nome, []).append(entry)
+
+        # 3. Per ogni tabella (eventualmente multi-foglio), genera JSON
         tables_generated = []
         files_written = []
 
-        for entry in meta_entries:
-            foglio_nome = entry["foglio"]
-            tipo = entry["tipo"]
-            nome_tabella = entry["nome_tabella"]
-
-            if foglio_nome not in wb.sheetnames:
-                self.errors.append(f"Foglio '{foglio_nome}' dichiarato in _META ma non trovato nel file")
-                continue
-
-            ws = wb[foglio_nome]
-            rows = self._read_sheet_data(ws)
-
-            if not rows:
-                self.warnings.append(f"Foglio '{foglio_nome}' è vuoto, saltato")
-                continue
-
-            # Genera JSON in base al tipo
+        for nome_tabella, entries in tabelle_group.items():
             try:
-                if tipo == "lookup_range":
-                    json_data = self._build_lookup_range(entry, rows)
-                elif tipo == "lookup_mapping":
-                    json_data = self._build_lookup_mapping(entry, rows)
-                elif tipo == "catalog":
-                    json_data = self._build_catalog(entry, rows)
-                elif tipo == "constants":
-                    json_data = self._build_constants(entry, rows)
-                else:
-                    self.errors.append(f"Tipo '{tipo}' non supportato per '{nome_tabella}'")
+                json_data = self._build_table(wb, entries, filepath)
+                if json_data is None:
                     continue
             except Exception as e:
-                self.errors.append(f"Errore parsing '{foglio_nome}': {e}")
+                self.errors.append(f"Errore generazione '{nome_tabella}': {e}")
                 continue
-
-            # Aggiungi metadata
-            json_data["_meta"] = {
-                "nome": nome_tabella,
-                "tipo": tipo,
-                "foglio_origine": foglio_nome,
-                "file_origine": os.path.basename(filepath),
-                "generato_il": datetime.now().isoformat(),
-                "righe": len(rows) - 1,  # escludi header
-            }
 
             # Scrivi file
             outpath = os.path.join(self.data_dir, f"{nome_tabella}.json")
@@ -140,12 +157,9 @@ class ExcelDataLoader:
 
             tables_generated.append(nome_tabella)
             files_written.append(outpath)
-            logger.info(f"Generato: {outpath} ({tipo}, {len(rows)-1} righe)")
+            logger.info(f"Generato: {outpath} ({entries[0]['tipo']}, {len(entries)} fogli)")
 
         wb.close()
-
-        # 3. Gestione fogli con partizioni: unisci in un'unica tabella
-        # (fatto in _build_lookup_range quando partizionato_per è un foglio multiplo)
 
         return {
             "success": len(self.errors) == 0,
@@ -156,35 +170,107 @@ class ExcelDataLoader:
         }
 
     # ========================================================================
-    # LETTURA _META
+    # DISPATCHER: costruisce tabella da uno o più fogli
     # ========================================================================
-    def _read_meta(self, wb) -> List[Dict[str, str]]:
-        """Legge il foglio _META e restituisce lista di entry."""
-        if "_META" not in wb.sheetnames:
-            self.errors.append("Foglio '_META' non trovato. Ogni Excel deve avere un foglio _META.")
+    def _build_table(self, wb, entries: List[Dict], filepath: str) -> Optional[Dict]:
+        """
+        Costruisce la tabella JSON da uno o più entries (fogli).
+        Gestisce automaticamente il merge delle partizioni.
+        """
+        nome_tabella = entries[0]["nome_tabella"]
+        tipo = entries[0]["tipo"]
+        
+        # Verifica che tutti gli entries abbiano lo stesso tipo
+        for e in entries:
+            if e["tipo"] != tipo:
+                self.errors.append(
+                    f"Tabella '{nome_tabella}': fogli con tipi diversi "
+                    f"({e['tipo']} vs {tipo}). Tutti devono avere lo stesso tipo."
+                )
+                return None
+
+        # Leggi i dati da ogni foglio
+        fogli_data = []
+        total_rows = 0
+        for entry in entries:
+            foglio_nome = entry["foglio"]
+            if foglio_nome not in wb.sheetnames:
+                self.errors.append(f"Foglio '{foglio_nome}' dichiarato in _MAPPA ma non trovato nel file")
+                continue
+
+            ws = wb[foglio_nome]
+            riga_intestazioni = int(entry.get("riga_intestazioni") or 1)
+            rows = self._read_sheet_data(ws, riga_intestazioni)
+
+            if not rows:
+                self.warnings.append(f"Foglio '{foglio_nome}' è vuoto, saltato")
+                continue
+
+            fogli_data.append({"entry": entry, "rows": rows})
+            total_rows += len(rows) - 1  # escludi header
+
+        if not fogli_data:
+            self.warnings.append(f"Nessun dato trovato per tabella '{nome_tabella}'")
+            return None
+
+        # Genera JSON in base al tipo
+        if tipo == "lookup_range":
+            json_data = self._build_lookup_range(fogli_data)
+        elif tipo == "catalogo":
+            json_data = self._build_catalog(fogli_data)
+        elif tipo == "costanti":
+            json_data = self._build_constants(fogli_data)
+        else:
+            self.errors.append(f"Tipo '{tipo}' non supportato per '{nome_tabella}'")
+            return None
+
+        # Aggiungi metadata
+        json_data["_meta"] = {
+            "nome": nome_tabella,
+            "tipo": tipo,
+            "tipo_engine": self.TIPO_ENGINE_MAP.get(tipo, tipo),
+            "fogli_origine": [e["foglio"] for e in entries],
+            "file_origine": os.path.basename(filepath),
+            "generato_il": datetime.now().isoformat(),
+            "righe_totali": total_rows,
+            # Info dalla _MAPPA per generazione regole
+            "colonna_chiave": entries[0].get("colonna_chiave", ""),
+            "tipo_chiave": entries[0].get("tipo_chiave", ""),
+            "partizionato_per": entries[0].get("partizionato_per", ""),
+            "valori_partizione": [e.get("valore_partizione", "") for e in entries if e.get("valore_partizione")],
+        }
+
+        return json_data
+
+    # ========================================================================
+    # LETTURA _MAPPA
+    # ========================================================================
+    def _read_mappa(self, wb) -> List[Dict[str, str]]:
+        """Legge il foglio _MAPPA e restituisce lista di entry."""
+        if "_MAPPA" not in wb.sheetnames:
+            self.errors.append("Foglio '_MAPPA' non trovato. Ogni Excel deve avere un foglio _MAPPA.")
             return []
 
-        ws = wb["_META"]
+        ws = wb["_MAPPA"]
         rows = list(ws.iter_rows(values_only=True))
 
         if len(rows) < 2:
-            self.errors.append("Foglio _META vuoto (serve almeno header + 1 riga dati)")
+            self.errors.append("Foglio _MAPPA vuoto (serve almeno header + 1 riga dati)")
             return []
 
-        # Valida headers
-        headers = [str(h).strip().lower() if h else "" for h in rows[0]]
-        
-        # Mapping flessibile: accetta sia nomi esatti che varianti
+        # Valida headers — mapping flessibile
+        headers = [str(h).strip().lower().replace(" ", "_") if h else "" for h in rows[0]]
+
         col_map = {}
         for i, h in enumerate(headers):
-            for expected in self.META_COLUMNS:
+            for expected in self.MAPPA_COLUMNS:
                 if h == expected or h.replace(" ", "_") == expected:
                     col_map[expected] = i
                     break
 
         missing = {"foglio", "tipo", "nome_tabella"} - set(col_map.keys())
         if missing:
-            self.errors.append(f"Colonne obbligatorie mancanti in _META: {missing}")
+            self.errors.append(f"Colonne obbligatorie mancanti in _MAPPA: {missing}")
             return []
 
         # Leggi entries
@@ -197,11 +283,11 @@ class ExcelDataLoader:
 
             # Validazioni
             if not entry.get("foglio"):
-                self.warnings.append(f"_META riga {row_idx}: campo 'foglio' vuoto, saltata")
+                self.warnings.append(f"_MAPPA riga {row_idx}: campo 'foglio' vuoto, saltata")
                 continue
             if entry.get("tipo") not in self.TIPI_VALIDI:
                 self.errors.append(
-                    f"_META riga {row_idx}: tipo '{entry.get('tipo')}' non valido. "
+                    f"_MAPPA riga {row_idx}: tipo '{entry.get('tipo')}' non valido. "
                     f"Valori ammessi: {', '.join(sorted(self.TIPI_VALIDI))}"
                 )
                 continue
@@ -215,10 +301,16 @@ class ExcelDataLoader:
     # ========================================================================
     # LETTURA DATI FOGLIO
     # ========================================================================
-    def _read_sheet_data(self, ws) -> List[List[Any]]:
-        """Legge tutte le righe di un foglio come lista di liste."""
+    def _read_sheet_data(self, ws, riga_intestazioni: int = 1) -> List[List[Any]]:
+        """
+        Legge le righe di un foglio a partire dalla riga intestazioni.
+        riga_intestazioni=1 → header è la prima riga (default).
+        riga_intestazioni=3 → salta le prime 2 righe decorative.
+        """
         rows = []
-        for row in ws.iter_rows(values_only=True):
+        for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
+            if i < riga_intestazioni:
+                continue  # Salta righe prima delle intestazioni
             # Salta righe completamente vuote
             if all(v is None for v in row):
                 continue
@@ -229,14 +321,13 @@ class ExcelDataLoader:
         """Converte righe (con header in riga 0) in lista di dict."""
         if len(rows) < 2:
             return [], []
-        headers = [str(h).strip().lower().replace(" ", "_") if h else f"col_{i}" 
+        headers = [self._normalize_key(h) if h else f"col_{i}"
                    for i, h in enumerate(rows[0])]
         dicts = []
         for row in rows[1:]:
             d = {}
             for i, h in enumerate(headers):
                 val = row[i] if i < len(row) else None
-                # Converti tipi
                 if val is not None:
                     if isinstance(val, float) and val == int(val):
                         val = int(val)
@@ -244,224 +335,273 @@ class ExcelDataLoader:
             dicts.append(d)
         return headers, dicts
 
+    def _split_columns(self, headers: List[str], col_chiave: str
+                       ) -> Tuple[List[str], List[str]]:
+        """
+        Separa le colonne in tecniche e articolo.
+        Dopo la normalizzazione, le colonne ART: diventano art_*
+        (es: "ART: Cont. Dir." → "art_cont_dir").
+        Ritorna (colonne_tecniche, colonne_articoli) escludendo la colonna chiave.
+        """
+        tecniche = []
+        articoli = []
+        for h in headers:
+            if h == col_chiave:
+                continue
+            if h.startswith("art_"):
+                articoli.append(h)
+            else:
+                tecniche.append(h)
+        return tecniche, articoli
+
     # ========================================================================
     # BUILDER: lookup_range
     # ========================================================================
-    def _build_lookup_range(self, entry: Dict, rows: List[List]) -> Dict[str, Any]:
+    def _build_lookup_range(self, fogli_data: List[Dict]) -> Dict[str, Any]:
         """
-        Genera lookup_range: input numerico → output multipli.
+        Genera lookup_range da uno o più fogli.
         
-        Supporta partizioni (es: fogli diversi per 50Hz/60Hz).
-        Se partizionato_per contiene '|', interpreta come: campo_partizione|val1:foglio1,val2:foglio2
-        Altrimenti, singola tabella senza partizioni.
+        Calcolo fasce: il punto di separazione tra una fascia e la successiva 
+        è il punto medio tra i due valori adiacenti della colonna chiave.
+        Prima fascia parte da 0, ultima non ha limite superiore.
         
-        Output JSON:
-        {
-            "tipo": "lookup_range",
-            "parametro_lookup": "potenza_kw",
-            "partizionato_per": "frequenza",     # opzionale
-            "partizioni": {
-                "50Hz_400V": [
-                    {"da": 0, "a": 5.2, "output": {"contattore": "LC1D09", ...}},
-                    ...
-                ]
-            }
-        }
-        
-        Senza partizioni:
-        {
-            "tipo": "lookup_range",
-            "parametro_lookup": "potenza_kw",
-            "ranges": [
-                {"da": 0, "a": 5.2, "output": {"contattore": "LC1D09", ...}},
-                ...
-            ]
-        }
+        Se ci sono più fogli con lo stesso nome_tabella e valore_partizione diverso,
+        genera automaticamente una tabella partizionata.
         """
-        headers, data = self._rows_to_dicts(rows)
-        col_lookup = entry.get("colonna_lookup", "").strip().lower().replace(" ", "_")
-        
-        if not col_lookup or col_lookup not in headers:
-            # Fallback: prima colonna numerica
-            col_lookup = headers[0] if headers else ""
-            self.warnings.append(
-                f"colonna_lookup non specificata/trovata per '{entry['nome_tabella']}', "
-                f"uso prima colonna: '{col_lookup}'"
-            )
-
-        # Colonne output: esplicite o tutte tranne lookup
-        output_cols = self._parse_output_cols(entry.get("colonne_output", ""), headers, [col_lookup])
-
-        # Costruisci ranges ordinati per valore lookup
-        data_sorted = sorted(data, key=lambda r: float(r.get(col_lookup, 0) or 0))
-        
-        ranges = []
-        for i, row in enumerate(data_sorted):
-            val = row.get(col_lookup)
-            if val is None:
-                continue
-            
-            da = float(val) if i == 0 else ranges[-1]["a"] if ranges else 0
-            # "a" = valore successivo (o None per ultimo)
-            if i + 1 < len(data_sorted):
-                next_val = data_sorted[i + 1].get(col_lookup)
-                a = float(next_val) if next_val is not None else None
-            else:
-                a = None  # ultimo range: senza limite superiore
-            
-            output = {col: row.get(col) for col in output_cols if row.get(col) is not None}
-            
-            ranges.append({"da": da, "a": a, "output": output})
+        first_entry = fogli_data[0]["entry"]
+        col_chiave_raw = first_entry.get("colonna_chiave", "").strip()
+        part_field = first_entry.get("partizionato_per", "").strip()
+        is_partitioned = len(fogli_data) > 1 or bool(part_field)
 
         result = {
             "tipo": "lookup_range",
-            "parametro_lookup": col_lookup,
         }
 
-        # Se partizionato, wrappa in partizioni con chiave dal nome foglio
-        part_field = entry.get("partizionato_per", "").strip()
-        if part_field:
+        if is_partitioned:
             result["partizionato_per"] = part_field
-            # Nome partizione dal nome foglio
-            part_value = entry["foglio"].replace("/", "_").replace(" ", "_")
-            result["partizioni"] = {part_value: ranges}
-        else:
-            result["ranges"] = ranges
+            result["partizioni"] = {}
+
+        all_ranges = []
+
+        for foglio_info in fogli_data:
+            entry = foglio_info["entry"]
+            rows = foglio_info["rows"]
+            headers, data = self._rows_to_dicts(rows)
+
+            # Trova colonna chiave
+            col_chiave = self._normalize_key(col_chiave_raw)
+            if col_chiave not in headers:
+                # Fallback: cerca match parziale
+                for h in headers:
+                    if col_chiave in h or h in col_chiave:
+                        col_chiave = h
+                        break
+                else:
+                    col_chiave = headers[0] if headers else ""
+                    self.warnings.append(
+                        f"Colonna chiave '{col_chiave_raw}' non trovata in foglio "
+                        f"'{entry['foglio']}', uso '{col_chiave}'"
+                    )
+
+            result["parametro_lookup"] = col_chiave
+
+            # Separa colonne tecniche e articoli
+            col_tecniche, col_articoli = self._split_columns(headers, col_chiave)
+
+            # Ordina per valore chiave
+            data_sorted = sorted(data, key=lambda r: float(r.get(col_chiave, 0) or 0))
+
+            # Costruisci ranges con midpoint
+            ranges = self._build_ranges(data_sorted, col_chiave, col_tecniche, col_articoli)
+
+            if is_partitioned:
+                # Usa valore_partizione se disponibile, altrimenti nome foglio
+                part_value = entry.get("valore_partizione", "").strip()
+                if not part_value:
+                    part_value = entry["foglio"]
+                result["partizioni"][part_value] = ranges
+            else:
+                all_ranges = ranges
+
+        if not is_partitioned:
+            result["ranges"] = all_ranges
 
         return result
 
-    # ========================================================================
-    # BUILDER: lookup_mapping
-    # ========================================================================
-    def _build_lookup_mapping(self, entry: Dict, rows: List[List]) -> Dict[str, Any]:
+    def _build_ranges(self, data_sorted: List[Dict], col_chiave: str,
+                      col_tecniche: List[str], col_articoli: List[str]) -> List[Dict]:
         """
-        Genera lookup_mapping: chiave testuale → output multipli.
+        Costruisce le fasce (ranges) con punto medio come separatore.
         
-        Output JSON:
-        {
-            "tipo": "lookup_mapping",
-            "parametro_lookup": "nome_utilizzatore",
-            "valori": {
-                "pattino_retrattile": {"tensione_v": 60, "va": 150, ...},
-                "ami100_24v": {"tensione_v": 19, "va": 70, ...},
-                ...
-            }
-        }
+        Per valori [4.4, 5.9, 7.7, 9.6]:
+          fascia 0: [0, 5.15)        — midpoint(4.4, 5.9) = 5.15
+          fascia 1: [5.15, 6.8)      — midpoint(5.9, 7.7) = 6.8
+          fascia 2: [6.8, 8.65)      — midpoint(7.7, 9.6) = 8.65
+          fascia 3: [8.65, None)     — ultimo, senza limite
         """
-        headers, data = self._rows_to_dicts(rows)
-        col_lookup = entry.get("colonna_lookup", "").strip().lower().replace(" ", "_")
-        
-        if not col_lookup or col_lookup not in headers:
-            col_lookup = headers[0] if headers else ""
-            self.warnings.append(f"colonna_lookup default: '{col_lookup}'")
+        ranges = []
+        values = []
 
-        output_cols = self._parse_output_cols(entry.get("colonne_output", ""), headers, [col_lookup])
+        # Raccogli valori numerici validi
+        for row in data_sorted:
+            val = row.get(col_chiave)
+            if val is not None:
+                try:
+                    values.append(float(val))
+                except (ValueError, TypeError):
+                    continue
 
-        valori = {}
-        for row in data:
-            key_raw = row.get(col_lookup)
-            if key_raw is None:
+        if not values:
+            return ranges
+
+        # Calcola midpoints
+        midpoints = []
+        for i in range(len(values) - 1):
+            midpoints.append(round((values[i] + values[i + 1]) / 2, 4))
+
+        # Costruisci ranges
+        for i, row in enumerate(data_sorted):
+            val = row.get(col_chiave)
+            if val is None:
                 continue
-            # Normalizza chiave: lowercase, spazi → underscore
-            key = str(key_raw).strip().lower().replace(" ", "_").replace("'", "")
-            output = {col: row.get(col) for col in output_cols if row.get(col) is not None}
-            valori[key] = output
+            try:
+                float(val)
+            except (ValueError, TypeError):
+                continue
 
-        return {
-            "tipo": "lookup_mapping",
-            "parametro_lookup": col_lookup,
-            "valori": valori,
-        }
+            # Limiti fascia
+            da = 0 if i == 0 else midpoints[i - 1]
+            a = midpoints[i] if i < len(midpoints) else None
+
+            # Output tecnico (escludi None)
+            output = {}
+            for col in col_tecniche:
+                v = row.get(col)
+                if v is not None:
+                    output[col] = v
+
+            # Output articoli (escludi None)
+            articoli = {}
+            for col in col_articoli:
+                v = row.get(col)
+                if v is not None:
+                    articoli[col] = v
+
+            entry = {"da": da, "a": a, "output": output}
+            if articoli:
+                entry["articoli"] = articoli
+
+            ranges.append(entry)
+
+        return ranges
 
     # ========================================================================
-    # BUILDER: catalog
+    # BUILDER: catalogo
     # ========================================================================
-    def _build_catalog(self, entry: Dict, rows: List[List]) -> Dict[str, Any]:
+    def _build_catalog(self, fogli_data: List[Dict]) -> Dict[str, Any]:
         """
-        Genera catalog: tabella piatta di prodotti per matching multi-criterio.
-        
-        Il catalogo viene usato dall'action type 'catalog_match' del rule engine.
+        Genera catalogo: tabella piatta di prodotti per matching multi-criterio.
         
         Output JSON:
         {
             "tipo": "catalog",
             "colonna_id": "codice",
             "colonne": ["codice", "tipo", "potenza_va", ...],
+            "colonne_articoli": ["art_codice_erp"],
             "records": [
                 {"codice": "218", "tipo": "mono", "potenza_va": 600, ...},
                 ...
             ]
         }
         """
-        headers, data = self._rows_to_dicts(rows)
-        col_lookup = entry.get("colonna_lookup", "").strip().lower().replace(" ", "_")
-        
-        # colonna_lookup per un catalogo = colonna ID (codice prodotto)
-        if not col_lookup or col_lookup not in headers:
-            col_lookup = headers[0] if headers else "codice"
+        all_records = []
+        all_headers = []
+
+        for foglio_info in fogli_data:
+            entry = foglio_info["entry"]
+            rows = foglio_info["rows"]
+            headers, data = self._rows_to_dicts(rows)
+            if not all_headers:
+                all_headers = headers
+            all_records.extend(data)
+
+        col_chiave_raw = fogli_data[0]["entry"].get("colonna_chiave", "").strip()
+        col_chiave = self._normalize_key(col_chiave_raw)
+        if col_chiave not in all_headers:
+            col_chiave = all_headers[0] if all_headers else "codice"
+
+        col_tecniche, col_articoli = self._split_columns(all_headers, col_chiave)
 
         return {
             "tipo": "catalog",
-            "colonna_id": col_lookup,
-            "colonne": headers,
-            "records": data,
+            "colonna_id": col_chiave,
+            "colonne": [col_chiave] + col_tecniche,
+            "colonne_articoli": col_articoli,
+            "records": all_records,
         }
 
     # ========================================================================
-    # BUILDER: constants
+    # BUILDER: costanti
     # ========================================================================
-    def _build_constants(self, entry: Dict, rows: List[List]) -> Dict[str, Any]:
+    def _build_constants(self, fogli_data: List[Dict]) -> Dict[str, Any]:
         """
-        Genera constants: tabella semplice chiave → valori.
+        Genera costanti: tabella semplice chiave → valori.
         
         Output JSON:
         {
             "tipo": "constants",
+            "parametro_lookup": "tensione_freno",
             "valori": {
-                "monofase": {"fattore_ac_dc": 0.9, "fattore_dc_ac": 1.1111},
+                "180": {"ponte": "tipo_x", ...},
                 ...
             }
         }
         """
-        headers, data = self._rows_to_dicts(rows)
-        col_lookup = entry.get("colonna_lookup", "").strip().lower().replace(" ", "_")
-        
-        if not col_lookup or col_lookup not in headers:
-            col_lookup = headers[0] if headers else ""
+        all_valori = {}
+        col_chiave_final = ""
 
-        output_cols = self._parse_output_cols(entry.get("colonne_output", ""), headers, [col_lookup])
+        for foglio_info in fogli_data:
+            entry = foglio_info["entry"]
+            rows = foglio_info["rows"]
+            headers, data = self._rows_to_dicts(rows)
 
-        valori = {}
-        for row in data:
-            key = row.get(col_lookup)
-            if key is None:
-                continue
-            key_str = str(key).strip().lower().replace(" ", "_")
-            output = {col: row.get(col) for col in output_cols if row.get(col) is not None}
-            valori[key_str] = output
+            col_chiave_raw = entry.get("colonna_chiave", "").strip()
+            col_chiave = self._normalize_key(col_chiave_raw)
+            if col_chiave not in headers:
+                col_chiave = headers[0] if headers else ""
+
+            if not col_chiave_final:
+                col_chiave_final = col_chiave
+
+            col_tecniche, col_articoli = self._split_columns(headers, col_chiave)
+            output_cols = col_tecniche + col_articoli
+
+            for row in data:
+                key = row.get(col_chiave)
+                if key is None:
+                    continue
+                key_str = self._normalize_key(str(key))
+                output = {col: row.get(col) for col in output_cols if row.get(col) is not None}
+                all_valori[key_str] = output
 
         return {
             "tipo": "constants",
-            "parametro_lookup": col_lookup,
-            "valori": valori,
+            "parametro_lookup": col_chiave_final,
+            "valori": all_valori,
         }
 
     # ========================================================================
-    # UTILITY: merge partizioni
+    # UTILITY: merge partizioni (legacy, per API /data-tables/merge)
     # ========================================================================
-    def merge_partitioned_tables(self, table_names: List[str], 
-                                  merged_name: str,
-                                  partition_field: str) -> Dict[str, Any]:
+    def merge_partitioned_tables(self, table_names: List[str],
+                                 merged_name: str,
+                                 partition_field: str) -> Dict[str, Any]:
         """
         Unisce più tabelle lookup_range partizionate in una sola.
         
-        Utile quando fogli diversi dello stesso Excel rappresentano partizioni
-        (es: "50Hz_400V" e "60Hz_440V" → unica tabella con campo partizione).
-        
-        Args:
-            table_names: nomi delle tabelle JSON da unire
-            merged_name: nome della tabella risultante
-            partition_field: nome del campo di partizione
+        NOTA: Con il nuovo loader, le partizioni vengono gestite automaticamente
+        in fase di import quando più righe in _MAPPA hanno lo stesso nome_tabella.
+        Questo metodo resta per compatibilità.
         """
         merged = {
             "tipo": "lookup_range",
@@ -482,17 +622,14 @@ class ExcelDataLoader:
 
             if parametro_lookup is None:
                 parametro_lookup = table.get("parametro_lookup")
-            
+
             merged["parametro_lookup"] = parametro_lookup
 
-            # Copia partizioni o ranges
             if "partizioni" in table:
                 merged["partizioni"].update(table["partizioni"])
             elif "ranges" in table:
-                # Usa il nome tabella come chiave partizione
                 merged["partizioni"][name] = table["ranges"]
 
-        # Aggiungi meta
         merged["_meta"] = {
             "nome": merged_name,
             "tipo": "lookup_range",
@@ -500,7 +637,6 @@ class ExcelDataLoader:
             "generato_il": datetime.now().isoformat(),
         }
 
-        # Scrivi
         outpath = os.path.join(self.data_dir, f"{merged_name}.json")
         with open(outpath, "w", encoding="utf-8") as f:
             json.dump(merged, f, indent=2, ensure_ascii=False)
@@ -508,7 +644,7 @@ class ExcelDataLoader:
         return merged
 
     # ========================================================================
-    # UTILITY: load table
+    # UTILITY: load / list tables
     # ========================================================================
     def load_table(self, nome_tabella: str) -> Optional[Dict[str, Any]]:
         """Carica una tabella JSON dal data_dir."""
@@ -535,26 +671,13 @@ class ExcelDataLoader:
                     "nome": meta.get("nome", fname.replace(".json", "")),
                     "tipo": data.get("tipo", meta.get("tipo", "unknown")),
                     "file": fname,
-                    "righe": meta.get("righe", 0),
+                    "righe": meta.get("righe_totali", meta.get("righe", 0)),
                     "file_origine": meta.get("file_origine", ""),
                     "generato_il": meta.get("generato_il", ""),
                 })
             except Exception:
                 pass
         return tables
-
-    # ========================================================================
-    # UTILITY: parse output columns
-    # ========================================================================
-    def _parse_output_cols(self, colonne_output_str: str, headers: List[str], 
-                           exclude: List[str]) -> List[str]:
-        """Parsa stringa colonne_output → lista colonne."""
-        if colonne_output_str.strip():
-            return [c.strip().lower().replace(" ", "_") 
-                    for c in colonne_output_str.split(",")
-                    if c.strip()]
-        # Default: tutte tranne quelle escluse
-        return [h for h in headers if h not in exclude]
 
     # ========================================================================
     # VALIDAZIONE EXCEL
@@ -575,34 +698,80 @@ class ExcelDataLoader:
 
         result = {
             "fogli": wb.sheetnames,
-            "ha_meta": "_META" in wb.sheetnames,
+            "ha_mappa": "_MAPPA" in wb.sheetnames,
         }
 
-        if not result["ha_meta"]:
+        if not result["ha_mappa"]:
             result["valid"] = False
-            result["errors"] = ["Foglio '_META' non trovato"]
+            result["errors"] = ["Foglio '_MAPPA' non trovato"]
             wb.close()
             return result
 
-        meta_entries = self._read_meta(wb)
-        
-        sheets_info = []
-        for entry in meta_entries:
-            foglio = entry["foglio"]
-            info = {
-                "foglio": foglio,
-                "tipo": entry["tipo"],
-                "nome_tabella": entry["nome_tabella"],
-                "esiste": foglio in wb.sheetnames,
-            }
-            if info["esiste"]:
-                ws = wb[foglio]
-                rows = self._read_sheet_data(ws)
-                info["righe"] = len(rows) - 1 if rows else 0
-                info["colonne"] = [str(h) for h in rows[0]] if rows else []
-            sheets_info.append(info)
+        mappa_entries = self._read_mappa(wb)
 
-        result["tabelle"] = sheets_info
+        # Raggruppa per nome_tabella
+        tabelle_group: Dict[str, List[Dict]] = {}
+        for entry in mappa_entries:
+            nome = entry["nome_tabella"]
+            tabelle_group.setdefault(nome, []).append(entry)
+
+        tabelle_info = []
+        for nome_tabella, entries in tabelle_group.items():
+            tipo = entries[0]["tipo"]
+            part_field = entries[0].get("partizionato_per", "")
+            
+            fogli_info = []
+            col_tecniche_all = []
+            col_articoli_all = []
+            
+            for entry in entries:
+                foglio = entry["foglio"]
+                info = {
+                    "foglio": foglio,
+                    "valore_partizione": entry.get("valore_partizione", ""),
+                    "esiste": foglio in wb.sheetnames,
+                    "righe": 0,
+                    "colonne": [],
+                }
+                if info["esiste"]:
+                    ws = wb[foglio]
+                    riga_int = int(entry.get("riga_intestazioni") or 1)
+                    rows = self._read_sheet_data(ws, riga_int)
+                    info["righe"] = len(rows) - 1 if rows else 0
+                    if rows:
+                        headers_raw = [str(h) for h in rows[0] if h is not None]
+                        info["colonne"] = headers_raw
+                        headers_norm = [self._normalize_key(h)
+                                       for h in rows[0] if h is not None]
+                        col_chiave = self._normalize_key(
+                            entry.get("colonna_chiave", ""))
+                        for h in headers_norm:
+                            if h.startswith("art_"):
+                                if h not in col_articoli_all:
+                                    col_articoli_all.append(h)
+                            elif h != col_chiave:
+                                if h not in col_tecniche_all:
+                                    col_tecniche_all.append(h)
+                fogli_info.append(info)
+
+            tabella_info = {
+                "nome_tabella": nome_tabella,
+                "tipo": tipo,
+                "colonna_chiave": entries[0].get("colonna_chiave", ""),
+                "tipo_chiave": entries[0].get("tipo_chiave", ""),
+                "fogli": fogli_info,
+                "colonne_tecniche": col_tecniche_all,
+                "colonne_articoli": col_articoli_all,
+            }
+            if part_field:
+                tabella_info["partizionato_per"] = part_field
+                tabella_info["valori_partizione"] = [
+                    e.get("valore_partizione", e["foglio"]) for e in entries
+                ]
+            
+            tabelle_info.append(tabella_info)
+
+        result["tabelle"] = tabelle_info
         result["valid"] = len(self.errors) == 0
         result["errors"] = self.errors
         result["warnings"] = self.warnings

@@ -17,6 +17,7 @@ interface Utente {
   ruolo_id: number | null;
   ruolo_nome: string | null;
   ruolo_codice: string | null;
+  cliente_id: number | null;
   is_admin: boolean;
   is_active: boolean;
   created_at: string | null;
@@ -36,10 +37,17 @@ interface Ruolo {
   is_superadmin: boolean;
 }
 
+interface ClienteOption {
+  id: number;
+  codice: string;
+  ragione_sociale: string;
+}
+
 export function GestioneUtentiPage() {
   const [utenti, setUtenti] = useState<Utente[]>([]);
   const [gruppi, setGruppi] = useState<Gruppo[]>([]);
   const [ruoli, setRuoli] = useState<Ruolo[]>([]);
+  const [clienti, setClienti] = useState<ClienteOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -55,6 +63,7 @@ export function GestioneUtentiPage() {
     email: '',
     gruppo_id: null as number | null,
     ruolo_id: null as number | null,
+    cliente_id: null as number | null,
     is_admin: false,
   });
 
@@ -64,14 +73,16 @@ export function GestioneUtentiPage() {
 
   const fetchAll = async () => {
     try {
-      const [utentiRes, gruppiRes, ruoliRes] = await Promise.all([
+      const [utentiRes, gruppiRes, ruoliRes, clientiRes] = await Promise.all([
         fetch(`${API_BASE}/utenti`),
         fetch(`${API_BASE}/gruppi-utenti`),
         fetch(`${API_BASE}/ruoli`),
+        fetch(`${API_BASE}/clienti`),
       ]);
       if (utentiRes.ok) setUtenti(await utentiRes.json());
       if (gruppiRes.ok) setGruppi(await gruppiRes.json());
       if (ruoliRes.ok) setRuoli(await ruoliRes.json());
+      if (clientiRes.ok) setClienti(await clientiRes.json());
     } catch (error) {
       console.error('Errore caricamento:', error);
     } finally {
@@ -93,6 +104,7 @@ export function GestioneUtentiPage() {
       email: '',
       gruppo_id: null,
       ruolo_id: null,
+      cliente_id: null,
       is_admin: false,
     });
     setEditingId(null);
@@ -121,6 +133,7 @@ export function GestioneUtentiPage() {
       if (formData.email) params.append('email', formData.email);
       if (formData.gruppo_id !== null) params.append('gruppo_id', String(formData.gruppo_id));
       if (formData.ruolo_id !== null) params.append('ruolo_id', String(formData.ruolo_id));
+      if (formData.cliente_id !== null) params.append('cliente_id', String(formData.cliente_id));
       params.append('is_admin', formData.is_admin ? 'true' : 'false');
 
       const url = editingId 
@@ -153,6 +166,7 @@ export function GestioneUtentiPage() {
       email: utente.email || '',
       gruppo_id: utente.gruppo_id,
       ruolo_id: utente.ruolo_id,
+      cliente_id: utente.cliente_id,
       is_admin: utente.is_admin,
     });
     setEditingId(utente.id);
@@ -322,19 +336,25 @@ export function GestioneUtentiPage() {
               </div>
 
               {/* Admin flag (legacy, nascosto se ruolo è superadmin) */}
-              <div className="flex items-center gap-3 pt-6">
-                <input
-                  type="checkbox"
-                  id="is_admin"
-                  checked={formData.is_admin}
-                  onChange={(e) => setFormData({ ...formData, is_admin: e.target.checked })}
-                  className="h-4 w-4"
-                />
-                <label htmlFor="is_admin" className="text-sm font-medium text-gray-700 flex items-center gap-1">
-                  <Shield className="h-4 w-4 text-purple-500" />
-                  Admin (flag legacy)
+              <div>
+                <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                  <User className="h-3.5 w-3.5 text-orange-500" />
+                  Cliente associato
                 </label>
+                <select
+                  value={formData.cliente_id || ''}
+                  onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value ? Number(e.target.value) : null })}
+                  className="w-full h-10 px-3 border rounded-md text-sm"
+                >
+                  <option value="">— Nessuno (utente interno) —</option>
+                  {clienti.map(c => (
+                    <option key={c.id} value={c.id}>{c.codice} - {c.ragione_sociale}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">Se impostato, l'utente vedrà solo i preventivi di questo cliente</p>
               </div>
+
+              {/* Admin flag legacy: nascosto, gestito automaticamente dal ruolo */}
             </div>
             <div className="flex gap-2 pt-2">
               <Button type="submit">

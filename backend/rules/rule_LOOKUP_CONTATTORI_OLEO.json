@@ -1,0 +1,25 @@
+{
+  "id": "LOOKUP_CONTATTORI_OLEO",
+  "name": "Lookup Contattori Oleo",
+  "description": "Cerca nella tabella contattori_oleo per kW",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 10,
+  "conditions": [
+    {
+      "field": "trazione.potenza_motore_kw",
+      "operator": "greater_than",
+      "value": 0
+    }
+  ],
+  "actions": [
+    {
+      "action": "lookup_table",
+      "tabella": "contattori_oleo",
+      "input_field": "trazione.potenza_motore_kw",
+      "output_prefix": "_calc.contattori_oleo.",
+      "partition_field": "tensioni.frequenza_rete"
+    }
+  ],
+  "materials": []
+}

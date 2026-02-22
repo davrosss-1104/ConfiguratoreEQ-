@@ -160,6 +160,7 @@ export function GestioneRuoliPage() {
       fetchAll();
     } catch (error: any) {
       toast({ title: 'Errore', description: error.message, variant: 'destructive' });
+      fetchAll();
     }
   };
 

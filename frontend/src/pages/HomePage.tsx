@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { preventiviService, getTemplates, type ProductTemplate, type Preventivo } from '@/services/preventivi.service';
+import { useAuth } from '@/hooks/useAuth';
 
 // ==========================================
 // COMPONENTE PRINCIPALE
@@ -11,6 +12,7 @@ export const HomePage = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const { user, logout } = useAuth();
 
   // Query preventivi
   const { data: preventivi = [], isLoading } = useQuery<Preventivo[]>({
@@ -130,6 +132,23 @@ export const HomePage = () => {
                 </svg>
                 Gestione
               </button>
+              {user && (
+                <div className="flex items-center gap-2 ml-2 pl-2 border-l border-gray-200">
+                  <span className="text-xs text-gray-400">{user.nome || user.username}</span>
+                  <button
+                    onClick={logout}
+                    className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-red-500 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors"
+                    title="Esci"
+                  >
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+                      <polyline points="16 17 21 12 16 7" />
+                      <line x1="21" y1="12" x2="9" y2="12" />
+                    </svg>
+                    Esci
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

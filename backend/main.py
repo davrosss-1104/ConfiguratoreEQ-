@@ -49,6 +49,7 @@ from fastapi.encoders import jsonable_encoder
 import json as json_module
 from excel_data_loader import ExcelDataLoader
 from excel_import import ExcelImporter
+from api_permessi import router as permessi_router
     
 
 # Custom JSON encoder per SQLAlchemy objects
@@ -107,6 +108,11 @@ app.add_middleware(
 )
 
 # ==========================================
+# ROUTER: Gruppi, Ruoli, Permessi
+# ==========================================
+app.include_router(permessi_router)
+
+# ==========================================
 # DEPENDENCY
 # ==========================================
 def get_db():
@@ -115,6 +121,48 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# ==========================================
+# DEPENDENCY: Current User (opzionale e obbligatoria)
+# ==========================================
+def _extract_user_from_request(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+) -> Optional["Utente"]:
+    """Estrae l'utente dal token Bearer. Ritorna None se non autenticato."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization[7:]
+    return get_user_from_token(token, db)
+
+def get_current_user_required(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+) -> "Utente":
+    """Dependency: utente obbligatorio. Alza 401 se non autenticato."""
+    user = _extract_user_from_request(authorization, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Autenticazione richiesta")
+    return user
+
+def user_can_see_all_preventivi(user, db: Session) -> bool:
+    """True se l'utente può vedere tutti i preventivi (interni/admin)"""
+    if user.is_admin:
+        return True
+    permessi = get_user_permissions(user, db)
+    return "preventivi.view_all" in permessi
+
+def filter_preventivi_by_user(query, user, db: Session):
+    """Filtra la query preventivi in base all'utente.
+    - Utente interno (con view_all o senza cliente_id): vede tutto
+    - Utente cliente (con cliente_id, senza view_all): solo i suoi
+    """
+    if user_can_see_all_preventivi(user, db):
+        return query
+    if user.cliente_id:
+        return query.filter(Preventivo.cliente_id == user.cliente_id)
+    # Utente senza cliente_id e senza view_all: vede solo quelli creati da lui
+    return query.filter(Preventivo.created_by == user.id)
 
 # ==========================================
 # HELPER: Accesso sicuro ai campi Preventivo
@@ -574,13 +622,26 @@ def evaluate_rules(preventivo_id: int, db: Session):
 
 
 def safe_evaluate_rules(preventivo_id: int, db: Session):
-    """Wrapper che non crasha mai - logga errori ma non blocca il chiamante"""
+    """
+    Wrapper che non crasha mai - logga errori ma non blocca il chiamante.
+    Usa il nuovo RuleEngine che supporta actions (lookup_table, ecc.)
+    e placeholder nei materiali.
+    """
     try:
-        return evaluate_rules(preventivo_id, db)
+        from rule_engine import RuleEngine
+        preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
+        if not preventivo:
+            return {"error": "Preventivo non trovato"}
+        
+        engine = RuleEngine(db)
+        result = engine.evaluate_rules(preventivo)
+        db.commit()
+        return result
     except Exception as e:
         import traceback
         print(f"[RULE ENGINE ERROR] preventivo {preventivo_id}: {e}")
         traceback.print_exc()
+        db.rollback()
         return {"error": str(e)}
 
 
@@ -775,6 +836,7 @@ def login(data: dict, db: Session = Depends(get_db)):
             "ruolo_nome": ruolo_nome,
             "ruolo_codice": ruolo_codice,
             "permessi": permessi,
+            "cliente_id": user.cliente_id,
         }
     }
 
@@ -824,15 +886,27 @@ def get_current_user_info(
         "ruolo_nome": ruolo_nome,
         "ruolo_codice": ruolo_codice,
         "permessi": permessi,
+        "cliente_id": user.cliente_id,
     }
+
 
 # ==========================================
 # PREVENTIVI
 # ==========================================
 @app.get("/preventivi")
-def get_preventivi(db: Session = Depends(get_db)):
-    """Ottieni tutti i preventivi ordinati per data"""
-    preventivi = db.query(Preventivo).order_by(Preventivo.created_at.desc()).all()
+def get_preventivi(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """Ottieni preventivi ordinati per data. Filtra per cliente se utente è cliente."""
+    user = _extract_user_from_request(authorization, db)
+    
+    query = db.query(Preventivo)
+    if user:
+        query = filter_preventivi_by_user(query, user, db)
+    # Se nessun token (backward compat), mostra tutto
+    
+    preventivi = query.order_by(Preventivo.created_at.desc()).all()
     results = []
     for p in preventivi:
         row = {}
@@ -841,6 +915,11 @@ def get_preventivi(db: Session = Depends(get_db)):
             if hasattr(val, 'isoformat'):
                 val = val.isoformat()
             row[col.name] = val
+        # Risolvi nome cliente da cliente_id
+        if p.cliente_id and not row.get('customer_name'):
+            cl = db.query(Cliente).filter(Cliente.id == p.cliente_id).first()
+            if cl:
+                row['customer_name'] = cl.ragione_sociale
         results.append(row)
     return results
 
@@ -853,17 +932,22 @@ def search_preventivi(
     data_da: str = None,
     data_a: str = None,
     limit: int = 50,
+    authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ):
-    """Ricerca preventivi con filtri multipli.
-    q = testo libero (cerca in numero_preventivo, customer_name, ragione_sociale cliente)
-    status = draft|confermato|inviato
-    categoria = RISE|HOME
-    data_da/data_a = YYYY-MM-DD
-    """
+    """Ricerca preventivi con filtri multipli. Filtra per cliente se utente è cliente."""
     query = db.query(Preventivo).outerjoin(
         Cliente, Preventivo.cliente_id == Cliente.id
     )
+
+    # Filtro visibilità per utente
+    user = _extract_user_from_request(authorization, db)
+    if user:
+        if not user_can_see_all_preventivi(user, db):
+            if user.cliente_id:
+                query = query.filter(Preventivo.cliente_id == user.cliente_id)
+            else:
+                query = query.filter(Preventivo.created_by == user.id)
 
     if q and q.strip():
         pattern = f"%{q.strip()}%"
@@ -918,19 +1002,35 @@ def search_preventivi(
     return results
 
 @app.get("/preventivi/{preventivo_id}")
-def get_preventivo(preventivo_id: int, db: Session = Depends(get_db)):
-    """Ottieni un preventivo specifico"""
+def get_preventivo(
+    preventivo_id: int,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """Ottieni un preventivo specifico (con controllo accesso cliente)"""
     preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
     if not preventivo:
         raise HTTPException(status_code=404, detail="Preventivo non trovato")
-    # Ritorna dict con tutte le colonne (incluso cliente_id)
+    
+    # Controllo accesso
+    user = _extract_user_from_request(authorization, db)
+    if user and not user_can_see_all_preventivi(user, db):
+        if user.cliente_id and preventivo.cliente_id != user.cliente_id:
+            raise HTTPException(status_code=403, detail="Accesso negato a questo preventivo")
+        elif not user.cliente_id and preventivo.created_by != user.id:
+            raise HTTPException(status_code=403, detail="Accesso negato a questo preventivo")
+    
     result = {}
     for col in preventivo.__table__.columns:
         result[col.name] = getattr(preventivo, col.name, None)
     return result
 
 @app.post("/preventivi", status_code=201)
-def create_preventivo(data: PreventivoCreate, db: Session = Depends(get_db)):
+def create_preventivo(
+    data: PreventivoCreate,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
     """Crea nuovo preventivo con generazione automatica numero preventivo."""
     # Genera numero preventivo automatico se non fornito
     if not data.numero_preventivo:
@@ -981,6 +1081,13 @@ def create_preventivo(data: PreventivoCreate, db: Session = Depends(get_db)):
     if 'updated_at' not in preventivo_dict:
         preventivo_dict['updated_at'] = datetime.now()
     
+    # Auto-set created_by e cliente_id dall'utente loggato
+    user = _extract_user_from_request(authorization, db)
+    if user:
+        preventivo_dict['created_by'] = user.id
+        if user.cliente_id and 'cliente_id' not in preventivo_dict:
+            preventivo_dict['cliente_id'] = user.cliente_id
+
     preventivo = Preventivo(**preventivo_dict)
     db.add(preventivo)
     db.commit()
@@ -2007,6 +2114,7 @@ def get_template_field_config(template_id: int, db: Session = Depends(get_db)):
             "readonly": cfg.get("readonly", False),
             "includi_preventivo": cfg.get("includi_preventivo", True),
             "mostra_default": cfg.get("mostra_default", False),
+            "cliente_id": u.cliente_id,
         })
 
     return {"template_id": template_id, "fields": result, "raw_config": field_config}
@@ -2043,7 +2151,7 @@ def update_template_field_config(template_id: int, data: dict, db: Session = Dep
 # ==========================================
 @app.post("/preventivi/{preventivo_id}/evaluate-rules")
 def evaluate_rules_endpoint(preventivo_id: int, db: Session = Depends(get_db)):
-    return evaluate_rules(preventivo_id, db)
+    return safe_evaluate_rules(preventivo_id, db)
 
 # ==========================================
 # REGOLE JSON - CRUD su file in ./rules/
@@ -2187,7 +2295,21 @@ def create_regola(data: dict):
 def update_regola(rule_id: str, data: dict):
     """Aggiorna una regola JSON esistente"""
     os.makedirs(RULES_DIR, exist_ok=True)
+    
+    # Cerca il file: prima match diretto, poi per ID interno
     filepath = os.path.join(RULES_DIR, f"{rule_id}.json")
+    if not os.path.exists(filepath):
+        for filename in os.listdir(RULES_DIR):
+            if filename.endswith(".json"):
+                fpath = os.path.join(RULES_DIR, filename)
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        rule = json.load(f)
+                    if rule.get("id") == rule_id:
+                        filepath = fpath
+                        break
+                except Exception:
+                    continue
     
     data["id"] = rule_id  # Forza ID consistente
     data.setdefault("enabled", True)
@@ -2202,12 +2324,28 @@ def update_regola(rule_id: str, data: dict):
 
 @app.delete("/regole/{rule_id}")
 def delete_regola(rule_id: str):
-    """Elimina una regola JSON"""
+    """Elimina una regola JSON cercando per ID interno"""
+    # Prima prova match diretto col nome file
     filepath = os.path.join(RULES_DIR, f"{rule_id}.json")
-    if not os.path.exists(filepath):
-        raise HTTPException(status_code=404, detail=f"Regola {rule_id} non trovata")
-    os.remove(filepath)
-    return {"status": "deleted", "id": rule_id}
+    if os.path.exists(filepath):
+        os.remove(filepath)
+        return {"status": "deleted", "id": rule_id}
+    
+    # Altrimenti cerca in tutti i file JSON per campo "id"
+    if os.path.exists(RULES_DIR):
+        for filename in os.listdir(RULES_DIR):
+            if filename.endswith(".json"):
+                fpath = os.path.join(RULES_DIR, filename)
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        rule = json.load(f)
+                    if rule.get("id") == rule_id:
+                        os.remove(fpath)
+                        return {"status": "deleted", "id": rule_id, "file": filename}
+                except Exception:
+                    continue
+    
+    raise HTTPException(status_code=404, detail=f"Regola {rule_id} non trovata")
 
 @app.get("/regole-campi-disponibili")
 def get_campi_disponibili(db: Session = Depends(get_db)):
@@ -3397,9 +3535,11 @@ def create_utente(
     email: str = Query(None),
     gruppo_id: int = Query(None),
     ruolo_id: int = Query(None),
+    cliente_id: int = Query(None),
     is_admin: bool = Query(False),
     is_active: bool = Query(True),
     db: Session = Depends(get_db)
+    
 ):
     existing = db.query(Utente).filter(Utente.username == username).first()
     if existing:
@@ -3410,6 +3550,7 @@ def create_utente(
         password_hash=get_password_hash(password or "changeme"),
         nome=nome, cognome=cognome, email=email,
         gruppo_id=gruppo_id, ruolo_id=ruolo_id,
+        cliente_id=cliente_id,
         is_admin=is_admin, is_active=is_active
     )
     db.add(utente)
@@ -3427,6 +3568,7 @@ def update_utente(
     email: str = Query(None),
     gruppo_id: int = Query(None),
     ruolo_id: int = Query(None),
+    cliente_id: int = Query(None),
     is_admin: bool = Query(None),
     is_active: bool = Query(None),
     db: Session = Depends(get_db)
@@ -3449,6 +3591,8 @@ def update_utente(
         utente.gruppo_id = gruppo_id
     if ruolo_id is not None:
         utente.ruolo_id = ruolo_id
+    if cliente_id is not None:
+        utente.cliente_id = cliente_id if cliente_id != 0 else None
     if is_admin is not None:
         utente.is_admin = is_admin
     if is_active is not None:
@@ -5989,11 +6133,11 @@ def delete_data_table(nome_tabella: str):
 @app.post("/data-tables/upload")
 async def upload_excel_data(file: UploadFile = File(...), overwrite: bool = True):
     """
-    Carica un file Excel con foglio _META → genera data tables JSON.
+    Carica un file Excel con foglio _MAPPA → genera data tables JSON.
     
     Il file Excel deve seguire la convenzione:
-    - Foglio _META con colonne: foglio, tipo, nome_tabella, ...
-    - Fogli dati con riga 1 = header, righe successive = dati
+    - Foglio _MAPPA con colonne: foglio, tipo, nome_tabella, colonna_chiave, ...
+    - Fogli dati con riga intestazioni + righe dati
     
     Returns: 
         Lista tabelle generate con eventuali errori/warning
@@ -6075,14 +6219,17 @@ def merge_data_tables(data: dict):
 # IMPORT EXCEL CON _MAPPA
 # ============================================================================
 
+# ==========================================
+# IMPORT EXCEL — PREVIEW + GENERA
+# (usati dalla pagina "Importa da Excel")
+# ==========================================
 @app.post("/import-excel/preview")
 async def import_excel_preview(file: UploadFile = File(...)):
     """
-    Preview: carica un Excel con foglio _MAPPA, valida e mostra anteprima.
-    Non genera file. Ritorna struttura tabelle trovate con anteprima dati.
+    Fase 2 Step 1: analizza l'Excel, valida _MAPPA, restituisce preview
+    con anteprima dati, colonne, fasce calcolate.
     """
-    import tempfile
-    import shutil
+    import tempfile, shutil
 
     suffix = os.path.splitext(file.filename)[1] or ".xlsx"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -6090,22 +6237,134 @@ async def import_excel_preview(file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        importer = ExcelImporter()
-        result = importer.preview(tmp_path)
-        result["filename"] = file.filename
-        return result
+        loader = ExcelDataLoader()
+        validation = loader.validate_excel(tmp_path)
+
+        if not validation.get("valid", False):
+            return {
+                "success": False,
+                "filename": file.filename,
+                "mappa": [],
+                "errors": validation.get("errors", []),
+                "warnings": validation.get("warnings", []),
+            }
+
+        # Arricchisci con anteprima dati e fasce calcolate
+        import openpyxl
+        wb = openpyxl.load_workbook(tmp_path, data_only=True)
+
+        mappa_out = []
+        for tab_info in validation.get("tabelle", []):
+            for foglio_info in tab_info.get("fogli", []):
+                foglio_nome = foglio_info.get("foglio", "")
+                if not foglio_info.get("esiste"):
+                    continue
+
+                ws = wb[foglio_nome]
+                rows_raw = []
+                for row in ws.iter_rows(values_only=True):
+                    if all(v is None for v in row):
+                        continue
+                    rows_raw.append(list(row))
+
+                # Headers e dati
+                headers_raw = [str(h) for h in rows_raw[0]] if rows_raw else []
+                headers_norm = [ExcelDataLoader._normalize_key(h) for h in rows_raw[0]] if rows_raw else []
+
+                col_chiave = tab_info.get("colonna_chiave", "").strip()
+
+                # Separa colonne tecniche e articoli
+                colonne_tecniche = []
+                colonne_articoli = []
+                for h_raw, h_norm in zip(headers_raw, headers_norm):
+                    if h_norm.startswith("art_"):
+                        colonne_articoli.append(h_raw)
+                    else:
+                        colonne_tecniche.append(h_raw)
+
+                # Anteprima (prime 5 righe)
+                anteprima = []
+                for row in rows_raw[1:6]:
+                    row_dict = {}
+                    art_dict = {}
+                    for j, h_raw in enumerate(headers_raw):
+                        val = row[j] if j < len(row) else None
+                        h_norm = headers_norm[j] if j < len(headers_norm) else ""
+                        if h_norm.startswith("art_"):
+                            if val is not None:
+                                art_dict[h_raw] = val
+                        else:
+                            row_dict[h_raw] = val
+                    if art_dict:
+                        row_dict["_articoli"] = art_dict
+                    anteprima.append(row_dict)
+
+                # Fasce calcolate (per lookup_range)
+                fasce = None
+                col_chiave_norm = ExcelDataLoader._normalize_key(col_chiave) if col_chiave else ""
+                if tab_info.get("tipo") == "lookup_range" and col_chiave_norm:
+                    idx = None
+                    for k, h in enumerate(headers_norm):
+                        if h == col_chiave_norm:
+                            idx = k
+                            break
+                    if idx is not None:
+                        values = []
+                        for row in rows_raw[1:]:
+                            v = row[idx] if idx < len(row) else None
+                            if v is not None:
+                                try:
+                                    values.append(float(v))
+                                except (ValueError, TypeError):
+                                    pass
+                        values.sort()
+                        if values:
+                            fasce = []
+                            for i, val in enumerate(values):
+                                da = 0 if i == 0 else round((values[i-1] + val) / 2, 4)
+                                a = round((val + values[i+1]) / 2, 4) if i + 1 < len(values) else None
+                                fasce.append({"valore": val, "da": da, "a": a})
+
+                entry = {
+                    "foglio": foglio_nome,
+                    "tipo": tab_info.get("tipo", ""),
+                    "nome_tabella": tab_info.get("nome_tabella", ""),
+                    "colonna_chiave": col_chiave,
+                    "tipo_chiave": tab_info.get("tipo_chiave", ""),
+                    "partizionato_per": tab_info.get("partizionato_per") or None,
+                    "valore_partizione": foglio_info.get("valore_partizione") or None,
+                    "righe": foglio_info.get("righe", 0),
+                    "colonne_tecniche": colonne_tecniche,
+                    "colonne_articoli": colonne_articoli,
+                    "anteprima": anteprima,
+                }
+                if fasce:
+                    entry["fasce_calcolate"] = fasce
+
+                mappa_out.append(entry)
+
+        wb.close()
+
+        return {
+            "success": True,
+            "filename": file.filename,
+            "mappa": mappa_out,
+            "errors": validation.get("errors", []),
+            "warnings": validation.get("warnings", []),
+        }
     finally:
         os.unlink(tmp_path)
 
 
 @app.post("/import-excel/genera")
-async def import_excel_genera(file: UploadFile = File(...)):
+async def import_excel_genera(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
-    Genera: carica un Excel con foglio _MAPPA, genera data tables e regole lookup.
-    Salva i file JSON in ./data/ e ./rules/.
+    Fase 2 Step 2: genera data tables JSON + regole lookup con matching intelligente.
+    
+    Per ogni tabella generata, crea automaticamente una regola di lookup
+    cercando i campi migliori nel configuratore (invece di TODO_SEZIONE).
     """
-    import tempfile
-    import shutil
+    import tempfile, shutil
 
     suffix = os.path.splitext(file.filename)[1] or ".xlsx"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -6113,16 +6372,235 @@ async def import_excel_genera(file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        importer = ExcelImporter()
-        result = importer.genera(tmp_path)
+        # 1. Genera data tables
+        loader = ExcelDataLoader()
+        result = loader.load_excel(tmp_path, overwrite=True)
 
-        # Salva anche l'Excel originale
+        # Salva Excel originale
+        originals_dir = os.path.join("./data", "excel_originals")
+        os.makedirs(originals_dir, exist_ok=True)
+        dest = os.path.join(originals_dir, file.filename)
+        shutil.copy2(tmp_path, dest)
+        result["original_saved"] = dest
+
+        # 2. Per ogni tabella generata, genera regola lookup con matching intelligente
+        rules_generated = []
+        rules_details = []  # dettagli per il frontend
+
         if result.get("success"):
-            originals_dir = os.path.join("./data", "excel_originals")
-            os.makedirs(originals_dir, exist_ok=True)
-            dest = os.path.join(originals_dir, file.filename)
-            shutil.copy2(tmp_path, dest)
-            result["original_saved"] = dest
+            # Carica campi configuratore per matching
+            campi_db = []
+            try:
+                campi_result = db.execute(text(
+                    "SELECT codice, etichetta, sezione, tipo FROM campi_configuratore WHERE attivo=1"
+                ))
+                campi_db = [{"codice": r[0], "etichetta": r[1], "sezione": r[2], "tipo": r[3]}
+                            for r in campi_result.fetchall()]
+            except Exception:
+                pass
+
+            def find_best_match(keyword: str, prefer_tipo: str = None) -> tuple:
+                """Trova il miglior campo candidato. Restituisce (field_ref, score)."""
+                if not keyword or not campi_db:
+                    return ("", 0)
+                kw_lower = keyword.lower().replace(" ", "_").replace(".", "_")
+                kw_parts = [p for p in kw_lower.split("_") if len(p) > 1]
+
+                best_score = 0
+                best_field = ""
+                for campo in campi_db:
+                    codice = (campo["codice"] or "").lower()
+                    etichetta = (campo["etichetta"] or "").lower()
+                    sezione = (campo["sezione"] or "").lower()
+
+                    # Evita raddoppio sezione
+                    if codice.startswith(f"{sezione}."):
+                        full_ref = codice
+                    else:
+                        full_ref = f"{sezione}.{codice}"
+
+                    score = 0
+                    if kw_lower == codice or kw_lower == codice.split(".")[-1]:
+                        score = 100
+                    elif kw_lower in codice:
+                        score = 80
+                    elif all(p in codice for p in kw_parts):
+                        score = 70
+                    elif kw_lower in etichetta:
+                        score = 60
+                    elif any(p in codice for p in kw_parts if len(p) > 2):
+                        score = 40
+                    elif any(p in etichetta for p in kw_parts if len(p) > 2):
+                        score = 30
+
+                    if prefer_tipo and campo["tipo"] == prefer_tipo:
+                        score += 5
+
+                    if score > best_score:
+                        best_score = score
+                        best_field = full_ref
+
+                return (best_field, best_score)
+
+            for nome_tabella in result.get("tables_generated", []):
+                try:
+                    table = loader.load_table(nome_tabella)
+                    if not table:
+                        continue
+
+                    meta = table.get("_meta", {})
+                    tipo = table.get("tipo", "")
+                    parametro_lookup = table.get("parametro_lookup", "")
+                    partizionato_per = table.get("partizionato_per", "")
+                    colonna_chiave_orig = meta.get("colonna_chiave", parametro_lookup)
+
+                    # Matching intelligente
+                    input_field, input_score = find_best_match(parametro_lookup, "numero")
+                    if not input_field and colonna_chiave_orig:
+                        input_field, input_score = find_best_match(colonna_chiave_orig, "numero")
+
+                    partition_field = ""
+                    partition_score = 0
+                    if partizionato_per:
+                        partition_field, partition_score = find_best_match(partizionato_per, "dropdown")
+
+                    # Costruisci regola
+                    rule_id = f"LOOKUP_{nome_tabella.upper()}"
+
+                    conditions = []
+                    if tipo == "lookup_range" and input_field:
+                        conditions.append({
+                            "field": input_field,
+                            "operator": "greater_than",
+                            "value": 0
+                        })
+
+                    action = {
+                        "action": "lookup_table",
+                        "tabella": nome_tabella,
+                        "input_field": input_field or f"TODO.{parametro_lookup}",
+                        "output_prefix": f"_calc.{nome_tabella}.",
+                    }
+                    if partizionato_per:
+                        action["partition_field"] = partition_field or f"TODO.{partizionato_per}"
+
+                    has_todo = "TODO." in action.get("input_field", "") or "TODO." in action.get("partition_field", "")
+
+                    rule = {
+                        "id": rule_id,
+                        "name": f"Lookup {nome_tabella.replace('_', ' ').title()}",
+                        "description": f"Cerca nella tabella {nome_tabella} per {colonna_chiave_orig or parametro_lookup}",
+                        "version": "1.0",
+                        "enabled": True,
+                        "priority": 10,
+                        "conditions": conditions,
+                        "actions": [action],
+                        "materials": [],
+                    }
+
+                    # Salva regola
+                    rules_dir = "./rules"
+                    os.makedirs(rules_dir, exist_ok=True)
+                    rule_path = os.path.join(rules_dir, f"rule_{rule_id}.json")
+                    with open(rule_path, "w", encoding="utf-8") as f:
+                        json.dump(rule, f, indent=2, ensure_ascii=False)
+
+                    rules_generated.append(rule_id)
+                    rules_details.append({
+                        "rule_id": rule_id,
+                        "has_todo": has_todo,
+                        "input_field": action.get("input_field", ""),
+                        "input_score": input_score,
+                        "partition_field": action.get("partition_field", ""),
+                        "partition_score": partition_score,
+                    })
+
+                    # ===== GENERA BOZZA REGOLA MATERIALI =====
+                    # Per ogni colonna ART: nella tabella, crea un materiale
+                    # che usa il placeholder per leggere il codice dal lookup
+                    art_columns = []
+                    if tipo == "lookup_range":
+                        ranges_data = None
+                        if "partizioni" in table:
+                            first_part = list(table["partizioni"].values())[0]
+                            if first_part:
+                                ranges_data = first_part
+                        elif "ranges" in table:
+                            ranges_data = table["ranges"]
+                        if ranges_data and len(ranges_data) > 0:
+                            art_columns = list(ranges_data[0].get("articoli", {}).keys())
+
+                    if art_columns:
+                        mat_rule_id = f"MAT_{nome_tabella.upper()}"
+                        output_prefix = f"_calc.{nome_tabella}."
+
+                        # Genera un materiale per ogni colonna ART
+                        materials_list = []
+                        for art_col in art_columns:
+                            ctx_key = f"{output_prefix}{art_col}"
+                            # Genera descrizione leggibile dal nome colonna
+                            # art_cont_dir → "Contattore diretto"
+                            desc_parts = art_col.replace("art_", "").replace("_", " ").strip()
+                            materials_list.append({
+                                "codice": "{{" + ctx_key + "}}",
+                                "descrizione": f"{desc_parts.title()} ({nome_tabella})",
+                                "quantita": 1,
+                                "categoria": nome_tabella.replace("_", " ").title(),
+                                "unita_misura": "pz",
+                            })
+
+                        mat_rule = {
+                            "id": mat_rule_id,
+                            "name": f"Materiali {nome_tabella.replace('_', ' ').title()}",
+                            "description": f"Aggiunge materiali basati sul lookup {nome_tabella}. BOZZA: verificare condizioni e scenari.",
+                            "version": "1.0",
+                            "enabled": False,  # Disabilitata di default — bozza da confermare
+                            "priority": 50,    # Dopo il lookup (priority 10)
+                            "conditions": [
+                                {
+                                    "field": f"{output_prefix}{art_columns[0]}",
+                                    "operator": "is_not_empty",
+                                    "_hint": "Verifica che il lookup abbia prodotto risultati"
+                                }
+                            ],
+                            "materials": materials_list,
+                            "_hints": {
+                                "nota": "BOZZA AUTOMATICA - Da personalizzare:",
+                                "suggerimenti": [
+                                    "Questa regola è DISABILITATA. Abilitatela dopo averla verificata.",
+                                    "Aggiungete condizioni per lo scenario (es: tipo_avviamento = 'diretto')",
+                                    "Se servono regole separate per scenario, duplicate e filtrate",
+                                    "Verificate che i codici articolo esistano nel sistema"
+                                ],
+                                "output_disponibili": list(
+                                    (ranges_data[0].get("output", {}).keys()) if ranges_data else []
+                                ),
+                                "articoli_disponibili": art_columns,
+                            }
+                        }
+
+                        mat_rule_path = os.path.join(rules_dir, f"rule_{mat_rule_id}.json")
+                        with open(mat_rule_path, "w", encoding="utf-8") as f:
+                            json.dump(mat_rule, f, indent=2, ensure_ascii=False)
+
+                        rules_generated.append(mat_rule_id)
+                        rules_details.append({
+                            "rule_id": mat_rule_id,
+                            "has_todo": False,
+                            "is_draft": True,
+                            "input_field": f"{len(art_columns)} materiali",
+                            "input_score": 0,
+                            "partition_field": "",
+                            "partition_score": 0,
+                        })
+
+                except Exception as e:
+                    result.setdefault("warnings", []).append(
+                        f"Errore generazione regola per '{nome_tabella}': {e}"
+                    )
+
+        result["rules_generated"] = rules_generated
+        result["rules_details"] = rules_details
 
         return result
     finally:
@@ -6174,6 +6652,242 @@ def download_esempio_excel(filename: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=filename
     )
+# ==========================================
+# GENERA BOZZA REGOLA DA DATA TABLE
+# ==========================================
+@app.post("/data-tables/{nome_tabella}/genera-regola")
+def genera_regola_da_tabella(nome_tabella: str, body: dict = None, db: Session = Depends(get_db)):
+    """
+    Genera una bozza di regola lookup a partire da una data table.
+    
+    Fase 3.1 delle istruzioni: il sistema propone la struttura,
+    l'utente conferma/corregge.
+    
+    Analizza la data table, cerca nel configuratore i campi candidati
+    per input_field e partition_field, e restituisce:
+    - la regola bozza JSON
+    - i candidati per ogni parametro (l'utente sceglie)
+    - info sulla struttura della tabella
+    
+    Body opzionale:
+    {
+        "input_field": "argano.potenza_motore_kw",   // se l'utente ha già scelto
+        "partition_field": "tensioni.frequenza_rete", // se l'utente ha già scelto
+        "conditions": [...],                          // condizioni custom
+        "save": true                                  // salva subito la regola
+    }
+    """
+    body = body or {}
+    
+    # 1. Carica data table
+    loader = ExcelDataLoader()
+    table = loader.load_table(nome_tabella)
+    if not table:
+        raise HTTPException(404, f"Data table '{nome_tabella}' non trovata in ./data/")
+    
+    meta = table.get("_meta", {})
+    tipo = table.get("tipo", "")
+    parametro_lookup = table.get("parametro_lookup", "")
+    partizionato_per = table.get("partizionato_per", "")
+    
+    # Colonna chiave originale dall'Excel (più leggibile per matching)
+    colonna_chiave_orig = meta.get("colonna_chiave", parametro_lookup)
+    
+    # 2. Raccogli info sulla struttura output
+    output_columns = []
+    articoli_columns = []
+    if tipo == "lookup_range":
+        # Prendi le colonne dal primo range della prima partizione
+        ranges = None
+        if "partizioni" in table:
+            first_part = list(table["partizioni"].values())[0]
+            if first_part:
+                ranges = first_part
+        elif "ranges" in table:
+            ranges = table["ranges"]
+        
+        if ranges and len(ranges) > 0:
+            output_columns = list(ranges[0].get("output", {}).keys())
+            articoli_columns = list(ranges[0].get("articoli", {}).keys())
+    elif tipo in ("constants", "costanti"):
+        valori = table.get("valori", {})
+        if valori:
+            first_val = list(valori.values())[0]
+            output_columns = list(first_val.keys()) if isinstance(first_val, dict) else []
+    elif tipo in ("catalog", "catalogo"):
+        output_columns = table.get("colonne", [])
+        articoli_columns = table.get("colonne_articoli", [])
+    
+    # 3. Cerca campi candidati nel configuratore
+    campi_db = []
+    try:
+        result = db.execute(text(
+            "SELECT codice, etichetta, sezione, tipo FROM campi_configuratore WHERE attivo=1"
+        ))
+        campi_db = [{"codice": r[0], "etichetta": r[1], "sezione": r[2], "tipo": r[3]} 
+                    for r in result.fetchall()]
+    except Exception as e:
+        print(f"Errore caricamento campi: {e}")
+    
+    # Funzione di matching: cerca keyword nel codice e nell'etichetta
+    def find_candidates(keyword: str, prefer_tipo: str = None) -> list:
+        """Cerca campi che contengono la keyword, ordinati per rilevanza."""
+        if not keyword:
+            return []
+        
+        # Genera varianti della keyword per matching fuzzy
+        kw_lower = keyword.lower().replace(" ", "_").replace(".", "_")
+        kw_parts = [p for p in kw_lower.split("_") if len(p) > 1]
+        
+        candidates = []
+        for campo in campi_db:
+            codice = (campo["codice"] or "").lower()
+            etichetta = (campo["etichetta"] or "").lower()
+            sezione = (campo["sezione"] or "").lower()
+            # Se il codice contiene già la sezione come prefisso, non raddoppiarla
+            if codice.startswith(f"{sezione}."):
+                full_ref = codice
+            else:
+                full_ref = f"{sezione}.{codice}"
+            
+            score = 0
+            
+            # Match esatto sul codice (migliore)
+            if kw_lower == codice:
+                score = 100
+            # Keyword contenuta nel codice
+            elif kw_lower in codice:
+                score = 80
+            # Codice contiene tutte le parti della keyword
+            elif all(p in codice for p in kw_parts):
+                score = 70
+            # Keyword contenuta nell'etichetta
+            elif kw_lower in etichetta:
+                score = 60
+            # Almeno una parte significativa della keyword nel codice
+            elif any(p in codice for p in kw_parts if len(p) > 2):
+                score = 40
+            # Parte nell'etichetta
+            elif any(p in etichetta for p in kw_parts if len(p) > 2):
+                score = 30
+            
+            # Bonus se il tipo campo corrisponde
+            if prefer_tipo and campo["tipo"] == prefer_tipo:
+                score += 5
+            
+            if score > 0:
+                candidates.append({
+                    "field": full_ref,
+                    "codice": campo["codice"],
+                    "etichetta": campo["etichetta"],
+                    "sezione": sezione,
+                    "score": score,
+                })
+        
+        # Ordina per score decrescente
+        candidates.sort(key=lambda c: -c["score"])
+        return candidates[:10]  # max 10 candidati
+    
+    # Cerca candidati per input_field (colonna chiave)
+    # Usa sia il nome normalizzato che quello originale dall'Excel
+    input_candidates = find_candidates(parametro_lookup, prefer_tipo="numero")
+    if colonna_chiave_orig and colonna_chiave_orig.lower() != parametro_lookup:
+        extra = find_candidates(colonna_chiave_orig, prefer_tipo="numero")
+        # Merge senza duplicati
+        seen = {c["field"] for c in input_candidates}
+        for c in extra:
+            if c["field"] not in seen:
+                input_candidates.append(c)
+                seen.add(c["field"])
+    
+    # Cerca candidati per partition_field
+    partition_candidates = find_candidates(partizionato_per, prefer_tipo="dropdown")
+    
+    # 4. Determina i campi scelti (da body o dal miglior candidato)
+    chosen_input = body.get("input_field") or (
+        input_candidates[0]["field"] if input_candidates else f"TODO.{parametro_lookup}"
+    )
+    chosen_partition = body.get("partition_field") or (
+        partition_candidates[0]["field"] if partition_candidates else (
+            f"TODO.{partizionato_per}" if partizionato_per else ""
+        )
+    )
+    
+    # 5. Costruisci la bozza della regola
+    rule_id = f"LOOKUP_{nome_tabella.upper()}"
+    
+    # Conditions di default: input_field deve essere > 0 (per lookup numerici)
+    conditions = body.get("conditions", [])
+    if not conditions and tipo == "lookup_range":
+        conditions = [
+            {
+                "field": chosen_input,
+                "operator": "greater_than",
+                "value": 0
+            }
+        ]
+    
+    # Azione lookup
+    action = {
+        "action": "lookup_table",
+        "tabella": nome_tabella,
+        "input_field": chosen_input,
+        "output_prefix": f"_calc.{nome_tabella}.",
+    }
+    if partizionato_per:
+        action["partition_field"] = chosen_partition
+    
+    rule = {
+        "id": rule_id,
+        "name": f"Lookup {nome_tabella.replace('_', ' ').title()}",
+        "description": f"Cerca nella tabella {nome_tabella} per {colonna_chiave_orig or parametro_lookup}",
+        "version": "1.0",
+        "enabled": True,
+        "priority": 10,
+        "conditions": conditions,
+        "actions": [action],
+        "materials": [],
+    }
+    
+    # 6. Se richiesto, salva la regola
+    saved = False
+    if body.get("save"):
+        rules_dir = "./rules"
+        os.makedirs(rules_dir, exist_ok=True)
+        filepath = os.path.join(rules_dir, f"rule_{rule_id}.json")
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(rule, f, indent=2, ensure_ascii=False)
+        saved = True
+    
+    # 7. Risposta con bozza + candidati + info struttura
+    has_todo = "TODO." in chosen_input or "TODO." in chosen_partition
+    
+    return {
+        "rule": rule,
+        "saved": saved,
+        "has_todo": has_todo,
+        "table_info": {
+            "nome": nome_tabella,
+            "tipo": tipo,
+            "parametro_lookup": parametro_lookup,
+            "colonna_chiave_originale": colonna_chiave_orig,
+            "partizionato_per": partizionato_per,
+            "valori_partizione": meta.get("valori_partizione", []),
+            "output_columns": output_columns,
+            "articoli_columns": articoli_columns,
+            "righe_totali": meta.get("righe_totali", 0),
+        },
+        "matching": {
+            "input_field": {
+                "chosen": chosen_input,
+                "candidates": input_candidates,
+            },
+            "partition_field": {
+                "chosen": chosen_partition,
+                "candidates": partition_candidates,
+            } if partizionato_per else None,
+        },
+    }
 
 if __name__ == "__main__":
     import uvicorn

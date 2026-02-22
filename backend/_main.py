@@ -2156,7 +2156,21 @@ def create_regola(data: dict):
 def update_regola(rule_id: str, data: dict):
     """Aggiorna una regola JSON esistente"""
     os.makedirs(RULES_DIR, exist_ok=True)
+    
+    # Cerca il file: prima match diretto, poi per ID interno
     filepath = os.path.join(RULES_DIR, f"{rule_id}.json")
+    if not os.path.exists(filepath):
+        for filename in os.listdir(RULES_DIR):
+            if filename.endswith(".json"):
+                fpath = os.path.join(RULES_DIR, filename)
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        rule = json.load(f)
+                    if rule.get("id") == rule_id:
+                        filepath = fpath
+                        break
+                except Exception:
+                    continue
     
     data["id"] = rule_id  # Forza ID consistente
     data.setdefault("enabled", True)
@@ -2171,12 +2185,41 @@ def update_regola(rule_id: str, data: dict):
 
 @app.delete("/regole/{rule_id}")
 def delete_regola(rule_id: str):
-    """Elimina una regola JSON"""
+    """Elimina una regola JSON cercando per ID interno"""
+    print(f">>> DELETE chiamato per rule_id={rule_id}")
     filepath = os.path.join(RULES_DIR, f"{rule_id}.json")
-    if not os.path.exists(filepath):
-        raise HTTPException(status_code=404, detail=f"Regola {rule_id} non trovata")
-    os.remove(filepath)
-    return {"status": "deleted", "id": rule_id}
+    if os.path.exists(filepath):
+        os.remove(filepath)
+        return {"status": "deleted", "id": rule_id}
+    if os.path.exists(RULES_DIR):
+        for filename in os.listdir(RULES_DIR):
+            if filename.endswith(".json"):
+                fpath = os.path.join(RULES_DIR, filename)
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        rule = json.load(f)
+                    if rule.get("id") == rule_id:
+                        os.remove(fpath)
+                        return {"status": "deleted", "id": rule_id, "file": filename}
+                except Exception:
+                    continue
+    raise HTTPException(status_code=404, detail=f"Regola {rule_id} non trovata")
+    
+    # Altrimenti cerca in tutti i file JSON per campo "id"
+    if os.path.exists(RULES_DIR):
+        for filename in os.listdir(RULES_DIR):
+            if filename.endswith(".json"):
+                fpath = os.path.join(RULES_DIR, filename)
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        rule = json.load(f)
+                    if rule.get("id") == rule_id:
+                        os.remove(fpath)
+                        return {"status": "deleted", "id": rule_id, "file": filename}
+                except Exception:
+                    continue
+    
+    raise HTTPException(status_code=404, detail=f"Regola {rule_id} non trovata")
 
 @app.get("/regole-campi-disponibili")
 def get_campi_disponibili(db: Session = Depends(get_db)):

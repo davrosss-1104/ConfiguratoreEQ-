@@ -36,7 +36,7 @@ export default function LoginPage() {
       localStorage.setItem('user', JSON.stringify(data.user));
       
       // Redirect
-      navigate('/preventivi');
+      navigate('/');
     } catch (err: any) {
       setError(err.message || 'Errore durante il login');
     } finally {
@@ -56,7 +56,7 @@ export default function LoginPage() {
       ruolo_codice: 'superadmin',
       permessi: [],  // vuoto = nessun filtro (retrocompatibilità)
     }));
-    navigate('/preventivi');
+    navigate('/');
   };
 
   return (

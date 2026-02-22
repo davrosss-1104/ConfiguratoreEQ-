@@ -4,6 +4,7 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { getAuthHeaders } from '@/hooks/useAuth';
 import {
   Search, Filter, X, FileText, Building, Calendar,
   ChevronRight, SlidersHorizontal
@@ -104,7 +105,9 @@ export default function RicercaPreventiviPage() {
     queryKey: ['search-preventivi', debouncedSearch, status, categoria, dataDa, dataA],
     queryFn: async () => {
       const params = buildParams();
-      const res = await fetch(`${API}/preventivi/search?${params}`);
+      const res = await fetch(`${API}/preventivi/search?${params}`, {
+        headers: getAuthHeaders(),
+      });
       if (!res.ok) return [];
       return res.json();
     },

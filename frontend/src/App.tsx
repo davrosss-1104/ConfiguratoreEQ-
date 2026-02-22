@@ -6,6 +6,7 @@ import { AdminTemplatesPage } from './pages/AdminTemplatesPage';
 import { Toaster } from '@/components/ui/Toaster';
 import { RicambiPage } from './pages/RicambiPage';
 import RicercaPreventiviPage from './pages/RicercaPreventiviPage';
+import LoginPage from './pages/LoginPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -22,6 +23,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
+          <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<HomePage />} />
           <Route path="/preventivo/:id" element={<PreventivoPage />} />
           <Route path="/ricerca" element={<RicercaPreventiviPage />} />

@@ -376,11 +376,18 @@ export const PreventivoPage = () => {
                 )}
               </div>
 
-              {/* Destra: Export */}
-              <ExportButtons 
+              {/* Destra: Utente + Export */}
+              <div className="flex items-center gap-3">
+                {currentUser?.nome || currentUser?.username ? (
+                  <span className="text-xs text-gray-400 border-r pr-3 border-gray-200">
+                    {currentUser.nome || currentUser.username}
+                  </span>
+                ) : null}
+                <ExportButtons 
                 preventivoId={preventivoId}
                 numeroPreventivo={(preventivo as any)?.numero_preventivo}
               />
+              </div>
             </div>
 
             {/* Barra progresso compatta */}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -44,6 +44,13 @@ export function DatiCommessaForm() {
   const serverSnapshotRef = useRef<string>('');  // JSON dei valori dal server
   const [clienteId, setClienteId] = useState<number | null>(null);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
+
+  // Utente loggato: se è un cliente, auto-imposta e blocca il campo
+  const currentUser = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem('user') || '{}'); }
+    catch { return {}; }
+  }, []);
+  const isUserCliente = !!currentUser.cliente_id;
 
   const { data: preventivo } = useQuery({
     queryKey: ["preventivo", preventivoId],
@@ -126,7 +133,16 @@ export function DatiCommessaForm() {
 
     form.reset(formData);
 
-    if (preventivo?.cliente_id) setClienteId(preventivo.cliente_id);
+    if (preventivo?.cliente_id) {
+      setClienteId(preventivo.cliente_id);
+    } else if (currentUser.cliente_id && !clienteId) {
+      setClienteId(currentUser.cliente_id);
+      fetch(`${API_BASE}/preventivi/${preventivoId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cliente_id: currentUser.cliente_id }),
+      }).catch(console.error);
+    }
   }, [datiCommessa]);
 
   // Auto-save: confronta valori attuali con snapshot server
@@ -207,6 +223,7 @@ export function DatiCommessaForm() {
               <label className={labelClass}>Cliente</label>
               <ClienteSelector
                 value={clienteId}
+                disabled={isUserCliente}
                 onChange={(id: number | null, cliente?: any) => {
                   setClienteId(id);
                   if (cliente) {

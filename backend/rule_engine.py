@@ -605,7 +605,7 @@ class RuleEngine:
 
         if tipo == "lookup_range":
             self._lookup_range(table, input_value, partition_field, output_prefix, context)
-        elif tipo in ("lookup_mapping", "constants"):
+        elif tipo in ("lookup_mapping", "constants", "costanti"):
             self._lookup_mapping(table, input_value, output_prefix, context)
         else:
             self.warnings.append(f"lookup_table: tipo tabella '{tipo}' non supportato")
@@ -654,6 +654,9 @@ class RuleEngine:
             a = r.get("a")
             if val >= float(da) and (a is None or val < float(a)):
                 for k, v in r.get("output", {}).items():
+                    context[f"{output_prefix}{k}"] = v
+                # Anche i codici articolo (colonne ART: dall'Excel)
+                for k, v in r.get("articoli", {}).items():
                     context[f"{output_prefix}{k}"] = v
                 return
 
@@ -762,7 +765,7 @@ class RuleEngine:
             self.warnings.append(f"catalog_match: tabella '{tabella_nome}' non trovata")
             return
 
-        if table.get("tipo") != "catalog":
+        if table.get("tipo") not in ("catalog", "catalogo"):
             self.warnings.append(f"catalog_match: tabella '{tabella_nome}' non è tipo 'catalog'")
             return
 
@@ -953,22 +956,12 @@ class RuleEngine:
                 descrizione=descrizione,
                 categoria=material_data.get("categoria", "Materiale Automatico"),
                 quantita=quantita,
-                unita_misura=material_data.get("unita_misura",
-                             material_data.get("unita", "pz")),
                 prezzo_unitario=prezzo_unitario,
                 prezzo_totale=quantita * prezzo_unitario,
                 aggiunto_da_regola=True,
                 regola_id=rule_id,
-                lato=material_data.get("lato"),
                 note=material_data.get("note"),
-                ordine=material_data.get("ordine", 0),
             )
-
-            if parametri:
-                for i, (nome, valore) in enumerate(parametri.items(), 1):
-                    if i <= 5:
-                        setattr(materiale, f"parametro{i}_nome", nome)
-                        setattr(materiale, f"parametro{i}_valore", str(valore))
 
             self.db.add(materiale)
             return True

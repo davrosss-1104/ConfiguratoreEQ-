@@ -93,6 +93,7 @@ class Utente(Base):
     email = Column(String(255), nullable=True)
     gruppo_id = Column(Integer, ForeignKey("gruppi_utenti.id"), nullable=True)
     ruolo_id = Column(Integer, ForeignKey("ruoli.id", ondelete="SET NULL"), nullable=True)
+    cliente_id = Column(Integer, ForeignKey("clienti.id", ondelete="SET NULL"), nullable=True)
     is_admin = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -100,6 +101,7 @@ class Utente(Base):
 
     gruppo = relationship("GruppoUtenti", back_populates="utenti")
     ruolo = relationship("Ruolo", back_populates="utenti")
+    cliente = relationship("Cliente", backref="utenti")
 
 
 # ==========================================
