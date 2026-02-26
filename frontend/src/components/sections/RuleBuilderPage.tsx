@@ -35,6 +35,7 @@ const ACTION_TYPES = [
   { value: 'add_material', label: 'Aggiungi Materiale', icon: Package, color: 'green' },
   { value: 'set_field', label: 'Imposta Variabile', icon: Calculator, color: 'blue' },
   { value: 'lookup_table', label: 'Lookup Tabella', icon: Database, color: 'purple' },
+  { value: 'lookup_multi', label: 'Lookup Multi-chiave', icon: Database, color: 'violet' },
   { value: 'accumulate_from_lookup', label: 'Accumula da Lookup', icon: ArrowUpDown, color: 'amber' },
   { value: 'catalog_match', label: 'Match Catalogo', icon: Search, color: 'rose' },
 ];
@@ -56,6 +57,7 @@ const EMPTY_ACTIONS: Record<string, RuleAction> = {
   lookup_table: { action: 'lookup_table', tabella: '', input_field: '', partition_field: '', output_prefix: '_calc.' },
   accumulate_from_lookup: { action: 'accumulate_from_lookup', tabella: '', campi_da_verificare: [], accumula_campo: '', raggruppa_per: '', output_prefix: '_calc.', output_suffix: '', output_totale: '_calc.totale' },
   catalog_match: { action: 'catalog_match', tabella: '', criteri_dinamici: { pattern: '', sorgente_prefix: '_calc.', sorgente_suffix: '', operatore: '>=', solo_se_maggiore_di: 0 }, criteri_fissi: [], ordinamento: { colonna: '', direzione: 'ASC' }, output: {} },
+  lookup_multi: { action: 'lookup_multi', tabella: '', input_fields: [], output_prefix: '_calc.' },
 };
 
 const inputCls = "w-full border border-gray-300 rounded px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400";
@@ -174,6 +176,57 @@ function ActionEditorLookupTable({ action, onChange }: { action: RuleAction; onC
       <div><label className="text-[10px] text-gray-500">Campo input (da context)</label><input value={action.input_field || ''} onChange={e => onChange({ ...action, input_field: e.target.value })} className={inputSmCls} placeholder="argano.potenza_motore_kw" /></div>
       <div><label className="text-[10px] text-gray-500">Campo partizione (opz.)</label><input value={action.partition_field || ''} onChange={e => onChange({ ...action, partition_field: e.target.value })} className={inputSmCls} placeholder="_calc.partizione" /></div>
       <div><label className="text-[10px] text-gray-500">Prefisso output</label><input value={action.output_prefix || '_calc.'} onChange={e => onChange({ ...action, output_prefix: e.target.value })} className={inputSmCls} /></div>
+    </div>
+  );
+}
+
+function ActionEditorLookupMulti({ action, onChange }: { action: RuleAction; onChange: (a: RuleAction) => void }) {
+  const inputFields = (action.input_fields || []) as any[];
+  const updateField = (idx: number, patch: any) => {
+    const next = [...inputFields]; next[idx] = { ...next[idx], ...patch };
+    onChange({ ...action, input_fields: next });
+  };
+  const addField = () => onChange({ ...action, input_fields: [...inputFields, { colonna_tabella: '', match: 'exact', type: 'single', field: '' }] });
+  const removeField = (idx: number) => onChange({ ...action, input_fields: inputFields.filter((_, i) => i !== idx) });
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2">
+        <div><label className="text-[10px] text-gray-500">Tabella (nome JSON in data/)</label><input value={action.tabella || ''} onChange={e => onChange({ ...action, tabella: e.target.value })} className={inputSmCls} placeholder="contattori_oleo" /></div>
+        <div><label className="text-[10px] text-gray-500">Prefisso output</label><input value={action.output_prefix || '_calc.'} onChange={e => onChange({ ...action, output_prefix: e.target.value })} className={inputSmCls} /></div>
+      </div>
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold text-gray-600">Chiavi di input ({inputFields.length})</span>
+          <button onClick={addField} className="text-[10px] px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded hover:bg-violet-200">+ Chiave</button>
+        </div>
+        {inputFields.map((inp, idx) => (
+          <div key={idx} className="grid grid-cols-12 gap-1 items-end bg-gray-50 rounded p-1.5">
+            <div className="col-span-2"><label className="text-[9px] text-gray-400">Col. tabella</label>
+              <input value={inp.colonna_tabella || ''} onChange={e => updateField(idx, { colonna_tabella: e.target.value })} className={inputSmCls} placeholder="kw" /></div>
+            <div className="col-span-2"><label className="text-[9px] text-gray-400">Match</label>
+              <select value={inp.match || 'exact'} onChange={e => updateField(idx, { match: e.target.value })} className={inputSmCls}>
+                <option value="exact">= esatto</option><option value="lte">≤ prima ≥</option></select></div>
+            <div className="col-span-2"><label className="text-[9px] text-gray-400">Tipo</label>
+              <select value={inp.type || 'single'} onChange={e => updateField(idx, { type: e.target.value })} className={inputSmCls}>
+                <option value="single">Singolo</option><option value="composite">Composto</option></select></div>
+            {inp.type === 'composite' ? (
+              <>
+                <div className="col-span-4"><label className="text-[9px] text-gray-400">Campi (virgola)</label>
+                  <input value={(inp.fields || []).join(', ')} onChange={e => updateField(idx, { fields: e.target.value.split(',').map((s: string) => s.trim()) })} className={inputSmCls} placeholder="argano.tipo_avv, tensioni.freq" /></div>
+                <div className="col-span-1"><label className="text-[9px] text-gray-400">Sep</label>
+                  <input value={inp.separator || '_'} onChange={e => updateField(idx, { separator: e.target.value })} className={inputSmCls} /></div>
+              </>
+            ) : (
+              <div className="col-span-5"><label className="text-[9px] text-gray-400">Campo configuratore</label>
+                <input value={inp.field || ''} onChange={e => updateField(idx, { field: e.target.value })} className={inputSmCls} placeholder="argano.potenza_motore_kw" /></div>
+            )}
+            <div className="col-span-1 flex justify-end">
+              <button onClick={() => removeField(idx)} className="p-0.5 text-red-400 hover:text-red-600"><X className="w-3 h-3" /></button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -320,13 +373,14 @@ function ActionCard({ action, index, total, onChange, onRemove, onMove }: {
   const [expanded, setExpanded] = useState(true);
   const typeDef = ACTION_TYPES.find(t => t.value === action.action);
   const Icon = typeDef?.icon || Zap;
-  const colorMap: Record<string, string> = { green: 'border-green-200 bg-green-50/40', blue: 'border-blue-200 bg-blue-50/40', purple: 'border-purple-200 bg-purple-50/40', amber: 'border-amber-200 bg-amber-50/40', rose: 'border-rose-200 bg-rose-50/40' };
-  const hdrMap: Record<string, string> = { green: 'text-green-700', blue: 'text-blue-700', purple: 'text-purple-700', amber: 'text-amber-700', rose: 'text-rose-700' };
+  const colorMap: Record<string, string> = { green: 'border-green-200 bg-green-50/40', blue: 'border-blue-200 bg-blue-50/40', purple: 'border-purple-200 bg-purple-50/40', violet: 'border-violet-200 bg-violet-50/40', amber: 'border-amber-200 bg-amber-50/40', rose: 'border-rose-200 bg-rose-50/40' };
+  const hdrMap: Record<string, string> = { green: 'text-green-700', blue: 'text-blue-700', purple: 'text-purple-700', violet: 'text-violet-700', amber: 'text-amber-700', rose: 'text-rose-700' };
 
   const summary = !expanded ? (
     action.action === 'add_material' ? action.material?.codice :
     action.action === 'set_field' ? action.field :
     action.action === 'lookup_table' ? action.tabella :
+    action.action === 'lookup_multi' ? `${action.tabella} (${(action.input_fields || []).length} chiavi)` :
     action.action === 'accumulate_from_lookup' ? action.tabella :
     action.action === 'catalog_match' ? action.tabella : ''
   ) : '';
@@ -354,6 +408,7 @@ function ActionCard({ action, index, total, onChange, onRemove, onMove }: {
             <input value={action.skip_if || ''} onChange={e => onChange({ ...action, skip_if: e.target.value || undefined })} className={inputSmCls} placeholder="_calc.va_totali <= 0  |  campo is_empty" /></div>
           {action.action === 'set_field' && <ActionEditorSetField action={action} onChange={onChange} />}
           {action.action === 'lookup_table' && <ActionEditorLookupTable action={action} onChange={onChange} />}
+          {action.action === 'lookup_multi' && <ActionEditorLookupMulti action={action} onChange={onChange} />}
           {action.action === 'accumulate_from_lookup' && <ActionEditorAccumulate action={action} onChange={onChange} />}
           {action.action === 'catalog_match' && <ActionEditorCatalogMatch action={action} onChange={onChange} />}
           {action.action === 'add_material' && <ActionEditorAddMaterial action={action} onChange={onChange} />}
@@ -373,13 +428,15 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
   const [editRule, setEditRule] = useState<Rule | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState<'priority' | 'name' | 'date'>('priority');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['conditions', 'actions']));
   const [showAddAction, setShowAddAction] = useState(false);
   const addActionRef = useRef<HTMLDivElement>(null);
 
   const { data: rules = [], isLoading } = useQuery<Rule[]>({
-    queryKey: ['regole'],
-    queryFn: async () => { const r = await fetch(`${API}/regole`); return r.ok ? r.json() : []; },
+    queryKey: ['regole', sortBy, sortOrder],
+    queryFn: async () => { const r = await fetch(`${API}/regole?sort=${sortBy}&order=${sortOrder}`); return r.ok ? r.json() : []; },
   });
 
   const { data: campiDisponibili = [] } = useQuery<{ field: string; source: string; label: string }[]>({
@@ -516,9 +573,15 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
     const nAct = rule.actions?.length || 0;
     const nMat = (rule.materials?.length || 0) + (rule.actions || []).filter(a => a.action === 'add_material').length;
     const hasAdvanced = (rule.actions || []).some(a => a.action !== 'add_material');
+    const isFromImport = rule._source === 'excel_import' || rule._source === 'excel_import_v3';
+    const hasTodo = JSON.stringify(rule).includes('TODO.');
+    const isDraft = isFromImport && !rule.enabled;
     return (
-      <div key={rule.id} onClick={() => selectRule(rule)}
-        className={`px-3 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors ${selectedId === rule.id ? 'bg-indigo-50 border-l-2 border-indigo-600' : ''}`}>
+      <div onClick={() => selectRule(rule)}
+        className={`px-3 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors ${
+          selectedId === rule.id ? 'bg-indigo-50 border-l-2 border-indigo-600' :
+          isFromImport ? 'border-l-2 border-teal-400' : ''
+        }`}>
         <div className="flex items-center justify-between">
           <span className="font-medium text-sm text-gray-900 truncate flex-1">{rule.name || rule.id}</span>
           <div className="flex items-center gap-1 ml-2">
@@ -529,11 +592,26 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
           </div>
         </div>
         <p className="text-xs text-gray-500 truncate mt-0.5">{rule.description || rule.id}</p>
-        <div className="flex gap-1 mt-1">
+        <div className="flex flex-wrap gap-1 mt-1">
+          {isFromImport && (
+            <span className="text-[10px] px-1.5 py-0.5 bg-teal-50 text-teal-700 rounded font-semibold" title={`Da ${rule._source_file || 'Excel'} — ${rule._imported_at || ''}`}>
+              📥 da Excel
+            </span>
+          )}
+          {hasTodo && (
+            <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded font-semibold">
+              ⚠ TODO
+            </span>
+          )}
+          {isDraft && (
+            <span className="text-[10px] px-1.5 py-0.5 bg-orange-50 text-orange-700 rounded font-semibold">
+              📝 bozza
+            </span>
+          )}
           <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded">{nCond} cond</span>
           {nAct > 0 && <span className="text-[10px] px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded">{nAct} azioni</span>}
           {nMat > 0 && <span className="text-[10px] px-1.5 py-0.5 bg-green-50 text-green-700 rounded">{nMat} mat</span>}
-          {hasAdvanced && <span className="text-[10px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded">avanzata</span>}
+          {hasAdvanced && !isFromImport && <span className="text-[10px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded">avanzata</span>}
         </div>
       </div>
     );
@@ -550,6 +628,19 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
           </div>
           <div className="relative"><Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-gray-400" />
             <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Cerca regole..." className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-400" /></div>
+          <div className="flex items-center gap-1.5">
+            <ArrowUpDown className="w-3 h-3 text-gray-400 flex-shrink-0" />
+            {(['priority', 'name', 'date'] as const).map(s => (
+              <button key={s} onClick={() => {
+                if (sortBy === s) setSortOrder(o => o === 'asc' ? 'desc' : 'asc');
+                else { setSortBy(s); setSortOrder(s === 'date' ? 'desc' : 'asc'); }
+              }} className={`px-1.5 py-0.5 text-[10px] rounded border transition-colors ${
+                sortBy === s ? 'bg-indigo-100 border-indigo-300 text-indigo-700 font-bold' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+              }`}>{s === 'priority' ? 'Priorità' : s === 'name' ? 'A→Z' : 'Data'}
+                {sortBy === s && <span className="ml-0.5">{sortOrder === 'asc' ? '↑' : '↓'}</span>}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {isLoading && <div className="p-4 text-center text-gray-500"><Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />Caricamento...</div>}
@@ -572,7 +663,9 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
                 )}
                 {!isCollapsed && (
                   <div className="divide-y">
-                    {groupRules.map(rule => renderRuleItem(rule))}
+                    {groupRules.map((rule, idx) => (
+                      <div key={`${rule.id}_${idx}`}>{renderRuleItem(rule)}</div>
+                    ))}
                   </div>
                 )}
               </div>

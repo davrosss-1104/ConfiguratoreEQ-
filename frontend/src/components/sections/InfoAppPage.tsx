@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   Info, History, BookOpen, FileSpreadsheet, ChevronDown, ChevronRight,
   ExternalLink, Package, Cpu, Database, Layout, Zap, Shield, Mail,
-  CheckCircle2, Clock, Tag, Download
+  CheckCircle2, Clock, Tag, Download, GitBranch
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000';
@@ -13,15 +13,15 @@ const API_BASE = 'http://localhost:8000';
 
 const APP_INFO = {
   nome: 'Configuratore Elettroquadri',
-  versione: '2.1.0',
-  build: '2026-02-22',
+  versione: '2.3.0',
+  build: '2026-02-24',
   descrizione: 'Sistema di configurazione e preventivazione per quadri elettrici ascensori, piattaforme e scale mobili.',
   sviluppatore: 'B-CONN SRLS',
   cliente: 'Elettroquadri S.r.l.',
   stack: [
     { nome: 'Backend', tech: 'FastAPI + SQLAlchemy + SQLite/SQL Server', icon: Database },
     { nome: 'Frontend', tech: 'React 18 + TypeScript + Vite + shadcn/ui', icon: Layout },
-    { nome: 'Rule Engine', tech: 'JSON rules + lookup tables + catalog match', icon: Zap },
+    { nome: 'Rule Engine', tech: 'JSON rules + lookup tables + pipeline + catalog match', icon: Zap },
     { nome: 'Documenti', tech: 'python-docx → Word/PDF', icon: FileSpreadsheet },
   ],
 };
@@ -36,14 +36,41 @@ interface Revisione {
 
 const STORICO_REVISIONI: Revisione[] = [
   {
-    versione: '2.1.0', data: '2026-02-22', tipo: 'minor',
-    titolo: 'Import Excel con _MAPPA',
+    versione: '2.3.0', data: '2026-02-24', tipo: 'minor',
+    titolo: 'Pipeline Builder e selezione trasformatori',
     dettagli: [
-      'Nuovo modulo import Excel generico con foglio _MAPPA',
+      'Pipeline Builder: editor visuale per calcoli multi-step (lookup_each, group_sum, multi_match)',
+      'Selezione automatica trasformatore basata su aggregazione potenze per tensione di uscita',
+      'Supporto righe multiple per componente (es. utilizzatori con 3 uscite a tensioni diverse)',
+      'Endpoint generico "Crea campi da tabella" — genera checkbox nel configuratore da qualsiasi data table',
+      'Raggruppamento automatico componenti con note aggregate per uscite multiple',
+      'Import Excel con foglio _MAPPA per pipeline (tipo "catalogo" per tabelle con righe ripetute)',
+      'Simulazione pipeline con preview step-by-step dei risultati intermedi',
+    ]
+  },
+  {
+    versione: '2.2.0', data: '2026-02-24', tipo: 'minor',
+    titolo: 'Wizard Import Excel e Rule Engine v5',
+    dettagli: [
+      'Nuovo wizard import Excel a 4 step — non serve più il foglio _MAPPA',
+      'Selezione interattiva di foglio, colonne chiave e colonne output',
+      'Mapping automatico colonne → campi configuratore con punteggio',
+      'Associazione valori → articoli con ricerca nel catalogo',
+      'Supporto lookup_multi con match composito (lte + exact)',
+      'Value mappings: materiali automatici da valori lookup',
+      'Fallback ceiling: se valore sotto il minimo, prende la riga successiva',
+      'Rule engine interamente SQL diretto (nessun mismatch ORM)',
+      'Normalizzazione booleana nelle condizioni (1/true/sì/vero)',
+    ]
+  },
+  {
+    versione: '2.1.0', data: '2026-02-22', tipo: 'minor',
+    titolo: 'Import Excel con _MAPPA (deprecato per lookup semplici)',
+    dettagli: [
+      'Primo modulo import Excel con foglio _MAPPA (sostituito dal wizard v2.2 per lookup semplici)',
       'Supporto tipi tabella: lookup_range, catalogo, costanti',
-      'Colonne ART: per codici articolo direttamente dall\'Excel',
-      'Wizard upload con preview, verifica e generazione da interfaccia',
       'Pagina Informazioni App con storico revisioni e documentazione',
+      'Rimane necessario per import pipeline (cataloghi multi-riga)',
     ]
   },
   {
@@ -62,7 +89,7 @@ const STORICO_REVISIONI: Revisione[] = [
     versione: '1.8.0', data: '2026-02-01', tipo: 'minor',
     titolo: 'Rule Engine v4 e data tables',
     dettagli: [
-      'Action types: lookup_table, catalog_match, accumulate_from_lookup, set_field',
+      'Action types: lookup_table, lookup_multi, catalog_match, set_field',
       'Esecuzione sequenziale azioni dentro una singola regola',
       'Data tables da file JSON in ./data/',
       'Variabili _calc.* per calcoli intermedi',
@@ -105,272 +132,473 @@ interface Documento {
 
 const DOCUMENTI: Documento[] = [
   {
+    id: 'rule-engine',
+    titolo: 'Come funziona il Rule Engine',
+    descrizione: 'Il motore che aggiunge automaticamente i materiali al preventivo in base alla configurazione',
+    icon: Zap,
+    contenuto: `## Cosa fa
+
+Ogni volta che salvate il preventivo, il Rule Engine valuta tutte le regole attive e aggiunge automaticamente i materiali giusti. Se cambiate un campo (es. potenza motore, tipo avviamento), i materiali si aggiornano da soli.
+
+Ogni regola ha 3 parti:
+- **Condizioni** — Quando attivarsi (es. trazione = oleodinamica)
+- **Azioni** — Cosa fare quando le condizioni sono tutte vere (cercare in tabella, aggiungere materiale, ecc.)
+- **Priorità** — L'ordine di esecuzione
+
+---
+
+## Il ciclo di valutazione
+
+Ad ogni salvataggio il sistema:
+1. **Cancella** tutti i materiali automatici dal preventivo
+2. **Legge tutti i campi** compilati nel preventivo
+3. **Fase 1 — Ricerche** → cerca nelle tabelle dati e arricchisce il contesto con risultati intermedi
+4. **Fase 1.5 — Pipeline** → esegue i calcoli multi-step (per casi complessi come la selezione del trasformatore)
+5. **Fase 2 — Materiali** → valuta le condizioni e aggiunge i materiali al preventivo
+6. **Associazione articoli** — per ogni valore trovato nelle ricerche, aggiunge gli articoli collegati
+
+I materiali vengono ricreati da zero ad ogni ciclo, garantendo coerenza con la configurazione attuale.
+
+---
+
+## Tipi di azione
+
+| Tipo | Cosa fa |
+|------|---------|
+| **Imposta valore** (set_field) | Scrive un risultato intermedio nel contesto di calcolo |
+| **Ricerca tabella** (lookup_table) | Cerca per fascia numerica (es. kW → contattore) |
+| **Ricerca avanzata** (lookup_multi) | Cerca per più criteri insieme (es. kW + frequenza + tipo avviamento) |
+| **Ricerca a catalogo** (catalog_match) | Cerca il prodotto giusto confrontando più caratteristiche |
+| **Aggiungi materiale** (add_material) | Inserisce un materiale nella distinta del preventivo |
+
+### Ricerca avanzata — il tipo più comune
+
+Gestisce il caso tipico: cercare in una tabella per kW (fascia numerica) + tipo avviamento/frequenza (corrispondenza esatta). Supporta:
+- **Chiavi combinate**: usa più campi del configuratore per cercare
+- **Partizioni**: sotto-tabelle per frequenza, tensione, ecc.
+- **Associazione articoli**: collegamento automatico valore trovato → articoli da inserire
+
+---
+
+## Risultati intermedi (_calc.*)
+
+Sono variabili temporanee calcolate durante la valutazione. Non vengono salvate nel database — esistono solo durante il ciclo. Servono come "ponte" tra le ricerche e i materiali.
+
+Esempio: una ricerca scrive \`_calc.contattori_oleo.dir_cont\` = "D18". Una regola materiale usa questo valore per aggiungere il contattore giusto.
+
+## Associazione valori → articoli
+
+Collegano i valori trovati dalle ricerche direttamente agli articoli. Quando una ricerca trova (ad esempio) "D18" come taglia contattore:
+- Il sistema cerca "D18" tra le associazioni configurate nella regola
+- Se trova un collegamento, aggiunge automaticamente gli articoli associati (es. contattore KM + contattore KS)
+- Potete collegare più articoli allo stesso valore
+
+Le associazioni vengono configurate nel wizard Import Excel (Step 3) o manualmente nel JSON della regola.
+
+## Valori dinamici nei materiali
+
+Nei materiali potete usare \`{{campo}}\` per inserire valori calcolati:
+- \`{{_calc.contattori_oleo.dir_cont}}\` → "D18"
+- Il codice \`CONT-{{_calc.cont_dir}}-KM\` diventa "CONT-D18-KM"
+
+---
+
+## Condizioni
+
+### Operatori disponibili
+
+| Operatore | Significato | Esempio |
+|-----------|------------|---------|
+| **equals** | Uguale (case-insensitive) | tipo_trazione equals "oleodinamica" |
+| **not_equals** | Diverso | tipo_avviamento not_equals "" |
+| **contains** | Contiene sottostringa | descrizione contains "fune" |
+| **greater_than** | Maggiore di | potenza_kw greater_than 0 |
+| **less_than** | Minore di | num_fermate less_than 10 |
+| **in** | Contenuto nella lista | tipo in ["diretto", "stella_triangolo"] |
+| **exists** | Campo presente e non vuoto | potenza_motore_kw exists |
+
+### Normalizzazione booleana
+I confronti booleani gestiscono automaticamente le varianti: \`true\`/\`1\`/\`sì\`/\`vero\`/\`on\` sono tutti equivalenti, così come \`false\`/\`0\`/\`no\`/\`falso\`/\`off\`.
+
+### Comportamento "ceiling"
+Se il valore cercato è sotto il minimo della tabella (es. kW 2.0 ma la tabella parte da 4.4), il sistema prende la **prima riga disponibile** — cioè la taglia più piccola.
+
+---
+
+## Ordine di esecuzione
+
+Le regole si dividono in 3 fasi:
+1. **Fase 1 — Ricerche** (lookup_table, lookup_multi, catalog_match)
+2. **Fase 1.5 — Pipeline** (calcoli multi-step)
+3. **Fase 2 — Materiali** (add_material)
+
+All'interno di ogni fase, la priorità determina l'ordine.`
+  },
+  {
     id: 'import-excel',
-    titolo: 'Dall\'Excel alle Regole — Guida operativa',
-    descrizione: 'Come preparare un file Excel con foglio _MAPPA per generare tabelle lookup e regole JSON',
+    titolo: 'Dall\'Excel alle Regole — Wizard import',
+    descrizione: 'Come trasformare le vostre tabelle tecniche Excel in regole automatiche, passo dopo passo',
     icon: FileSpreadsheet,
     allegati: [
       {
         nome: 'Esempio Contattori Oleodinamici',
         filename: 'esempio_contattori_oleo.xlsx',
-        descrizione: 'lookup_range con partizioni 50Hz/60Hz, colonne ART:, 13 righe per partizione'
+        descrizione: 'Tabella per fasce kW con partizioni 50Hz/60Hz, colonne ART: per codici articolo'
       },
       {
-        nome: 'Esempio Trasformatori e Ponti',
+        nome: 'Esempio Trasformatori e Ponti (con _MAPPA)',
         filename: 'esempio_trasformatori.xlsx',
-        descrizione: 'catalogo trasformatori + costanti ponti raddrizzatori, colonne ART:'
+        descrizione: 'Catalogo trasformatori + costanti ponti raddrizzatori + foglio _MAPPA'
       },
     ],
-    contenuto: `## Le 3 fasi
+    contenuto: `## Panoramica
 
-Per trasformare le vostre tabelle tecniche Excel in regole che il configuratore può usare, ci sono 3 passaggi:
+Questo wizard trasforma le vostre tabelle tecniche Excel in regole automatiche per il configuratore. Non è necessario modificare l'Excel — il wizard vi guida passo dopo passo.
 
-| Fase | Cosa si fa | Risultato |
+| Step | Cosa si fa | Risultato |
 |------|-----------|-----------|
-| **1. Preparazione** | Organizzare l'Excel e aggiungere il foglio _MAPPA | File Excel pronto per l'import |
-| **2. Tabelle lookup** | Upload e generazione tabelle dati dall'interfaccia | Tabelle dati strutturate in JSON |
-| **3. Regole** | Creare le regole che usano le tabelle | Regole JSON attive nel configuratore |
-
-Ogni fase è indipendente: cambiano i dati tecnici? Ripetete solo la fase 2. Serve una nuova regola? Solo fase 3.
+| **1. Upload** | Caricate l'Excel e selezionate il foglio dati | Preview dei dati |
+| **2. Struttura** | Scegliete le colonne di ricerca e le colonne risultato | Definizione della tabella |
+| **3. Mappatura** | Collegate colonne ai campi del configuratore e valori agli articoli | Collegamento dati ↔ configuratore |
+| **4. Generazione** | Il sistema crea tabella dati + regola di ricerca | Regola attiva e funzionante |
 
 ---
 
-## FASE 1 — Preparare l'Excel
+## STEP 1 — Upload e selezione foglio
 
-### 1.1 — Organizzare i fogli dati
+### Cosa fare
+- Caricate il file Excel (.xlsx)
+- Il sistema mostra tutti i fogli presenti — selezionate quello con i dati
+- Se le intestazioni non sono nella riga 1, indicate il numero riga corretto
 
-Ogni foglio dati deve avere una struttura tabellare semplice:
+### Come deve essere l'Excel
 - **Una riga di intestazioni** con nomi colonna leggibili
 - **Sotto le intestazioni**: dati, una riga per ogni record
 - Niente righe vuote in mezzo ai dati, niente celle unite
-- **Celle vuote = dato non disponibile** (il sistema le interpreta così)
+- Celle vuote = dato non disponibile
 
-Se il vostro Excel ha titoli decorativi o note, spostate i dati puri in fogli puliti. I fogli originali possono restare — il sistema legge solo quelli nella _MAPPA.
-
-### Esempio 1: contattori oleodinamici (lookup_range con partizioni)
-
-Due fogli dati, uno per frequenza. Foglio **"50Hz_400V"**:
-
-| kW | IN (A) | DIR: Cont. | DIR: Mors. | DIR: Filo | ST: KS | ST: KM | SS: Modello | ART: Cont. dir. |
-|----|--------|-----------|-----------|----------|--------|--------|------------|-----------------|
-| 4.4 | 10.4 | D18 | 10 | 2.5 | D18 | D12 | V40 | EQ-KM018 |
-| 7.7 | 18.5 | D25 | 10 | 4 | D18 | D12 | V40 | EQ-KM025 |
-| 29.4 | 63 | *(vuoto)* | | | D80 | D50 | V70 | |
-
-Celle vuote = non disponibile a quella potenza. Foglio **"60Hz_440V"**: stessa struttura, valori diversi.
-
-**Perché è un lookup_range**: la chiave è numerica (kW). Il sistema calcola automaticamente le fasce — per es. 7.7 kW cade nella fascia 5.9–9.6 → contattore D25.
-
-**Perché ha partizioni**: la stessa tabella è su 2 fogli, distinti per frequenza (50Hz e 60Hz). Il configuratore sceglie la partizione giusta in base a cosa seleziona l'utente.
-
-### Esempio 2: trasformatori (catalogo)
-
-Un foglio catalogo. Foglio **"Trasformatori standard"**:
-
-| Codice | Tipo | Potenza VA | Primario V | Secondario V | Peso kg | ART: Trasformatore |
-|--------|------|-----------|-----------|-------------|---------|-------------------|
-| 218 | Monofase | 200 | 230 | 24 | 3.5 | EQ-TRF-218 |
-| 305 | Trimono | 630 | 400 | 24 | 10.5 | EQ-TRF-305 |
-
-**Perché è un catalogo**: ogni riga è un prodotto, la scelta avviene per criteri multipli (tipo + potenza + tensione).
-
-### Esempio 3: ponti raddrizzatori (costanti)
-
-Foglio **"Ponti Raddrizzatori"**:
-
-| Tensione freno V | Tipo | Fattore conversione | ART: Ponte |
-|-----------------|------|--------------------:|-----------|
-| 180 DC | Trifase | 1.35 | EQ-PR-180T |
-| 180 DC | Monofase | 0.90 | EQ-PR-180M |
-| 105 DC | Trifase | 1.35 | EQ-PR-105T |
-
-**Perché è costanti**: tabella semplice chiave → valore, corrispondenza diretta.
+Non servono fogli speciali né formattazioni particolari: l'Excel può restare così com'è.
 
 ---
 
-### 1.2 — Codici articolo nell'Excel (facoltativo)
+## STEP 2 — Colonne di ricerca e risultato
 
-Se avete i codici articolo del gestionale, aggiungeteli con colonne che iniziano con **ART:**
+### Colonne di ricerca (chiave)
+Sono le colonne che il configuratore usa per **cercare** nella tabella. Per ogni colonna indicate il tipo di confronto:
 
-Il sistema le riconosce automaticamente e le separa dalle colonne tecniche. I codici finiscono direttamente nelle regole generate.
+| Tipo confronto | Quando usarlo | Esempio |
+|----------------|--------------|---------|
+| **≤ Per fascia (range)** | Valori numerici dove si cerca "il più vicino superiore" | kW → 7.7 cade nella fascia 5.9–9.6 |
+| **= Esatto** | Corrispondenza diretta testo | Tipo avviamento → "diretto" |
 
-Se non avete i codici, nessun problema — si inseriscono dopo dall'interfaccia.
+### Colonne risultato
+Sono le colonne con i **dati** che la ricerca restituisce: taglie contattori, modelli, morsetti, fili, ecc.
 
----
-
-### 1.3 — Aggiungere il foglio _MAPPA
-
-Aggiungete un foglio chiamato esattamente **_MAPPA** con queste colonne:
-
-| Colonna | Cosa scrivere | Obbligatoria |
-|---------|--------------|:---:|
-| **foglio** | Nome esatto del foglio dati | ✅ |
-| **tipo** | \`lookup_range\`, \`catalogo\`, o \`costanti\` | ✅ |
-| **nome_tabella** | Nome per la tabella generata | ✅ |
-| **colonna_chiave** | La colonna principale di ricerca | ✅ |
-| **tipo_chiave** | \`numero\` oppure \`testo\` | ✅ |
-| **partizionato_per** | Campo configuratore che distingue le partizioni | se servono |
-| **valore_partizione** | Valore per questo foglio | se servono |
-| **riga_intestazioni** | Numero riga intestazioni (default: 1) | no |
-| **note** | Note libere, il sistema le ignora | no |
-
-### I 3 tipi di tabella
-
-**\`lookup_range\`** — Chiave numerica, si cerca "in quale fascia cade"
-- Esempio: kW 7.7 → fascia 5.9–9.6 → contattore D25
-- Il sistema calcola le fasce automaticamente dai valori presenti
-
-**\`catalogo\`** — Elenco prodotti, scelta per criteri multipli
-- Esempio: trasformatore monofase ≥ 600 VA con primario 400V
-- Ogni riga è un prodotto, ogni colonna è una caratteristica
-
-**\`costanti\`** — Tabella semplice chiave → valore
-- Esempio: tensione freno 180V DC + Trifase → ponte EQ-PR-180T
-
-### _MAPPA per i contattori (lookup_range con partizioni)
-
-| foglio | tipo | nome_tabella | colonna_chiave | tipo_chiave | partizionato_per | valore_partizione |
-|--------|------|-------------|---------------|-------------|-----------------|------------------|
-| 50Hz_400V | lookup_range | contattori_oleo | kW | numero | frequenza_rete | 50 |
-| 60Hz_440V | lookup_range | contattori_oleo | kW | numero | frequenza_rete | 60 |
-
-Traduzione: "2 fogli, entrambi lookup per range numerico su kW, stessa tabella \`contattori_oleo\`, distinti per frequenza."
-
-### _MAPPA per trasformatori + ponti (catalogo + costanti)
-
-| foglio | tipo | nome_tabella | colonna_chiave | tipo_chiave | partizionato_per | valore_partizione |
-|--------|------|-------------|---------------|-------------|-----------------|------------------|
-| Trasformatori standard | catalogo | trasformatori_std | Codice | testo | | |
-| Ponti Raddrizzatori | costanti | ponti_raddr | Tensione freno V | testo | | |
-
-Traduzione: "2 fogli indipendenti. Trasformatori è un catalogo (ricerca per codice). Ponti è una tabella costanti (ricerca per tensione freno)."
-
-### Cosa sono le partizioni
-
-A volte la stessa tabella è su più fogli. I contattori hanno un foglio per 50Hz e uno per 60Hz: stessa struttura, valori diversi.
-
-\`partizionato_per\` indica **quale campo del configuratore** determina la partizione. \`valore_partizione\` indica il valore per questo foglio specifico.
-
-Se l'utente seleziona frequenza 50Hz → il sistema cerca nella partizione "50".
-
-Se la tabella è su un solo foglio, lasciate vuoti entrambi i campi.
+### Partizioni
+Se la stessa tabella è divisa su **più fogli** dello stesso Excel (es. un foglio per 50Hz e uno per 60Hz), il sistema li combina automaticamente.
 
 ---
 
-## FASE 2 — Generare le tabelle lookup
+## STEP 3 — Mappatura campi e articoli
 
-Questa fase si fa dall'interfaccia, sezione **"Importa da Excel"**:
+### 3.1 — Collegamento colonne → campi del configuratore
+Per ogni colonna di ricerca, il wizard propone automaticamente i campi del configuratore più probabili, con un punteggio di compatibilità.
 
-### 2.1 — Upload
-Caricate il file Excel. Il sistema verifica subito la presenza del foglio _MAPPA.
+- **Punteggio alto (≥80%)**: il match è quasi sicuro, basta confermare
+- **Punteggio medio**: verificare che il campo proposto sia corretto
+- **Nessun suggerimento**: scegliere manualmente dal menu a tendina
 
-### 2.2 — Verifica
-Il sistema mostra un riepilogo di cosa ha trovato:
-- Tabelle, tipi, numero righe
-- Colonne tecniche e colonne ART:
-- Per le lookup_range, le fasce calcolate
-- Eventuali errori (foglio non trovato, colonna mancante) in rosso
+### 3.2 — Collegamento valori → articoli
+Per ogni valore distinto trovato nelle colonne risultato, potete associare uno o più articoli dal catalogo:
 
-### 2.3 — Anteprima dati
-Potete vedere le prime righe come le ha interpretate il sistema. Per le lookup_range vedrete le fasce automatiche:
+- Cercate l'articolo per codice o descrizione nel catalogo
+- Potete associare più articoli allo stesso valore (es. per D18: contattore KM + contattore KS)
+- Se il codice articolo non è ancora a catalogo, potete inserirlo dopo — le regole restano valide
 
-\`kW 4.4 → fascia [0, 5.15) → DIR: D18, ST: D18/D12, SS: V40\`
-\`kW 7.7 → fascia [6.8, 8.65) → DIR: D25, ST: D18/D12, SS: V40\`
-
-### 2.4 — Conferma
-Clic su **"Genera"** → il sistema crea le tabelle dati JSON e le regole lookup.
-
-### Aggiornamento futuro
-Quando cambiano i dati (nuova potenza, taglia diversa):
-1. Modificate l'Excel (il foglio _MAPPA resta uguale)
-2. Reimportate
-3. Le regole della Fase 3 continuano a funzionare con i nuovi valori
+Queste associazioni diventano automatiche: quando la ricerca trova un valore (es. "D18"), aggiunge automaticamente gli articoli collegati al preventivo.
 
 ---
 
-## FASE 3 — Creare le regole
+## STEP 4 — Generazione
 
-Le tabelle lookup contengono i **dati**. Le regole definiscono la **logica**: quando attivarsi e quali materiali aggiungere.
+Clic su **"Genera tabella e regola"** → il sistema crea:
 
-### 3.1 — Regola di lookup
-Collega un campo del configuratore alla tabella. Si genera quasi automaticamente dall'import — basta completare i riferimenti ai campi del configuratore.
+- **Tabella dati** (file JSON): contiene i valori dell'Excel strutturati per la ricerca
+- **Regola di ricerca** (file JSON): contiene la logica di attivazione e le associazioni articoli
 
-Esempio contattori:
-- **Quando**: trazione = oleodinamica E potenza motore compilata
-- **Azione**: cerca in \`contattori_oleo\`, usa potenza come chiave, frequenza come partizione
-- **Risultato**: popola variabili \`_calc.cont_dir\`, \`_calc.mors_dir\`, ecc.
-
-### 3.2 — Regole materiali
-Definiscono cosa aggiungere al preventivo. Usano i valori dalla lookup.
-
-Esempio regola "Avviamento diretto":
-- **Quando**: tipo avviamento = diretto E dati disponibili
-- **Materiali**: 1× Contattore KM (taglia da lookup), 3× Morsetti linea, Fili
-
-### 3.3 — Codici articolo: due metodi
-
-**Metodo A — Dall'Excel**: le colonne \`ART:\` portano i codici direttamente nelle tabelle. Quando cambiate l'Excel e reimportate, i codici si aggiornano automaticamente.
-
-**Metodo B — Dall'interfaccia**: inseriti manualmente nel Rule Designer, dentro ogni regola. Utile quando i codici non sono nell'Excel o servono correzioni puntuali.
-
-I due metodi coesistono. Se un codice è presente in entrambi, **vale quello inserito manualmente**.
+### Dopo la generazione
+- La regola viene creata ma può richiedere di completare le **condizioni** (quando attivarsi)
+- Usate il **Rule Designer** per aggiungere condizioni tipo "trazione = oleodinamica"
+- I dati possono essere reimportati senza perdere le condizioni personalizzate
 
 ---
 
-## Riepilogo
+## Aggiornamento dati
 
-| Fase | Cosa | Dove | Quando |
-|------|------|------|--------|
-| 1 | Preparare Excel + _MAPPA + ART: | Nel vostro file Excel | Una volta per struttura |
-| 2 | Generare tabelle lookup | Interfaccia → "Importa da Excel" | Ogni volta che cambiano i dati |
-| 3 | Creare regole (lookup + materiali) | Rule Designer | Una volta per tipo di componente |
+Quando cambiano i valori nell'Excel (nuova potenza, taglia diversa):
+1. Modificate l'Excel
+2. Reimportate con lo stesso nome tabella
+3. Le regole e le associazioni articoli si aggiornano, le condizioni personalizzate restano
+
+---
+
+## Esempi pratici
+
+### Contattori oleodinamici
+- **Excel**: 2 fogli (50Hz, 60Hz), colonna kW per fascia, output: taglie contattori, morsetti, fili
+- **Step 2**: kW con confronto "Per fascia", una colonna risultato per ogni campo tecnico
+- **Step 3**: kW → potenza motore, valori D18/D25/D32 → articoli EQ-KM018, EQ-KM025...
+- **Risultato**: cambi potenza nel preventivo → materiali contattori si aggiornano automaticamente
+
+### Trasformatori
+- **Excel**: 1 foglio catalogo con codice, tipo, potenza VA, tensioni, peso
+- **Step 2**: nessuna fascia numerica, tutte colonne risultato (è un catalogo)
+- **Risultato**: tabella consultabile dalle regole e dalle pipeline
 
 ---
 
 ## Errori comuni
 
-| Messaggio | Causa | Soluzione |
-|-----------|-------|-----------|
-| Foglio _MAPPA non trovato | Manca o nome diverso | Deve chiamarsi esattamente \`_MAPPA\` |
-| Foglio 'XYZ' non esiste | Nome nella mappa ≠ foglio reale | Controllare maiuscole e spazi |
-| Colonna non trovata | Intestazione diversa | Verificare riga intestazioni |
-| Valori non numerici | Per lookup_range servono numeri | Controllare colonna chiave |
-| Tipo non riconosciuto | Errore nella colonna tipo | Valori ammessi: lookup_range, catalogo, costanti |`
+| Problema | Causa | Soluzione |
+|----------|-------|-----------|
+| "Nessuna riga trovata" | Foglio vuoto o intestazioni sulla riga sbagliata | Verificare numero riga intestazioni |
+| "Nessun match" al test | Valore sotto il minimo tabella | Gestito automaticamente (prende la prima riga) |
+| Materiali non compaiono | Associazioni articoli non configurate | Tornare allo Step 3 e collegare gli articoli |
+| Campi non proposti | Nome colonna molto diverso dal campo | Selezionare manualmente dal menu |
+| Partizioni non riconosciute | Campo composito non configurato | Usare mapping composito nello Step 3 |`
   },
   {
-    id: 'rule-engine',
-    titolo: 'Come funziona il Rule Engine',
-    descrizione: 'Panoramica del motore regole: condizioni, azioni, variabili _calc, template Mustache',
-    icon: Zap,
-    contenuto: `## Concetti base
+    id: 'pipeline-builder',
+    titolo: 'Pipeline di Calcolo — Calcoli multi-step',
+    descrizione: 'Per casi complessi dove il materiale da aggiungere dipende da calcoli su più campi (es. selezione trasformatore)',
+    icon: GitBranch,
+    allegati: [
+      {
+        nome: 'Esempio Trasformatori (con _MAPPA)',
+        filename: 'trasformatori_lookup_cliente.xlsx',
+        descrizione: 'Excel con utilizzatori multi-riga + catalogo trasformatori appiattito + foglio _MAPPA'
+      },
+    ],
+    contenuto: `## Quando serve una pipeline
 
-Il Rule Engine valuta regole JSON ogni volta che i dati del preventivo cambiano. Ogni regola ha:
-- **Condizioni** — Quando attivarsi (es. trazione = oleodinamica)
-- **Azioni** — Cosa fare quando le condizioni sono tutte vere
+Le **ricerche semplici** (wizard Import Excel) gestiscono il caso diretto: un campo del configuratore → cerca in tabella → trova materiale. Es: kW → contattore.
 
-## Tipi di azione
+Le **pipeline** servono quando il dato di ricerca **non esiste come campo**, ma va **calcolato** combinando più campi. Esempio tipico: selezione del trasformatore.
 
-| Tipo | Funzione |
-|------|----------|
-| **set_field** | Imposta una variabile _calc.* nel contesto |
-| **lookup_table** | Cerca in una tabella dati → imposta variabili _calc.* |
-| **catalog_match** | Matching multi-criterio su catalogo prodotti |
-| **accumulate_from_lookup** | Somma valori da lookup raggruppando per campo |
-| **add_material** | Aggiunge un materiale alla BOM |
+### Esempio: selezione trasformatore
 
-## Esecuzione sequenziale
-Le azioni dentro una regola si eseguono in ordine. Una regola può avere prima un lookup, poi diversi add_material che usano i risultati del lookup.
+L'utente spunta 3 utilizzatori nel configuratore:
+- Pattino retrattile (150W a 75V, 150W a 15V, 150W a 18V)
+- AMI100 24V (70W a 18V)
+- 3 Valvole (135W a 55V)
 
-## Variabili _calc.*
-Sono variabili temporanee calcolate durante la valutazione. Non vengono salvate nel database. Servono come "ponte" tra lookup e materiali.
+Il sistema deve:
+1. Sommare i watt per ogni tensione di uscita
+2. Convertire in VA (dividi per power factor)
+3. Trovare nel catalogo il trasformatore più piccolo che copra **tutte** le tensioni richieste
 
-Esempio: \`_calc.cont_dir\` = "D25" → usata nel template \`CONT-{{_calc.cont_dir}}-KM\` → codice finale "CONT-D25-KM"
+Nessuna ricerca semplice può farlo — serve una pipeline a 4 step.
 
-## Template Mustache
-Nei materiali potete usare \`{{campo}}\` per inserire valori dinamici. Il sistema li sostituisce a runtime con i valori reali dal contesto.
+---
 
-## Phase ordering
-Le regole hanno un campo \`phase\` (default: 1) e \`priority\`. Le regole phase 1 (calcoli) si eseguono prima delle phase 2 (materiali).`
+## Come funziona
+
+### I 4 step della pipeline trasformatore
+
+| Step | Tipo | Cosa fa |
+|------|------|---------|
+| **1** | **CERCA** | Per ogni checkbox attivo, cerca nella tabella utilizzatori → scrive watt e tensione per ogni riga |
+| **2** | **RAGGRUPPA** | Raggruppa per tensione e somma i watt, poi divide per power factor → VA per tensione |
+| **3** | **SELEZIONA** | Cerca nel catalogo il trasformatore più piccolo che ha VA sufficienti a **tutte** le tensioni |
+| **4** | **MATERIALE** | Aggiunge il trasformatore trovato ai materiali del preventivo |
+
+### Componenti con più uscite
+
+Un utilizzatore può richiedere uscite a tensioni diverse. Nell'Excel, si mettono **più righe con lo stesso componente**:
+
+| componente | watt | tensione_uscita_trasf |
+|-----------|------|----------------------|
+| Pattino retrattile | 150 | 75 |
+| Pattino retrattile | 150 | 15 |
+| Pattino retrattile | 150 | 18 |
+| AMI100 24V | 70 | 18 |
+
+Nel configuratore compare **1 solo checkbox** per "Pattino retrattile" (con nota "3 uscite: 150/75 | 150/15 | 150/18"). La pipeline gestisce automaticamente tutte le righe.
+
+---
+
+## Come creare una pipeline
+
+### 1. Preparare l'Excel
+
+Servono 2 fogli dati + il foglio **_MAPPA** (vedi la guida dedicata qui sotto):
+
+**Foglio Utilizzatori** — una riga per ogni uscita di ogni componente:
+- Colonna \`componente\`: nome del componente (può ripetersi)
+- Colonna \`watt\`: potenza assorbita per quell'uscita
+- Colonna \`tensione_uscita_trasf\`: tensione in Volt dell'uscita
+
+**Foglio Catalogo** — catalogo appiattito, una riga per ogni uscita di ogni trasformatore:
+- Colonna \`codice_trasf\`: codice univoco trasformatore
+- Colonna \`potenza_totale_va\`: potenza totale del trasformatore
+- Colonna \`tensione_uscita\`: tensione di questa uscita
+- Colonna \`va_disponibili\`: VA disponibili su questa uscita
+
+### 2. Importare l'Excel
+
+Usare la pagina **Import Excel** — il sistema legge il foglio _MAPPA, converte tutto in JSON e salva i dati.
+
+### 3. Creare i campi checkbox
+
+Nel **Pipeline Builder**, aggiungere uno step CERCA e cliccare il bottone **"Crea campi configuratore da tabella"**. Il sistema:
+- Legge la tabella dati
+- Raggruppa per componente unico
+- Crea 1 checkbox per componente con note aggregate
+- Crea la sezione nel configuratore se non esiste
+
+### 4. Configurare gli step
+
+Usare il Pipeline Builder per configurare i 4 step. È disponibile il template **"Selezione Trasformatore"** che pre-compila tutto.
+
+### 5. Simulare
+
+Il pulsante **Simula** mostra i risultati intermedi di ogni step — utile per verificare che i calcoli siano corretti prima di attivare la pipeline.
+
+---
+
+## Tipi di step disponibili
+
+| Tipo | Colore | Cosa fa |
+|------|--------|---------|
+| **CERCA** (lookup_each) | Ciano | Per ogni checkbox attivo → cerca in tabella → scrive nel contesto |
+| **RACCOGLI** (collect_sum) | Blu | Somma valori da un pattern o da un campo singolo |
+| **RAGGRUPPA** (group_sum) | Indaco | Raggruppa per un campo e somma un altro (+ divisione per power factor) |
+| **CALCOLA** (math_expr) | Ambra | Espressione matematica con variabili dal contesto |
+| **SELEZIONA SINGOLO** (catalog_select) | Verde | Selezione con un solo criterio dal catalogo (>=, <=, ==) |
+| **SELEZIONA COMPLETO** (multi_match) | Teal | Ricerca nel catalogo verificando **tutte** le condizioni richieste contemporaneamente |
+| **MATERIALE** (add_material) | Viola | Aggiunge materiale con codice/quantità da variabili calcolate |
+
+---
+
+## Catalogo appiattito
+
+Per la selezione completa, il catalogo deve essere **appiattito**: una riga per ogni uscita di ogni trasformatore. Lo stesso trasformatore appare più volte.
+
+Esempio: il trasformatore "218" ha 3 uscite → 3 righe:
+
+| codice_trasf | potenza_totale_va | tensione_uscita | va_disponibili |
+|-------------|-------------------|-----------------|---------------|
+| 218 | 600 | 75 | 250 |
+| 218 | 600 | 30 | 200 |
+| 218 | 600 | 10 | 50 |
+
+Il sistema raggruppa le righe per codice, verifica che **ogni tensione richiesta** abbia VA sufficienti, e seleziona il trasformatore più piccolo che soddisfa tutti i requisiti.
+
+### Come avviene la selezione
+
+- I VA di un'uscita **non compensano** quelli di un'altra (ogni tensione è indipendente)
+- Se servono 200VA a 75V e 150VA a 55V, il trasformatore deve avere **almeno** 200VA a 75V **e** 150VA a 55V
+- Tra i candidati validi, viene scelto quello con potenza totale più bassa`
+  },
+  {
+    id: 'foglio-mappa',
+    titolo: 'Foglio _MAPPA — Indice per import complessi',
+    descrizione: 'Serve per le pipeline e per importare più tabelle dallo stesso Excel: dice al sistema come interpretare ogni foglio',
+    icon: FileSpreadsheet,
+    contenuto: `## Cos'è e quando serve
+
+Il foglio \`_MAPPA\` è l'**indice** del file Excel. Dice al sistema **quali fogli leggere**, **che tipo di dati contengono**, e **come strutturarli**.
+
+### Quando usarlo
+
+- **Serve per le pipeline** — quando i dati hanno righe ripetute per lo stesso componente (es. utilizzatori multi-uscita, catalogo trasformatori appiattito)
+- **Serve quando importate più tabelle** dallo stesso file Excel
+- **NON serve** per le ricerche semplici — il wizard a 4 step le gestisce direttamente senza _MAPPA
+
+In pratica: se state usando il **Pipeline Builder**, quasi certamente vi servirà il _MAPPA. Se usate solo il wizard Import Excel standard, non vi serve.
+
+---
+
+## Formato del foglio
+
+Il foglio si deve chiamare esattamente \`_MAPPA\` (con l'underscore iniziale). La prima riga sono le intestazioni, poi una riga per ogni foglio dati da importare.
+
+### Colonne
+
+| Colonna | Obbligatoria | Descrizione |
+|---------|:---:|-------------|
+| **foglio** | ✅ | Nome esatto del foglio dati nell'Excel |
+| **tipo** | ✅ | Tipo di tabella (vedi sotto) |
+| **nome_tabella** | ✅ | Nome del file dati generato (es. \`utilizzatori_trasformatore\`) |
+| **colonna_chiave** | — | Colonna principale di ricerca (es. \`componente\`, \`codice_trasf\`) |
+| **tipo_chiave** | — | Tipo della chiave: \`testo\` o \`numerico\` |
+| **partizionato_per** | — | Campo configuratore per partizionare (es. \`frequenza_rete\`) |
+| **valore_partizione** | — | Valore della partizione di questo foglio (es. \`50\`) |
+| **riga_intestazioni** | — | Riga dove si trovano le intestazioni (default: 1) |
+| **note** | — | Note libere |
+
+### Tipi di tabella
+
+| Tipo | Quando usarlo | Cosa produce |
+|------|--------------|-------------|
+| **catalogo** | Tabelle con righe ripetute per la stessa chiave (utilizzatori multi-uscita, catalogo appiattito) | Elenco completo — tutte le righe conservate |
+| **costanti** | Tabelle chiave→valore con chiavi univoche (ponti raddrizzatori) | Dizionario — una entry per chiave |
+| **lookup_range** | Tabelle con fasce numeriche (contattori per kW) | Fasce con min/max calcolate automaticamente |
+
+### ⚠️ Regola importante
+
+Se un componente ha **più righe** (es. stesso utilizzatore con uscite a tensioni diverse), usare tipo **\`catalogo\`**, NON \`costanti\`. Il tipo \`costanti\` richiede chiavi univoche e scarta le righe duplicate.
+
+---
+
+## Esempio pratico: import per pipeline trasformatore
+
+Excel con 3 fogli:
+
+### Foglio _MAPPA
+
+| foglio | tipo | nome_tabella | colonna_chiave | tipo_chiave | riga_intestazioni | note |
+|--------|------|-------------|---------------|------------|------------------|------|
+| Utilizzatori | catalogo | utilizzatori_trasformatore | componente | testo | 1 | Componenti con watt e tensione (righe multiple OK) |
+| Catalogo_trasformatori | catalogo | catalogo_trasformatori_flat | codice_trasf | testo | 1 | Catalogo appiattito: 1 riga per uscita |
+
+### Foglio Utilizzatori
+
+| componente | watt | tensione_uscita_trasf |
+|-----------|------|----------------------|
+| Pattino retrattile | 150 | 75 |
+| Pattino retrattile | 150 | 15 |
+| Pattino retrattile | 150 | 18 |
+| AMI100 24V | 70 | 18 |
+| 3 Valvole | 135 | 55 |
+
+### Foglio Catalogo_trasformatori
+
+| codice_trasf | tipo | potenza_totale_va | forza_motrice | tensione_uscita | va_disponibili | nome_uscita |
+|-------------|------|-------------------|--------------|-----------------|---------------|-------------|
+| 218 | Monofase | 600 | 0-230-400 | 75 | 250 | manovra |
+| 218 | Monofase | 600 | 0-230-400 | 30 | 200 | uscita_1 |
+| 52E | Trimono | 600 | 380 | 55 | 250 | valvole |
+| 52E | Trimono | 600 | 380 | 75 | 250 | manovra |
+
+---
+
+## Risultato dell'import
+
+Cliccando **Import** nella pagina Import Excel, il sistema genera i file JSON con i dati strutturati, pronti per essere usati dal Pipeline Builder e dal Rule Engine.
+
+---
+
+## Errori comuni
+
+| Problema | Causa | Soluzione |
+|----------|-------|-----------|
+| "Foglio _MAPPA non trovato" | Il foglio si chiama diversamente | Rinominare esattamente \`_MAPPA\` |
+| "Tipo non valido" | Tipo diverso da catalogo/costanti/lookup_range | Controllare l'ortografia |
+| Righe duplicate perse | Tipo \`costanti\` con chiavi ripetute | Usare tipo \`catalogo\` |
+| "Foglio X non trovato nel file" | Nome foglio in _MAPPA diverso dal tab Excel | I nomi devono corrispondere esattamente |
+| Colonne non riconosciute | Intestazioni sulla riga sbagliata | Specificare \`riga_intestazioni\` |
+| Dati non letti | Righe vuote tra le intestazioni e i dati | Rimuovere righe vuote intermedie |`
   },
 ];
 
@@ -403,7 +631,7 @@ export default function InfoAppPage() {
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`flex items-center gap-2 px-4 py-3 font-medium border-b-2 transition-colors text-sm ${
+            className={`px-4 py-2.5 text-sm font-medium flex items-center gap-2 border-b-2 transition-colors ${
               tab === t.id
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -416,125 +644,97 @@ export default function InfoAppPage() {
       </div>
 
       {/* Content */}
-      {tab === 'info' && <TabInfo />}
-      {tab === 'revisioni' && <TabRevisioni />}
-      {tab === 'documenti' && <TabDocumenti />}
+      {tab === 'info' && <InfoTab />}
+      {tab === 'revisioni' && <RevisioniTab />}
+      {tab === 'documenti' && <DocumentiTab />}
     </div>
   );
 }
 
 // ==========================================
-// TAB: INFORMAZIONI
+// TAB INFORMAZIONI
 // ==========================================
-function TabInfo() {
+function InfoTab() {
   return (
     <div className="space-y-6">
-      {/* Card principale */}
+      {/* App Card */}
       <div className="bg-white border rounded-lg p-6">
-        <div className="flex items-start gap-4">
-          <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center">
-            <Cpu className="w-7 h-7 text-blue-600" />
+        <div className="flex items-center gap-4 mb-4">
+          <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+            <Zap className="w-6 h-6 text-blue-600" />
           </div>
-          <div className="flex-1">
-            <h3 className="text-xl font-bold text-gray-900">{APP_INFO.nome}</h3>
-            <p className="text-gray-600 mt-1">{APP_INFO.descrizione}</p>
-            <div className="flex flex-wrap gap-4 mt-3 text-sm">
-              <span className="flex items-center gap-1.5 text-gray-600">
-                <Tag className="w-4 h-4 text-blue-500" />
-                Versione <strong>{APP_INFO.versione}</strong>
-              </span>
-              <span className="flex items-center gap-1.5 text-gray-600">
-                <Clock className="w-4 h-4 text-gray-400" />
-                Build {APP_INFO.build}
-              </span>
-            </div>
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">{APP_INFO.nome}</h3>
+            <p className="text-sm text-gray-500">{APP_INFO.descrizione}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Versione</p>
+            <p className="font-semibold text-gray-900">{APP_INFO.versione}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Build</p>
+            <p className="font-semibold text-gray-900">{APP_INFO.build}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Sviluppatore</p>
+            <p className="font-semibold text-gray-900">{APP_INFO.sviluppatore}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Cliente</p>
+            <p className="font-semibold text-gray-900">{APP_INFO.cliente}</p>
           </div>
         </div>
       </div>
 
-      {/* Info sviluppo */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white border rounded-lg p-4">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Sviluppato da</p>
-          <p className="font-semibold text-gray-900">{APP_INFO.sviluppatore}</p>
-        </div>
-        <div className="bg-white border rounded-lg p-4">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Cliente</p>
-          <p className="font-semibold text-gray-900">{APP_INFO.cliente}</p>
-        </div>
-      </div>
-
-      {/* Stack tecnologico */}
+      {/* Stack */}
       <div className="bg-white border rounded-lg p-6">
-        <h4 className="font-semibold text-gray-900 mb-4">Stack tecnologico</h4>
+        <h3 className="font-semibold text-gray-900 mb-4">Stack tecnologico</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {APP_INFO.stack.map(s => (
             <div key={s.nome} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-              <s.icon className="w-5 h-5 text-blue-500 flex-shrink-0" />
+              <s.icon className="w-5 h-5 text-blue-600 flex-shrink-0" />
               <div>
-                <p className="text-sm font-medium text-gray-800">{s.nome}</p>
+                <p className="text-sm font-medium text-gray-900">{s.nome}</p>
                 <p className="text-xs text-gray-500">{s.tech}</p>
               </div>
             </div>
           ))}
         </div>
       </div>
-
-      {/* Contatti */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
-        <Mail className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
-        <div className="text-sm text-blue-800">
-          <p className="font-semibold">Assistenza e segnalazioni</p>
-          <p className="text-blue-700 mt-0.5">
-            Per bug, richieste di funzionalità o supporto tecnico contattate il team di sviluppo.
-          </p>
-        </div>
-      </div>
     </div>
   );
 }
 
 // ==========================================
-// TAB: STORICO REVISIONI
+// TAB STORICO REVISIONI
 // ==========================================
-function TabRevisioni() {
-  const tipoBadge = {
-    major: 'bg-red-100 text-red-800',
-    minor: 'bg-blue-100 text-blue-800',
-    patch: 'bg-green-100 text-green-800',
-    fix: 'bg-amber-100 text-amber-800',
-  };
-
-  const tipoLabel = {
-    major: 'Major',
-    minor: 'Minor',
-    patch: 'Patch',
-    fix: 'Fix',
+function RevisioniTab() {
+  const tipoColors: Record<string, string> = {
+    major: 'bg-red-100 text-red-700',
+    minor: 'bg-blue-100 text-blue-700',
+    patch: 'bg-green-100 text-green-700',
+    fix: 'bg-amber-100 text-amber-700',
   };
 
   return (
     <div className="space-y-4">
       {STORICO_REVISIONI.map((rev, idx) => (
-        <div key={rev.versione} className="bg-white border rounded-lg p-5">
-          <div className="flex items-start justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <span className="text-lg font-bold text-gray-900 font-mono">v{rev.versione}</span>
-              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${tipoBadge[rev.tipo]}`}>
-                {tipoLabel[rev.tipo]}
-              </span>
-              {idx === 0 && (
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-800 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> Attuale
-                </span>
-              )}
-            </div>
-            <span className="text-sm text-gray-400">{rev.data}</span>
+        <div key={rev.versione} className={`bg-white border rounded-lg p-5 ${idx === 0 ? 'ring-2 ring-blue-200' : ''}`}>
+          <div className="flex items-center gap-3 mb-3">
+            <span className="font-mono font-bold text-gray-900">v{rev.versione}</span>
+            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${tipoColors[rev.tipo]}`}>
+              {rev.tipo}
+            </span>
+            <span className="text-sm text-gray-400 ml-auto">{rev.data}</span>
           </div>
           <p className="font-semibold text-gray-800 mb-2">{rev.titolo}</p>
           <ul className="space-y-1">
             {rev.dettagli.map((d, i) => (
               <li key={i} className="text-sm text-gray-600 flex items-start gap-2">
-                <span className="text-blue-400 mt-1">•</span>
+                <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
                 {d}
               </li>
             ))}
@@ -546,15 +746,15 @@ function TabRevisioni() {
 }
 
 // ==========================================
-// TAB: DOCUMENTAZIONE
+// TAB DOCUMENTAZIONE
 // ==========================================
-function TabDocumenti() {
+function DocumentiTab() {
   const [openDoc, setOpenDoc] = useState<string | null>(null);
 
   const handleDownload = async (filename: string) => {
     try {
-      const res = await fetch(`${API_BASE}/import-excel/esempio/${filename}`);
-      if (!res.ok) throw new Error('Download fallito');
+      const res = await fetch(`${API_BASE}/examples/${filename}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');

@@ -1,0 +1,23 @@
+{
+  "tipo": "catalog",
+  "records": [
+    {"codice_trasf": "EQ-TRF-050", "tensione_uscita": "24", "va_disponibili": 30,  "potenza_totale_va": 50,  "descrizione": "Trasformatore 50VA"},
+    {"codice_trasf": "EQ-TRF-050", "tensione_uscita": "12", "va_disponibili": 20,  "potenza_totale_va": 50,  "descrizione": "Trasformatore 50VA"},
+
+    {"codice_trasf": "EQ-TRF-100", "tensione_uscita": "24", "va_disponibili": 60,  "potenza_totale_va": 100, "descrizione": "Trasformatore 100VA"},
+    {"codice_trasf": "EQ-TRF-100", "tensione_uscita": "12", "va_disponibili": 40,  "potenza_totale_va": 100, "descrizione": "Trasformatore 100VA"},
+
+    {"codice_trasf": "EQ-TRF-160", "tensione_uscita": "24", "va_disponibili": 100, "potenza_totale_va": 160, "descrizione": "Trasformatore 160VA"},
+    {"codice_trasf": "EQ-TRF-160", "tensione_uscita": "12", "va_disponibili": 60,  "potenza_totale_va": 160, "descrizione": "Trasformatore 160VA"},
+
+    {"codice_trasf": "EQ-TRF-250", "tensione_uscita": "24", "va_disponibili": 160, "potenza_totale_va": 250, "descrizione": "Trasformatore 250VA"},
+    {"codice_trasf": "EQ-TRF-250", "tensione_uscita": "12", "va_disponibili": 90,  "potenza_totale_va": 250, "descrizione": "Trasformatore 250VA"},
+
+    {"codice_trasf": "EQ-TRF-400", "tensione_uscita": "24", "va_disponibili": 260, "potenza_totale_va": 400, "descrizione": "Trasformatore 400VA"},
+    {"codice_trasf": "EQ-TRF-400", "tensione_uscita": "12", "va_disponibili": 140, "potenza_totale_va": 400, "descrizione": "Trasformatore 400VA"}
+  ],
+  "_meta": {
+    "nome": "catalogo_trasformatori_flat",
+    "note": "Demo - catalogo trasformatori con uscite multiple. Una riga per uscita tensione."
+  }
+}

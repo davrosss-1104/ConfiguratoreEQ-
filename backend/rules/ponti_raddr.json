@@ -1,0 +1,46 @@
+{
+  "tipo": "constants",
+  "parametro_lookup": "tensione_freno_v",
+  "valori": {
+    "180_dc": {
+      "tipo": "Monofase",
+      "fattore_conversione": 0.9,
+      "art_ponte": "EQ-PR-180M"
+    },
+    "105_dc": {
+      "tipo": "Monofase",
+      "fattore_conversione": 0.9,
+      "art_ponte": "EQ-PR-105M"
+    },
+    "200_dc": {
+      "tipo": "Trifase",
+      "fattore_conversione": 1.35,
+      "art_ponte": "EQ-PR-200T"
+    },
+    "24_dc": {
+      "tipo": "Monofase",
+      "fattore_conversione": 0.9,
+      "art_ponte": "EQ-PR-024M"
+    },
+    "48_dc": {
+      "tipo": "Monofase",
+      "fattore_conversione": 0.9,
+      "art_ponte": "EQ-PR-048M"
+    }
+  },
+  "_meta": {
+    "nome": "ponti_raddr",
+    "tipo": "costanti",
+    "tipo_engine": "constants",
+    "fogli_origine": [
+      "Ponti Raddrizzatori"
+    ],
+    "file_origine": "esempio_trasformatori.xlsx",
+    "generato_il": "2026-02-22T22:46:53.379669",
+    "righe_totali": 7,
+    "colonna_chiave": "Tensione freno V",
+    "tipo_chiave": "testo",
+    "partizionato_per": "",
+    "valori_partizione": []
+  }
+}

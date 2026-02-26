@@ -335,25 +335,6 @@ class ExcelDataLoader:
             dicts.append(d)
         return headers, dicts
 
-    def _split_columns(self, headers: List[str], col_chiave: str
-                       ) -> Tuple[List[str], List[str]]:
-        """
-        Separa le colonne in tecniche e articolo.
-        Dopo la normalizzazione, le colonne ART: diventano art_*
-        (es: "ART: Cont. Dir." → "art_cont_dir").
-        Ritorna (colonne_tecniche, colonne_articoli) escludendo la colonna chiave.
-        """
-        tecniche = []
-        articoli = []
-        for h in headers:
-            if h == col_chiave:
-                continue
-            if h.startswith("art_"):
-                articoli.append(h)
-            else:
-                tecniche.append(h)
-        return tecniche, articoli
-
     # ========================================================================
     # BUILDER: lookup_range
     # ========================================================================
@@ -405,14 +386,14 @@ class ExcelDataLoader:
 
             result["parametro_lookup"] = col_chiave
 
-            # Separa colonne tecniche e articoli
-            col_tecniche, col_articoli = self._split_columns(headers, col_chiave)
+            # Tutte le colonne non-chiave sono output
+            output_cols = [h for h in headers if h != col_chiave]
 
             # Ordina per valore chiave
             data_sorted = sorted(data, key=lambda r: float(r.get(col_chiave, 0) or 0))
 
             # Costruisci ranges con midpoint
-            ranges = self._build_ranges(data_sorted, col_chiave, col_tecniche, col_articoli)
+            ranges = self._build_ranges(data_sorted, col_chiave, output_cols)
 
             if is_partitioned:
                 # Usa valore_partizione se disponibile, altrimenti nome foglio
@@ -429,7 +410,7 @@ class ExcelDataLoader:
         return result
 
     def _build_ranges(self, data_sorted: List[Dict], col_chiave: str,
-                      col_tecniche: List[str], col_articoli: List[str]) -> List[Dict]:
+                      output_cols: List[str]) -> List[Dict]:
         """
         Costruisce le fasce (ranges) con punto medio come separatore.
         
@@ -473,25 +454,14 @@ class ExcelDataLoader:
             da = 0 if i == 0 else midpoints[i - 1]
             a = midpoints[i] if i < len(midpoints) else None
 
-            # Output tecnico (escludi None)
+            # Tutti i valori non-chiave vanno in output
             output = {}
-            for col in col_tecniche:
+            for col in output_cols:
                 v = row.get(col)
                 if v is not None:
                     output[col] = v
 
-            # Output articoli (escludi None)
-            articoli = {}
-            for col in col_articoli:
-                v = row.get(col)
-                if v is not None:
-                    articoli[col] = v
-
-            entry = {"da": da, "a": a, "output": output}
-            if articoli:
-                entry["articoli"] = articoli
-
-            ranges.append(entry)
+            ranges.append({"da": da, "a": a, "output": output})
 
         return ranges
 
@@ -507,7 +477,6 @@ class ExcelDataLoader:
             "tipo": "catalog",
             "colonna_id": "codice",
             "colonne": ["codice", "tipo", "potenza_va", ...],
-            "colonne_articoli": ["art_codice_erp"],
             "records": [
                 {"codice": "218", "tipo": "mono", "potenza_va": 600, ...},
                 ...
@@ -530,13 +499,10 @@ class ExcelDataLoader:
         if col_chiave not in all_headers:
             col_chiave = all_headers[0] if all_headers else "codice"
 
-        col_tecniche, col_articoli = self._split_columns(all_headers, col_chiave)
-
         return {
             "tipo": "catalog",
             "colonna_id": col_chiave,
-            "colonne": [col_chiave] + col_tecniche,
-            "colonne_articoli": col_articoli,
+            "colonne": all_headers,
             "records": all_records,
         }
 
@@ -573,8 +539,7 @@ class ExcelDataLoader:
             if not col_chiave_final:
                 col_chiave_final = col_chiave
 
-            col_tecniche, col_articoli = self._split_columns(headers, col_chiave)
-            output_cols = col_tecniche + col_articoli
+            output_cols = [h for h in headers if h != col_chiave]
 
             for row in data:
                 key = row.get(col_chiave)
@@ -582,6 +547,12 @@ class ExcelDataLoader:
                     continue
                 key_str = self._normalize_key(str(key))
                 output = {col: row.get(col) for col in output_cols if row.get(col) is not None}
+                if key_str in all_valori:
+                    self.warnings.append(
+                        f"Chiave duplicata '{key_str}' nel foglio '{entry['foglio']}'. "
+                        f"Il tipo 'costanti' richiede chiavi univoche. "
+                        f"Se servono più righe per la stessa chiave, usare tipo 'catalogo'."
+                    )
                 all_valori[key_str] = output
 
         return {
@@ -721,8 +692,7 @@ class ExcelDataLoader:
             part_field = entries[0].get("partizionato_per", "")
             
             fogli_info = []
-            col_tecniche_all = []
-            col_articoli_all = []
+            col_output_all = []
             
             for entry in entries:
                 foglio = entry["foglio"]
@@ -746,12 +716,8 @@ class ExcelDataLoader:
                         col_chiave = self._normalize_key(
                             entry.get("colonna_chiave", ""))
                         for h in headers_norm:
-                            if h.startswith("art_"):
-                                if h not in col_articoli_all:
-                                    col_articoli_all.append(h)
-                            elif h != col_chiave:
-                                if h not in col_tecniche_all:
-                                    col_tecniche_all.append(h)
+                            if h != col_chiave and h not in col_output_all:
+                                col_output_all.append(h)
                 fogli_info.append(info)
 
             tabella_info = {
@@ -760,8 +726,7 @@ class ExcelDataLoader:
                 "colonna_chiave": entries[0].get("colonna_chiave", ""),
                 "tipo_chiave": entries[0].get("tipo_chiave", ""),
                 "fogli": fogli_info,
-                "colonne_tecniche": col_tecniche_all,
-                "colonne_articoli": col_articoli_all,
+                "colonne_output": col_output_all,
             }
             if part_field:
                 tabella_info["partizionato_per"] = part_field

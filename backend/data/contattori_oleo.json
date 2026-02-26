@@ -1,520 +1,1602 @@
 {
-  "tipo": "lookup_range",
-  "partizionato_per": "frequenza_rete",
-  "partizioni": {
-    "50": [
-      {
-        "da": 0,
-        "a": 5.15,
-        "output": {
-          "in_a": 10.4,
-          "dir_cont": "D18",
-          "dir_mors": 10,
-          "dir_filo": 2.5,
-          "st_ks": "D18",
-          "st_km": "D12",
-          "st_mors_rst": 10,
-          "st_mors_uvw": 10,
-          "st_filo_rst": 2.5,
-          "st_filo_uvw": 2.5,
-          "ss_cont": "D18",
-          "ss_mors": 10,
-          "ss_filo": 2.5,
-          "ss_modello": "V40"
+  "tipo": "lookup_multi",
+  "chiavi": [
+    {
+      "colonna": "avviamento_frequenza",
+      "colonna_originale": "avviamento_frequenza",
+      "match": "exact"
+    },
+    {
+      "colonna": "kw",
+      "colonna_originale": "kW",
+      "match": "lte"
+    }
+  ],
+  "records": [
+    {
+      "avviamento_frequenza": "diretto_50",
+      "kw": 4.4,
+      "output": {
+        "in_a": 10.4,
+        "dir_contattore": "D18",
+        "dir_morsetti": 10.0,
+        "dir_filo": 2.5
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D18"
         },
-        "articoli": {
-          "art_cont_dir": "EQ-KM018",
-          "art_mors_dir": "EQ-MRS10"
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D18"
         }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_50",
+      "kw": 5.9,
+      "output": {
+        "in_a": 14.6,
+        "dir_contattore": "D18",
+        "dir_morsetti": 10.0,
+        "dir_filo": 4.0
       },
-      {
-        "da": 5.15,
-        "a": 6.8,
-        "output": {
-          "in_a": 14.6,
-          "dir_cont": "D18",
-          "dir_mors": 10,
-          "dir_filo": 4,
-          "st_ks": "D18",
-          "st_km": "D12",
-          "st_mors_rst": 10,
-          "st_mors_uvw": 10,
-          "st_filo_rst": 2.5,
-          "st_filo_uvw": 2.5,
-          "ss_cont": "D18",
-          "ss_mors": 10,
-          "ss_filo": 2.5,
-          "ss_modello": "V40"
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D18"
         },
-        "articoli": {
-          "art_cont_dir": "EQ-KM018",
-          "art_mors_dir": "EQ-MRS10"
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D18"
         }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_50",
+      "kw": 7.7,
+      "output": {
+        "in_a": 18.5,
+        "dir_contattore": "D25",
+        "dir_morsetti": 10.0,
+        "dir_filo": 4.0
       },
-      {
-        "da": 6.8,
-        "a": 8.65,
-        "output": {
-          "in_a": 18.5,
-          "dir_cont": "D25",
-          "dir_mors": 10,
-          "dir_filo": 4,
-          "st_ks": "D18",
-          "st_km": "D12",
-          "st_mors_rst": 10,
-          "st_mors_uvw": 10,
-          "st_filo_rst": 2.5,
-          "st_filo_uvw": 2.5,
-          "ss_cont": "D18",
-          "ss_mors": 10,
-          "ss_filo": 2.5,
-          "ss_modello": "V40"
+      "materiali": [
+        {
+          "codice": "CONT-D25-KM",
+          "descrizione": "Contattore D25 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D25"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_50",
+      "kw": 9.6,
+      "output": {
+        "in_a": 23.4,
+        "dir_contattore": "D25",
+        "dir_morsetti": 10.0,
+        "dir_filo": 4.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D25-KM",
+          "descrizione": "Contattore D25 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D25"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_50",
+      "kw": 11.8,
+      "output": {
+        "in_a": 27.8,
+        "dir_contattore": "D32",
+        "dir_morsetti": 10.0,
+        "dir_filo": 6.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D32-KM",
+          "descrizione": "Contattore D32 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D32"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_50",
+      "kw": 14.7,
+      "output": {
+        "in_a": 32.0,
+        "dir_contattore": "D50",
+        "dir_morsetti": 16.0,
+        "dir_filo": 10.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D50-KM",
+          "descrizione": "Contattore D50 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D50"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_50",
+      "kw": 18.4,
+      "output": {
+        "in_a": 40.0,
+        "dir_contattore": "D80",
+        "dir_morsetti": 35.0,
+        "dir_filo": 16.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D80-KM",
+          "descrizione": "Contattore D80 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D80"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_50",
+      "kw": 22.1,
+      "output": {
+        "in_a": 47.0,
+        "dir_contattore": "D80",
+        "dir_morsetti": 35.0,
+        "dir_filo": 16.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D80-KM",
+          "descrizione": "Contattore D80 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D80"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_60",
+      "kw": 3.6,
+      "output": {
+        "in_a": 7.9,
+        "dir_contattore": "D18",
+        "dir_morsetti": 10.0,
+        "dir_filo": 2.5
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D18"
         },
-        "articoli": {
-          "art_cont_dir": "EQ-KM025",
-          "art_mors_dir": "EQ-MRS10"
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D18"
         }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_60",
+      "kw": 5.3,
+      "output": {
+        "in_a": 11.4,
+        "dir_contattore": "D18",
+        "dir_morsetti": 10.0,
+        "dir_filo": 2.5
       },
-      {
-        "da": 8.65,
-        "a": 10.7,
-        "output": {
-          "in_a": 23.4,
-          "dir_cont": "D25",
-          "dir_mors": 10,
-          "dir_filo": 4,
-          "st_ks": "D18",
-          "st_km": "D12",
-          "st_mors_rst": 10,
-          "st_mors_uvw": 10,
-          "st_filo_rst": 2.5,
-          "st_filo_uvw": 2.5,
-          "ss_cont": "D18",
-          "ss_mors": 10,
-          "ss_filo": 2.5,
-          "ss_modello": "V40"
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D18"
         },
-        "articoli": {
-          "art_cont_dir": "EQ-KM025",
-          "art_mors_dir": "EQ-MRS10"
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D18"
         }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_60",
+      "kw": 7.3,
+      "output": {
+        "in_a": 15.0,
+        "dir_contattore": "D25",
+        "dir_morsetti": 16.0,
+        "dir_filo": 4.0
       },
-      {
-        "da": 10.7,
-        "a": 13.25,
-        "output": {
-          "in_a": 27.8,
-          "dir_cont": "D32",
-          "dir_mors": 10,
-          "dir_filo": 6,
-          "st_ks": "D25",
-          "st_km": "D18",
-          "st_mors_rst": 10,
-          "st_mors_uvw": 10,
-          "st_filo_rst": 4,
-          "st_filo_uvw": 4,
-          "ss_cont": "D25",
-          "ss_mors": 10,
-          "ss_filo": 4,
-          "ss_modello": "V40"
+      "materiali": [
+        {
+          "codice": "CONT-D25-KM",
+          "descrizione": "Contattore D25 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D25"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_60",
+      "kw": 9.2,
+      "output": {
+        "in_a": 18.9,
+        "dir_contattore": "D25",
+        "dir_morsetti": 16.0,
+        "dir_filo": 4.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D25-KM",
+          "descrizione": "Contattore D25 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D25"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_60",
+      "kw": 11.0,
+      "output": {
+        "in_a": 23.1,
+        "dir_contattore": "D32",
+        "dir_morsetti": 16.0,
+        "dir_filo": 6.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D32-KM",
+          "descrizione": "Contattore D32 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D32"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_60",
+      "kw": 15.0,
+      "output": {
+        "in_a": 31.0,
+        "dir_contattore": "D50",
+        "dir_morsetti": 16.0,
+        "dir_filo": 10.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D50-KM",
+          "descrizione": "Contattore D50 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D50"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_60",
+      "kw": 18.5,
+      "output": {
+        "in_a": 36.0,
+        "dir_contattore": "D50",
+        "dir_morsetti": 35.0,
+        "dir_filo": 10.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D50-KM",
+          "descrizione": "Contattore D50 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D50"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_60",
+      "kw": 24.0,
+      "output": {
+        "in_a": 46.0,
+        "dir_contattore": "D80",
+        "dir_morsetti": 35.0,
+        "dir_filo": 16.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D80-KM",
+          "descrizione": "Contattore D80 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D80"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "diretto_60",
+      "kw": 29.0,
+      "output": {
+        "in_a": 54.0,
+        "dir_contattore": "D80",
+        "dir_morsetti": 35.0,
+        "dir_filo": 16.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D80-KM",
+          "descrizione": "Contattore D80 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "dir_contattore",
+          "from_value": "D80"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_50",
+      "kw": 4.4,
+      "output": {
+        "in_a": 10.4,
+        "st_ks": "D18",
+        "st_km": "D12",
+        "st_mors_rst": 10.0,
+        "st_mors_uvw": 10.0,
+        "st_filo_rst": 2.5,
+        "st_filo_uvw": 2.5
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
         },
-        "articoli": {
-          "art_cont_dir": "EQ-KM032",
-          "art_mors_dir": "EQ-MRS10"
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
         }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_50",
+      "kw": 5.9,
+      "output": {
+        "in_a": 14.6,
+        "st_ks": "D18",
+        "st_km": "D12",
+        "st_mors_rst": 10.0,
+        "st_mors_uvw": 10.0,
+        "st_filo_rst": 2.5,
+        "st_filo_uvw": 2.5
       },
-      {
-        "da": 13.25,
-        "a": 16.55,
-        "output": {
-          "in_a": 32,
-          "dir_cont": "D50",
-          "dir_mors": 16,
-          "dir_filo": 10,
-          "st_ks": "D32",
-          "st_km": "D25",
-          "st_mors_rst": 10,
-          "st_mors_uvw": 10,
-          "st_filo_rst": 6,
-          "st_filo_uvw": 6,
-          "ss_cont": "D25",
-          "ss_mors": 10,
-          "ss_filo": 4,
-          "ss_modello": "V40"
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
         },
-        "articoli": {
-          "art_cont_dir": "EQ-KM050",
-          "art_mors_dir": "EQ-MRS16"
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
         }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_50",
+      "kw": 7.7,
+      "output": {
+        "in_a": 18.5,
+        "st_ks": "D18",
+        "st_km": "D12",
+        "st_mors_rst": 10.0,
+        "st_mors_uvw": 10.0,
+        "st_filo_rst": 2.5,
+        "st_filo_uvw": 2.5
       },
-      {
-        "da": 16.55,
-        "a": 20.25,
-        "output": {
-          "in_a": 40,
-          "dir_cont": "D80",
-          "dir_mors": 35,
-          "dir_filo": 16,
-          "st_ks": "D50",
-          "st_km": "D32",
-          "st_mors_rst": 16,
-          "st_mors_uvw": 16,
-          "st_filo_rst": 10,
-          "st_filo_uvw": 10,
-          "ss_cont": "D32",
-          "ss_mors": 10,
-          "ss_filo": 6,
-          "ss_modello": "V40"
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
         },
-        "articoli": {
-          "art_cont_dir": "EQ-KM080",
-          "art_mors_dir": "EQ-MRS35"
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
         }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_50",
+      "kw": 9.6,
+      "output": {
+        "in_a": 23.4,
+        "st_ks": "D18",
+        "st_km": "D12",
+        "st_mors_rst": 10.0,
+        "st_mors_uvw": 10.0,
+        "st_filo_rst": 2.5,
+        "st_filo_uvw": 2.5
       },
-      {
-        "da": 20.25,
-        "a": 25.75,
-        "output": {
-          "in_a": 47,
-          "dir_cont": "D80",
-          "dir_mors": 35,
-          "dir_filo": 16,
-          "st_ks": "D50",
-          "st_km": "D32",
-          "st_mors_rst": 16,
-          "st_mors_uvw": 16,
-          "st_filo_rst": 10,
-          "st_filo_uvw": 10,
-          "ss_cont": "D50",
-          "ss_mors": 16,
-          "ss_filo": 10,
-          "ss_modello": "V70"
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
         },
-        "articoli": {
-          "art_cont_dir": "EQ-KM080",
-          "art_mors_dir": "EQ-MRS35"
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
         }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_50",
+      "kw": 11.8,
+      "output": {
+        "in_a": 27.8,
+        "st_ks": "D25",
+        "st_km": "D18",
+        "st_mors_rst": 10.0,
+        "st_mors_uvw": 10.0,
+        "st_filo_rst": 4.0,
+        "st_filo_uvw": 4.0
       },
-      {
-        "da": 25.75,
-        "a": 33.1,
-        "output": {
-          "in_a": 63,
-          "st_ks": "D80",
-          "st_km": "D50",
-          "st_mors_rst": 35,
-          "st_mors_uvw": 35,
-          "st_filo_rst": 16,
-          "st_filo_uvw": 16,
-          "ss_cont": "D50",
-          "ss_mors": 16,
-          "ss_filo": 10,
-          "ss_modello": "V70"
+      "materiali": [
+        {
+          "codice": "CONT-D25-KM",
+          "descrizione": "Contattore D25 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D25"
+        },
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_km",
+          "from_value": "D18"
+        },
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_km",
+          "from_value": "D18"
         }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_50",
+      "kw": 14.7,
+      "output": {
+        "in_a": 32.0,
+        "st_ks": "D32",
+        "st_km": "D25",
+        "st_mors_rst": 10.0,
+        "st_mors_uvw": 10.0,
+        "st_filo_rst": 6.0,
+        "st_filo_uvw": 6.0
       },
-      {
-        "da": 33.1,
-        "a": 40.45,
-        "output": {
-          "in_a": 77.3,
-          "st_ks": "D80",
-          "st_km": "D50",
-          "st_mors_rst": 35,
-          "st_mors_uvw": 35,
-          "st_filo_rst": 16,
-          "st_filo_uvw": 16,
-          "ss_cont": "D80",
-          "ss_mors": 35,
-          "ss_filo": 16,
-          "ss_modello": "V70"
+      "materiali": [
+        {
+          "codice": "CONT-D32-KM",
+          "descrizione": "Contattore D32 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D32"
+        },
+        {
+          "codice": "CONT-D25-KM",
+          "descrizione": "Contattore D25 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_km",
+          "from_value": "D25"
         }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_50",
+      "kw": 18.4,
+      "output": {
+        "in_a": 40.0,
+        "st_ks": "D50",
+        "st_km": "D32",
+        "st_mors_rst": 16.0,
+        "st_mors_uvw": 16.0,
+        "st_filo_rst": 10.0,
+        "st_filo_uvw": 10.0
       },
-      {
-        "da": 40.45,
-        "a": 51.45,
-        "output": {
-          "in_a": 91.4,
-          "ss_modello": "V105"
+      "materiali": [
+        {
+          "codice": "CONT-D50-KM",
+          "descrizione": "Contattore D50 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D50"
+        },
+        {
+          "codice": "CONT-D32-KM",
+          "descrizione": "Contattore D32 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_km",
+          "from_value": "D32"
         }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_50",
+      "kw": 22.1,
+      "output": {
+        "in_a": 47.0,
+        "st_ks": "D50",
+        "st_km": "D32",
+        "st_mors_rst": 16.0,
+        "st_mors_uvw": 16.0,
+        "st_filo_rst": 10.0,
+        "st_filo_uvw": 10.0
       },
-      {
-        "da": 51.45,
-        "a": 66.15,
-        "output": {
-          "in_a": 119.1,
-          "ss_modello": "V105"
+      "materiali": [
+        {
+          "codice": "CONT-D50-KM",
+          "descrizione": "Contattore D50 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D50"
+        },
+        {
+          "codice": "CONT-D32-KM",
+          "descrizione": "Contattore D32 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_km",
+          "from_value": "D32"
         }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_50",
+      "kw": 29.4,
+      "output": {
+        "in_a": 63.0,
+        "st_ks": "D80",
+        "st_km": "D50",
+        "st_mors_rst": 35.0,
+        "st_mors_uvw": 35.0,
+        "st_filo_rst": 16.0,
+        "st_filo_uvw": 16.0
       },
-      {
-        "da": 66.15,
-        "a": null,
-        "output": {
-          "in_a": 146.3,
-          "ss_modello": "V150"
+      "materiali": [
+        {
+          "codice": "CONT-D80-KM",
+          "descrizione": "Contattore D80 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D80"
+        },
+        {
+          "codice": "CONT-D50-KM",
+          "descrizione": "Contattore D50 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_km",
+          "from_value": "D50"
         }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_50",
+      "kw": 36.8,
+      "output": {
+        "in_a": 77.3,
+        "st_ks": "D80",
+        "st_km": "D50",
+        "st_mors_rst": 35.0,
+        "st_mors_uvw": 35.0,
+        "st_filo_rst": 16.0,
+        "st_filo_uvw": 16.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D80-KM",
+          "descrizione": "Contattore D80 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D80"
+        },
+        {
+          "codice": "CONT-D50-KM",
+          "descrizione": "Contattore D50 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_km",
+          "from_value": "D50"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_60",
+      "kw": 3.6,
+      "output": {
+        "in_a": 7.9,
+        "st_ks": "D18",
+        "st_mors_rst": 10.0,
+        "st_mors_uvw": 10.0,
+        "st_filo_rst": 10.0,
+        "st_filo_uvw": 10.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
+        },
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_60",
+      "kw": 5.3,
+      "output": {
+        "in_a": 11.4,
+        "st_ks": "D18",
+        "st_mors_rst": 10.0,
+        "st_mors_uvw": 10.0,
+        "st_filo_rst": 10.0,
+        "st_filo_uvw": 10.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
+        },
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_60",
+      "kw": 7.3,
+      "output": {
+        "in_a": 15.0,
+        "st_ks": "D18",
+        "st_mors_rst": 10.0,
+        "st_mors_uvw": 10.0,
+        "st_filo_rst": 10.0,
+        "st_filo_uvw": 10.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
+        },
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_60",
+      "kw": 9.2,
+      "output": {
+        "in_a": 18.9,
+        "st_ks": "D18",
+        "st_mors_rst": 10.0,
+        "st_mors_uvw": 10.0,
+        "st_filo_rst": 10.0,
+        "st_filo_uvw": 10.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
+        },
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D18"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_60",
+      "kw": 11.0,
+      "output": {
+        "in_a": 23.1,
+        "st_ks": "D25",
+        "st_mors_rst": 16.0,
+        "st_mors_uvw": 16.0,
+        "st_filo_rst": 16.0,
+        "st_filo_uvw": 16.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D25-KM",
+          "descrizione": "Contattore D25 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D25"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_60",
+      "kw": 15.0,
+      "output": {
+        "in_a": 31.0,
+        "st_ks": "D32",
+        "st_mors_rst": 16.0,
+        "st_mors_uvw": 16.0,
+        "st_filo_rst": 16.0,
+        "st_filo_uvw": 16.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D32-KM",
+          "descrizione": "Contattore D32 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D32"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_60",
+      "kw": 18.5,
+      "output": {
+        "in_a": 36.0,
+        "st_ks": "D50",
+        "st_mors_rst": 35.0,
+        "st_mors_uvw": 35.0,
+        "st_filo_rst": 35.0,
+        "st_filo_uvw": 35.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D50-KM",
+          "descrizione": "Contattore D50 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D50"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_60",
+      "kw": 24.0,
+      "output": {
+        "in_a": 46.0,
+        "st_ks": "D80",
+        "st_mors_rst": 35.0,
+        "st_mors_uvw": 35.0,
+        "st_filo_rst": 35.0,
+        "st_filo_uvw": 35.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D80-KM",
+          "descrizione": "Contattore D80 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D80"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_60",
+      "kw": 29.0,
+      "output": {
+        "in_a": 54.0,
+        "st_ks": "D80",
+        "st_mors_rst": 35.0,
+        "st_mors_uvw": 35.0,
+        "st_filo_rst": 35.0,
+        "st_filo_uvw": 35.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D80-KM",
+          "descrizione": "Contattore D80 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D80"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "stella_triangolo_60",
+      "kw": 37.0,
+      "output": {
+        "in_a": 70.0,
+        "st_ks": "D80",
+        "st_mors_rst": 35.0,
+        "st_mors_uvw": 35.0,
+        "st_filo_rst": 35.0,
+        "st_filo_uvw": 35.0
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D80-KM",
+          "descrizione": "Contattore D80 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "st_ks",
+          "from_value": "D80"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_50",
+      "kw": 4.4,
+      "output": {
+        "in_a": 10.4,
+        "ss_contattore": "D18",
+        "ss_morsetti": 10.0,
+        "ss_filo": 2.5,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        },
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_50",
+      "kw": 5.9,
+      "output": {
+        "in_a": 14.6,
+        "ss_contattore": "D18",
+        "ss_morsetti": 10.0,
+        "ss_filo": 2.5,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        },
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_50",
+      "kw": 7.7,
+      "output": {
+        "in_a": 18.5,
+        "ss_contattore": "D18",
+        "ss_morsetti": 10.0,
+        "ss_filo": 2.5,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        },
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_50",
+      "kw": 9.6,
+      "output": {
+        "in_a": 23.4,
+        "ss_contattore": "D18",
+        "ss_morsetti": 10.0,
+        "ss_filo": 2.5,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        },
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_50",
+      "kw": 11.8,
+      "output": {
+        "in_a": 27.8,
+        "ss_contattore": "D25",
+        "ss_morsetti": 10.0,
+        "ss_filo": 4.0,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D25-KM",
+          "descrizione": "Contattore D25 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D25"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_50",
+      "kw": 14.7,
+      "output": {
+        "in_a": 32.0,
+        "ss_contattore": "D25",
+        "ss_morsetti": 10.0,
+        "ss_filo": 4.0,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D25-KM",
+          "descrizione": "Contattore D25 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D25"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_50",
+      "kw": 18.4,
+      "output": {
+        "in_a": 40.0,
+        "ss_contattore": "D32",
+        "ss_morsetti": 10.0,
+        "ss_filo": 6.0,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D32-KM",
+          "descrizione": "Contattore D32 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D32"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_50",
+      "kw": 22.1,
+      "output": {
+        "in_a": 47.0,
+        "ss_contattore": "D50",
+        "ss_morsetti": 16.0,
+        "ss_filo": 10.0,
+        "ss_modello": "V70"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D50-KM",
+          "descrizione": "Contattore D50 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D50"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_50",
+      "kw": 29.4,
+      "output": {
+        "in_a": 63.0,
+        "ss_contattore": "D50",
+        "ss_morsetti": 16.0,
+        "ss_filo": 10.0,
+        "ss_modello": "V70"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D50-KM",
+          "descrizione": "Contattore D50 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D50"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_50",
+      "kw": 36.8,
+      "output": {
+        "in_a": 77.3,
+        "ss_contattore": "D80",
+        "ss_morsetti": 35.0,
+        "ss_filo": 16.0,
+        "ss_modello": "V70"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D80-KM",
+          "descrizione": "Contattore D80 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D80"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_50",
+      "kw": 44.1,
+      "output": {
+        "in_a": 91.4,
+        "ss_modello": "V105"
       }
-    ],
-    "60": [
-      {
-        "da": 0,
-        "a": 4.45,
-        "output": {
-          "in_a": 7.9,
-          "dir_cont": "D18",
-          "dir_mors": 10,
-          "dir_filo": 2.5,
-          "st_ks": "D18",
-          "st_mors_rst": 10,
-          "st_mors_uvw": 10,
-          "st_filo_rst": 10,
-          "st_filo_uvw": 10,
-          "ss_cont": "D18",
-          "ss_mors": 10,
-          "ss_filo": 4,
-          "ss_modello": "V40"
-        },
-        "articoli": {
-          "art_cont_dir": "EQ-KM018",
-          "art_mors_dir": "EQ-MRS10"
-        }
-      },
-      {
-        "da": 4.45,
-        "a": 6.3,
-        "output": {
-          "in_a": 11.4,
-          "dir_cont": "D18",
-          "dir_mors": 10,
-          "dir_filo": 2.5,
-          "st_ks": "D18",
-          "st_mors_rst": 10,
-          "st_mors_uvw": 10,
-          "st_filo_rst": 10,
-          "st_filo_uvw": 10,
-          "ss_cont": "D18",
-          "ss_mors": 10,
-          "ss_filo": 4,
-          "ss_modello": "V40"
-        },
-        "articoli": {
-          "art_cont_dir": "EQ-KM018",
-          "art_mors_dir": "EQ-MRS10"
-        }
-      },
-      {
-        "da": 6.3,
-        "a": 8.25,
-        "output": {
-          "in_a": 15,
-          "dir_cont": "D25",
-          "dir_mors": 16,
-          "dir_filo": 4,
-          "st_ks": "D18",
-          "st_mors_rst": 10,
-          "st_mors_uvw": 10,
-          "st_filo_rst": 10,
-          "st_filo_uvw": 10,
-          "ss_cont": "D18",
-          "ss_mors": 10,
-          "ss_filo": 4,
-          "ss_modello": "V40"
-        },
-        "articoli": {
-          "art_cont_dir": "EQ-KM025",
-          "art_mors_dir": "EQ-MRS16"
-        }
-      },
-      {
-        "da": 8.25,
-        "a": 10.35,
-        "output": {
-          "in_a": 18.9,
-          "dir_cont": "D25",
-          "dir_mors": 16,
-          "dir_filo": 4,
-          "st_ks": "D18",
-          "st_mors_rst": 10,
-          "st_mors_uvw": 10,
-          "st_filo_rst": 10,
-          "st_filo_uvw": 10,
-          "ss_cont": "D18",
-          "ss_mors": 10,
-          "ss_filo": 4,
-          "ss_modello": "V40"
-        },
-        "articoli": {
-          "art_cont_dir": "EQ-KM025",
-          "art_mors_dir": "EQ-MRS16"
-        }
-      },
-      {
-        "da": 10.35,
-        "a": 13.2,
-        "output": {
-          "in_a": 23.5,
-          "dir_cont": "D32",
-          "dir_mors": 16,
-          "dir_filo": 6,
-          "st_ks": "D25",
-          "st_mors_rst": 16,
-          "st_mors_uvw": 16,
-          "st_filo_rst": 16,
-          "st_filo_uvw": 16,
-          "ss_cont": "D25",
-          "ss_mors": 10,
-          "ss_filo": 6,
-          "ss_modello": "V40"
-        },
-        "articoli": {
-          "art_cont_dir": "EQ-KM032",
-          "art_mors_dir": "EQ-MRS16"
-        }
-      },
-      {
-        "da": 13.2,
-        "a": 16.95,
-        "output": {
-          "in_a": 30.3,
-          "dir_cont": "D50",
-          "dir_mors": 16,
-          "dir_filo": 10,
-          "st_ks": "D32",
-          "st_mors_rst": 16,
-          "st_mors_uvw": 16,
-          "st_filo_rst": 16,
-          "st_filo_uvw": 16,
-          "ss_cont": "D25",
-          "ss_mors": 10,
-          "ss_filo": 6,
-          "ss_modello": "V40"
-        },
-        "articoli": {
-          "art_cont_dir": "EQ-KM050",
-          "art_mors_dir": "EQ-MRS16"
-        }
-      },
-      {
-        "da": 16.95,
-        "a": 21.4,
-        "output": {
-          "in_a": 38.1,
-          "dir_cont": "D50",
-          "dir_mors": 35,
-          "dir_filo": 10,
-          "st_ks": "D50",
-          "st_mors_rst": 35,
-          "st_mors_uvw": 35,
-          "st_filo_rst": 35,
-          "st_filo_uvw": 35,
-          "ss_cont": "D32",
-          "ss_mors": 16,
-          "ss_filo": 6,
-          "ss_modello": "V40"
-        },
-        "articoli": {
-          "art_cont_dir": "EQ-KM050",
-          "art_mors_dir": "EQ-MRS35"
-        }
-      },
-      {
-        "da": 21.4,
-        "a": 26.8,
-        "output": {
-          "in_a": 47.6,
-          "dir_cont": "D80",
-          "dir_mors": 35,
-          "dir_filo": 16,
-          "st_ks": "D80",
-          "st_mors_rst": 35,
-          "st_mors_uvw": 35,
-          "st_filo_rst": 35,
-          "st_filo_uvw": 35,
-          "ss_cont": "D50",
-          "ss_mors": 16,
-          "ss_filo": 10,
-          "ss_modello": "V40"
-        },
-        "articoli": {
-          "art_cont_dir": "EQ-KM080",
-          "art_mors_dir": "EQ-MRS35"
-        }
-      },
-      {
-        "da": 26.8,
-        "a": 33.8,
-        "output": {
-          "in_a": 58,
-          "st_ks": "D80",
-          "st_mors_rst": 35,
-          "st_mors_uvw": 35,
-          "st_filo_rst": 35,
-          "st_filo_uvw": 35,
-          "ss_cont": "D50",
-          "ss_mors": 16,
-          "ss_filo": 10,
-          "ss_modello": "V70"
-        }
-      },
-      {
-        "da": 33.8,
-        "a": 42.65,
-        "output": {
-          "in_a": 73.8,
-          "st_ks": "D80",
-          "st_mors_rst": 35,
-          "st_mors_uvw": 35,
-          "st_filo_rst": 35,
-          "st_filo_uvw": 35,
-          "ss_cont": "D80",
-          "ss_mors": 35,
-          "ss_filo": 16,
-          "ss_modello": "V70"
-        }
-      },
-      {
-        "da": 42.65,
-        "a": 53.0,
-        "output": {
-          "in_a": 92.3,
-          "ss_modello": "V105"
-        }
-      },
-      {
-        "da": 53.0,
-        "a": 64.75,
-        "output": {
-          "in_a": 113,
-          "ss_modello": "V105"
-        }
-      },
-      {
-        "da": 64.75,
-        "a": null,
-        "output": {
-          "in_a": 137,
-          "ss_modello": "V150"
-        }
+    },
+    {
+      "avviamento_frequenza": "soft_starter_50",
+      "kw": 58.8,
+      "output": {
+        "in_a": 119.1,
+        "ss_modello": "V105"
       }
-    ]
-  },
-  "parametro_lookup": "kw",
+    },
+    {
+      "avviamento_frequenza": "soft_starter_50",
+      "kw": 73.5,
+      "output": {
+        "in_a": 146.3,
+        "ss_modello": "V150"
+      }
+    },
+    {
+      "avviamento_frequenza": "soft_starter_60",
+      "kw": 3.6,
+      "output": {
+        "in_a": 7.9,
+        "ss_contattore": "D18",
+        "ss_morsetti": 10.0,
+        "ss_filo": 4.0,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        },
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_60",
+      "kw": 5.3,
+      "output": {
+        "in_a": 11.4,
+        "ss_contattore": "D18",
+        "ss_morsetti": 10.0,
+        "ss_filo": 4.0,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        },
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_60",
+      "kw": 7.3,
+      "output": {
+        "in_a": 15.0,
+        "ss_contattore": "D18",
+        "ss_morsetti": 10.0,
+        "ss_filo": 4.0,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        },
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_60",
+      "kw": 9.2,
+      "output": {
+        "in_a": 18.9,
+        "ss_contattore": "D18",
+        "ss_morsetti": 10.0,
+        "ss_filo": 4.0,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        },
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D18"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_60",
+      "kw": 11.0,
+      "output": {
+        "in_a": 23.1,
+        "ss_contattore": "D25",
+        "ss_morsetti": 10.0,
+        "ss_filo": 6.0,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D25-KM",
+          "descrizione": "Contattore D25 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D25"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_60",
+      "kw": 15.0,
+      "output": {
+        "in_a": 31.0,
+        "ss_contattore": "D25",
+        "ss_morsetti": 10.0,
+        "ss_filo": 6.0,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D25-KM",
+          "descrizione": "Contattore D25 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D25"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_60",
+      "kw": 18.5,
+      "output": {
+        "in_a": 36.0,
+        "ss_contattore": "D32",
+        "ss_morsetti": 16.0,
+        "ss_filo": 6.0,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D32-KM",
+          "descrizione": "Contattore D32 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D32"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_60",
+      "kw": 24.0,
+      "output": {
+        "in_a": 46.0,
+        "ss_contattore": "D50",
+        "ss_morsetti": 16.0,
+        "ss_filo": 10.0,
+        "ss_modello": "V40"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D50-KM",
+          "descrizione": "Contattore D50 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D50"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_60",
+      "kw": 29.0,
+      "output": {
+        "in_a": 54.0,
+        "ss_contattore": "D50",
+        "ss_morsetti": 16.0,
+        "ss_filo": 10.0,
+        "ss_modello": "V70"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D50-KM",
+          "descrizione": "Contattore D50 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D50"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_60",
+      "kw": 37.0,
+      "output": {
+        "in_a": 70.0,
+        "ss_contattore": "D80",
+        "ss_morsetti": 35.0,
+        "ss_filo": 16.0,
+        "ss_modello": "V70"
+      },
+      "materiali": [
+        {
+          "codice": "CONT-D80-KM",
+          "descrizione": "Contattore D80 marcia (KM)",
+          "quantita": 1,
+          "categoria": "Materiale Automatico",
+          "unita_misura": "pz",
+          "from_output": "ss_contattore",
+          "from_value": "D80"
+        }
+      ]
+    },
+    {
+      "avviamento_frequenza": "soft_starter_60",
+      "kw": 48.0,
+      "output": {
+        "in_a": 90.0,
+        "ss_modello": "V105"
+      }
+    },
+    {
+      "avviamento_frequenza": "soft_starter_60",
+      "kw": 57.0,
+      "output": {
+        "in_a": 105.0,
+        "ss_modello": "V105"
+      }
+    },
+    {
+      "avviamento_frequenza": "soft_starter_60",
+      "kw": 72.0,
+      "output": {
+        "in_a": 131.0,
+        "ss_modello": "V150"
+      }
+    }
+  ],
   "_meta": {
     "nome": "contattori_oleo",
-    "tipo": "lookup_range",
-    "tipo_engine": "lookup_range",
-    "fogli_origine": [
-      "50Hz_400V",
-      "60Hz_440V"
+    "generato_il": "2026-02-26T15:42:55.901268",
+    "file_origine": "esempio_contattori_oleo.xlsx",
+    "foglio": "contattori_oleo",
+    "righe": 63,
+    "colonne_chiave": [
+      "avviamento_frequenza",
+      "kW"
     ],
-    "file_origine": "tmpiat5jhl9.xlsx",
-    "generato_il": "2026-02-22T20:55:02.874357",
-    "righe_totali": 26,
-    "colonna_chiave": "kW",
-    "tipo_chiave": "numero",
-    "partizionato_per": "frequenza_rete",
-    "valori_partizione": [
-      "50",
-      "60"
+    "colonne_output": [
+      "IN (A)",
+      "DIR: Contattore",
+      "DIR: Morsetti",
+      "DIR: Filo",
+      "ST: KS",
+      "ST: KM",
+      "ST: Mors RST",
+      "ST: Mors UVW",
+      "ST: Filo RST",
+      "ST: Filo UVW",
+      "SS: Contattore",
+      "SS: Morsetti",
+      "SS: Filo",
+      "SS: Modello"
     ]
   }
 }

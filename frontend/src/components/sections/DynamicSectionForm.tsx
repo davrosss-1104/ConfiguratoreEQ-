@@ -125,7 +125,7 @@ export default function DynamicSectionForm({
           const raw = valoriSalvati[campo.codice];
           if (campo.tipo === 'numero') {
             merged[campo.codice] = parseFloat(raw) || 0;
-          } else if (campo.tipo === 'booleano') {
+          } else if (campo.tipo === 'booleano' || campo.tipo === 'checkbox') {
             merged[campo.codice] = raw === 'true' || raw === '1' || raw === true;
           } else {
             merged[campo.codice] = raw;
@@ -134,13 +134,13 @@ export default function DynamicSectionForm({
           // Fallback: default del campo (non ancora auto-popolato dal backend)
           if (campo.tipo === 'numero') {
             merged[campo.codice] = parseFloat(campo.valore_default) || 0;
-          } else if (campo.tipo === 'booleano') {
+          } else if (campo.tipo === 'booleano' || campo.tipo === 'checkbox') {
             merged[campo.codice] = campo.valore_default === 'true' || campo.valore_default === '1';
           } else {
             merged[campo.codice] = campo.valore_default;
           }
         } else {
-          merged[campo.codice] = campo.tipo === 'booleano' ? false : campo.tipo === 'numero' ? 0 : '';
+          merged[campo.codice] = (campo.tipo === 'booleano' || campo.tipo === 'checkbox') ? false : campo.tipo === 'numero' ? 0 : '';
         }
       }
       setValori(merged);
@@ -291,12 +291,13 @@ export default function DynamicSectionForm({
         );
 
       case 'booleano':
+      case 'checkbox':
         return (
           <div key={campo.codice} className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 ${isReadonly ? 'bg-gray-50 opacity-60' : ''}`}>
             <Checkbox
               id={campo.codice}
-              checked={Boolean(valore)}
-              onCheckedChange={(checked) => handleChange(campo.codice, !!checked)}
+              checked={valore === true || valore === 'true' || valore === 'True' || valore === '1'}
+              onCheckedChange={(checked) => handleChange(campo.codice, checked ? 'true' : 'false')}
               disabled={isReadonly}
             />
             <div className="space-y-1 leading-none">

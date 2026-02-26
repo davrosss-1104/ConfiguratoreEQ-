@@ -39,17 +39,21 @@ interface AnalyzeResult {
   all_fields: AllField[];
 }
 
+interface ArticoloMapping {
+  codice_articolo: string;
+  descrizione_articolo: string;
+  articolo_id: number;
+  quantita?: number;
+}
+
 interface ValueMapping {
   tipo: 'articolo' | 'parametro' | '';
+  // Legacy single article (backward compat)
   codice_articolo?: string;
   descrizione_articolo?: string;
   articolo_id?: number;
-  articoli?: Array<{
-    codice: string;
-    descrizione: string;
-    id?: number;
-    quantita: number;
-  }>;
+  // Multi-article support
+  articoli?: ArticoloMapping[];
 }
 
 // Match type per colonna chiave
@@ -107,11 +111,6 @@ export default function ImportExcelPage({ onNavigate }: { onNavigate?: (section:
   // Step 4
   const [generaResult, setGeneraResult] = useState<GeneraResult | null>(null);
 
-  // _MAPPA detection
-  const [mappaDetected, setMappaDetected] = useState(false);
-  const [mappaImporting, setMappaImporting] = useState(false);
-  const [mappaResult, setMappaResult] = useState<any>(null);
-
   const reset = () => {
     setStep(1); setFile(null); setLoading(false); setError(null);
     setParseResult(null); setSelectedSheet(''); setHeaderRow(1);
@@ -119,28 +118,6 @@ export default function ImportExcelPage({ onNavigate }: { onNavigate?: (section:
     setKeyConfigs({});
     setAnalyzeResult(null); setFieldMappings({}); setValueMappings({});
     setGeneraResult(null);
-    setMappaDetected(false); setMappaImporting(false); setMappaResult(null);
-  };
-
-  // ── Import via _MAPPA ──
-  const doMappaImport = async () => {
-    if (!file) return;
-    setMappaImporting(true); setError(null);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch(`${API_BASE}/data-tables/upload?overwrite=true`, {
-        method: 'POST', body: formData,
-      });
-      const data = await res.json();
-      if (data.errori && data.errori.length > 0) {
-        setError(data.errori.join('\n'));
-      }
-      setMappaResult(data);
-    } catch (e: any) {
-      setError(e.message || 'Errore di connessione');
-    }
-    setMappaImporting(false);
   };
 
   // ── Step 1: Upload & Parse ──
@@ -157,10 +134,6 @@ export default function ImportExcelPage({ onNavigate }: { onNavigate?: (section:
       });
       const data: ParseResult = await res.json();
       setParseResult(data);
-      // Detect _MAPPA sheet
-      const hasMappa = data.sheets.some(s => s === '_MAPPA');
-      setMappaDetected(hasMappa);
-      setMappaResult(null);
       if (!selectedSheet && data.selected_sheet) setSelectedSheet(data.selected_sheet);
     } catch (e: any) {
       setError(e.message || 'Errore di connessione');
@@ -276,9 +249,7 @@ export default function ImportExcelPage({ onNavigate }: { onNavigate?: (section:
           <Step1Upload file={file} setFile={setFile} parseResult={parseResult}
             selectedSheet={selectedSheet} setSelectedSheet={s => { setSelectedSheet(s); if (file) doParse(file, s, headerRow); }}
             headerRow={headerRow} setHeaderRow={h => { setHeaderRow(h); if (file) doParse(file, selectedSheet, h); }}
-            loading={loading} onParse={f => doParse(f)} onNext={() => setStep(2)}
-            mappaDetected={mappaDetected} mappaImporting={mappaImporting} mappaResult={mappaResult}
-            onMappaImport={doMappaImport} onReset={reset} onNavigate={onNavigate} />
+            loading={loading} onParse={f => doParse(f)} onNext={() => setStep(2)} />
         )}
         {step === 2 && parseResult && (
           <Step2Structure parseResult={parseResult}
@@ -304,32 +275,31 @@ export default function ImportExcelPage({ onNavigate }: { onNavigate?: (section:
 
 // ==========================================
 function StepBadge({ num, label, active, done, onClick }: { num: number; label: string; active: boolean; done: boolean; onClick?: () => void }) {
-  const clickable = done && onClick;
+  const clickable = done && !!onClick;
   return (
-    <div onClick={clickable ? onClick : undefined}
+    <button
+      onClick={clickable ? onClick : undefined}
+      disabled={!clickable}
       className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-      active ? 'bg-blue-100 text-blue-800 font-semibold'
-        : done ? 'text-green-700 hover:bg-green-50 cursor-pointer' : 'text-gray-400'
+      active ? 'bg-blue-100 text-blue-800 font-semibold' : done ? 'text-green-700 hover:bg-green-50 cursor-pointer' : 'text-gray-400 cursor-default'
     }`}>
       <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
         active ? 'bg-blue-600 text-white' : done ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500'
       }`}>{done ? '✓' : num}</div>
       {label}
-    </div>
+    </button>
   );
 }
 
 // ==========================================
 // STEP 1: UPLOAD & ANTEPRIMA
 // ==========================================
-function Step1Upload({ file, setFile, parseResult, selectedSheet, setSelectedSheet, headerRow, setHeaderRow, loading, onParse, onNext, mappaDetected, mappaImporting, mappaResult, onMappaImport, onReset, onNavigate }: {
+function Step1Upload({ file, setFile, parseResult, selectedSheet, setSelectedSheet, headerRow, setHeaderRow, loading, onParse, onNext }: {
   file: File | null; setFile: (f: File | null) => void;
   parseResult: ParseResult | null;
   selectedSheet: string; setSelectedSheet: (s: string) => void;
   headerRow: number; setHeaderRow: (h: number) => void;
   loading: boolean; onParse: (f: File) => void; onNext: () => void;
-  mappaDetected: boolean; mappaImporting: boolean; mappaResult: any;
-  onMappaImport: () => void; onReset: () => void; onNavigate?: (section: string) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -367,103 +337,12 @@ function Step1Upload({ file, setFile, parseResult, selectedSheet, setSelectedShe
 
       {parseResult && (
         <>
-          {/* ── _MAPPA Detection Banner ── */}
-          {mappaDetected && !mappaResult && (
-            <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-5">
-              <div className="flex items-start gap-4">
-                <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Database className="w-5 h-5 text-amber-600" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-semibold text-amber-900">Foglio _MAPPA rilevato</p>
-                  <p className="text-sm text-amber-700 mt-1">
-                    Questo file contiene un foglio <strong>_MAPPA</strong> — è pensato per l'import pipeline
-                    (cataloghi con righe ripetute, utilizzatori multi-uscita).
-                    Il sistema legge l'indice _MAPPA e genera automaticamente le tabelle dati.
-                  </p>
-                  <div className="mt-3 flex items-center gap-3">
-                    <button onClick={onMappaImport} disabled={mappaImporting}
-                      className="flex items-center gap-2 px-5 py-2.5 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 transition-colors disabled:opacity-50">
-                      {mappaImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                      {mappaImporting ? 'Importazione in corso...' : 'Importa via _MAPPA'}
-                    </button>
-                    <span className="text-xs text-amber-600">oppure prosegui col wizard per una ricerca semplice ↓</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── _MAPPA Import Result ── */}
-          {mappaResult && (() => {
-            const hasTabelle = mappaResult.tables_generated && mappaResult.tables_generated.length > 0;
-            const isOk = hasTabelle; // successo se almeno una tabella generata
-            return (
-            <div className={`border-2 rounded-xl p-5 space-y-4 ${isOk ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
-              <div className="flex items-center gap-3">
-                {isOk
-                  ? <CheckCircle2 className="w-6 h-6 text-green-600" />
-                  : <AlertCircle className="w-6 h-6 text-red-600" />}
-                <div>
-                  <p className={`font-semibold ${isOk ? 'text-green-900' : 'text-red-900'}`}>
-                    {isOk ? 'Import completato' : 'Errore nell\'import'}
-                  </p>
-                  <p className={`text-sm ${isOk ? 'text-green-700' : 'text-red-700'}`}>
-                    {hasTabelle ? `${mappaResult.tables_generated.length} tabelle generate` : 'Nessuna tabella generata'}
-                  </p>
-                </div>
-              </div>
-              {hasTabelle && (
-                <div className="bg-white rounded-lg border border-green-200 overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead><tr className="bg-green-100">
-                      <th className="text-left px-4 py-2 font-semibold text-green-800">Tabella</th>
-                      <th className="text-left px-4 py-2 font-semibold text-green-800">File</th>
-                    </tr></thead>
-                    <tbody>
-                      {mappaResult.tables_generated.map((nome: string, i: number) => (
-                        <tr key={i} className="border-t border-green-100">
-                          <td className="px-4 py-2 font-mono text-green-900">{nome}</td>
-                          <td className="px-4 py-2 text-green-700">{mappaResult.files_written?.[i] || ''}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              {!isOk && mappaResult.errors && mappaResult.errors.length > 0 && (
-                <div className="text-sm text-red-700 bg-red-50 rounded-lg p-3">
-                  {mappaResult.errors.map((e: string, i: number) => <p key={i}>❌ {e}</p>)}
-                </div>
-              )}
-              {mappaResult.warnings && mappaResult.warnings.length > 0 && (
-                <div className="text-sm text-amber-700 bg-amber-50 rounded-lg p-3">
-                  {mappaResult.warnings.map((w: string, i: number) => <p key={i}>⚠️ {w}</p>)}
-                </div>
-              )}
-              <div className="flex items-center gap-3 pt-2">
-                <button onClick={onReset}
-                  className="flex items-center gap-2 px-4 py-2 bg-white border border-green-300 text-green-700 rounded-lg hover:bg-green-50 transition-colors">
-                  <RefreshCw className="w-4 h-4" /> Importa un altro file
-                </button>
-                {onNavigate && (
-                  <button onClick={() => onNavigate('pipeline-builder')}
-                    className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors">
-                    <Zap className="w-4 h-4" /> Vai al Pipeline Builder <ChevronRight className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-          );})()}
-
-          {/* ── Normal wizard flow (sheet selector + preview) ── */}
-          {!mappaResult && (<>
           <div className="bg-white border rounded-lg p-4 flex items-center gap-6">
             <div>
               <label className="text-xs text-gray-500 block mb-1">Foglio</label>
               <select value={selectedSheet} onChange={e => setSelectedSheet(e.target.value)}
                 className="border rounded-md px-3 py-1.5 text-sm">
-                {parseResult.sheets.filter(s => s !== '_MAPPA').map(s => <option key={s} value={s}>{s}</option>)}
+                {parseResult.sheets.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div>
@@ -503,17 +382,14 @@ function Step1Upload({ file, setFile, parseResult, selectedSheet, setSelectedShe
               </div>
             </div>
           )}
-        </>)}
         </>
       )}
 
       <div className="flex justify-end">
-        {!mappaResult && (
-          <button disabled={!parseResult || parseResult.columns.length === 0} onClick={onNext}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium transition-colors ${
-              parseResult ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            }`}>Avanti <ChevronRight className="w-4 h-4" /></button>
-        )}
+        <button disabled={!parseResult || parseResult.columns.length === 0} onClick={onNext}
+          className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium transition-colors ${
+            parseResult ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+          }`}>Avanti <ChevronRight className="w-4 h-4" /></button>
       </div>
     </div>
   );
@@ -672,12 +548,12 @@ function Step3Mapping({ analyzeResult, keyColumns, fieldMappings, setFieldMappin
   loading: boolean; onBack: () => void; onGenera: () => void;
 }) {
   const [tab, setTab] = useState<'fields' | 'values'>('fields');
-  const mappedArticlesCount = Object.values(valueMappings).filter(v => v.tipo === 'articolo' && ((v.articoli && v.articoli.length > 0) || v.codice_articolo)).length;
-  // Count only ART: columns for total
-  const artDistinct = Object.entries(analyzeResult.distinct_values)
-    .filter(([col]) => col.toUpperCase().startsWith('ART:') || col.toUpperCase().startsWith('ART '));
-  const totalDistinct = (artDistinct.length > 0 ? artDistinct : Object.entries(analyzeResult.distinct_values))
-    .reduce((s, [, v]) => s + v.length, 0);
+  const mappedArticlesCount = Object.values(valueMappings).reduce((sum, v) => {
+    if (v.tipo !== 'articolo') return sum;
+    return sum + (v.articoli?.length || (v.codice_articolo ? 1 : 0));
+  }, 0);
+  const mappedValuesCount = Object.values(valueMappings).filter(v => v.tipo === 'articolo').length;
+  const totalDistinct = Object.values(analyzeResult.distinct_values).reduce((s, v) => s + v.length, 0);
 
   return (
     <div className="space-y-6">
@@ -715,43 +591,23 @@ function Step3Mapping({ analyzeResult, keyColumns, fieldMappings, setFieldMappin
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2">
             <Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
             <p className="text-xs text-blue-800">
-              Per ogni valore distinto nelle colonne articolo (<code className="bg-blue-100 px-1 rounded">ART:</code>),
-              cercate l'articolo corrispondente nell'anagrafica. Potete aggiungere più articoli per ogni valore.
+              Per ogni valore distinto nelle colonne output, cercate l'articolo corrispondente nell'anagrafica.
+              Se è un parametro tecnico (sezione filo, numero morsetti...), marcatelo come "Parametro".
             </p>
           </div>
-          {(() => {
-            // Mostra solo colonne ART: (o tutte se nessuna ART: trovata)
-            const artEntries = Object.entries(analyzeResult.distinct_values)
-              .filter(([col]) => col.toUpperCase().startsWith('ART:') || col.toUpperCase().startsWith('ART '));
-            const entries = artEntries.length > 0 ? artEntries : Object.entries(analyzeResult.distinct_values);
-            return entries.map(([col, values]) => (
-              <ValueColumnCard key={col} column={col} values={values}
-                valueMappings={valueMappings}
-                onUpdate={(val, m) => setValueMappings({ ...valueMappings, [val]: m })} />
-            ));
-          })()}
-        </div>
-      )}
-
-      {/* Warning campi compositi duplicati */}
-      {Object.entries(fieldMappings).some(([, fm]) =>
-        fm.type === 'composite' && fm.fields &&
-        new Set(fm.fields.filter(f => f)).size < fm.fields.filter(f => f).length
-      ) && (
-        <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-          <span className="font-bold">⚠</span>
-          <span>Uno o più campi compositi hanno campi duplicati. Correggi prima di generare.</span>
+          {Object.entries(analyzeResult.distinct_values).map(([col, values]) => (
+            <ValueColumnCard key={col} column={col} values={values}
+              valueMappings={valueMappings}
+              onUpdate={(val, m) => setValueMappings({ ...valueMappings, [val]: m })} />
+          ))}
         </div>
       )}
 
       <div className="flex justify-between items-center">
         <button onClick={onBack} className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-gray-600 hover:bg-gray-100">
           <ChevronLeft className="w-4 h-4" /> Indietro</button>
-        <span className="text-xs text-gray-400">{mappedArticlesCount}/{totalDistinct} valori mappati</span>
-        <button disabled={loading || Object.entries(fieldMappings).some(([, fm]) =>
-          fm.type === 'composite' && fm.fields &&
-          new Set(fm.fields.filter((f: string) => f)).size < fm.fields.filter((f: string) => f).length
-        )} onClick={onGenera}
+        <span className="text-xs text-gray-400">{mappedArticlesCount} articoli su {mappedValuesCount} valori ({totalDistinct} totali)</span>
+        <button disabled={loading} onClick={onGenera}
           className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium transition-colors ${
             loading ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'
           }`}>
@@ -808,10 +664,6 @@ function FieldMappingRow({ excelCol, candidates, allFields, mapping, onChange }:
     ? fields.every(f => f && !f.startsWith('TODO'))
     : !!(mapping.field && !mapping.field.startsWith('TODO'));
 
-  // Check campi duplicati nel composito
-  const hasDuplicateFields = isComposite && fields.filter(f => f).length > 0
-    && new Set(fields.filter(f => f)).size < fields.filter(f => f).length;
-
   return (
     <div className="p-4 bg-gray-50 rounded-lg space-y-3">
       {/* Header: nome colonna Excel + toggle composito */}
@@ -851,14 +703,7 @@ function FieldMappingRow({ excelCol, candidates, allFields, mapping, onChange }:
 
       {/* Composito: separatore + aggiungi */}
       {isComposite && (
-        <div className="space-y-2 pt-1">
-          {hasDuplicateFields && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
-              <span className="font-bold">⚠ Errore:</span>
-              <span>Ogni parte del composito deve mappare un campo diverso. Campi duplicati produrranno valori errati (es. "Diretto_Diretto" invece di "Diretto_50").</span>
-            </div>
-          )}
-          <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 pt-1">
           <button onClick={addField} className="flex items-center gap-1 px-2 py-1 text-xs bg-white border rounded hover:border-blue-400 text-gray-600">
             <Plus className="w-3 h-3" /> Aggiungi campo
           </button>
@@ -873,7 +718,6 @@ function FieldMappingRow({ excelCol, candidates, allFields, mapping, onChange }:
               {fields.map(f => f ? f.split('.').pop() : '?').join(separator)}
             </code>
           </span>
-          </div>
         </div>
       )}
     </div>
@@ -957,8 +801,13 @@ function ValueColumnCard({ column, values, valueMappings, onUpdate }: {
   const [expanded, setExpanded] = useState(false);
   const mapped = values.filter(v => {
     const m = valueMappings[v];
-    return m?.tipo === 'articolo' && ((m.articoli && m.articoli.length > 0) || m.codice_articolo);
+    return m?.tipo === 'articolo' && (m.codice_articolo || (m.articoli && m.articoli.length > 0));
   }).length;
+  const totalArticles = values.reduce((sum, v) => {
+    const m = valueMappings[v];
+    if (!m || m.tipo !== 'articolo') return sum;
+    return sum + (m.articoli?.length || (m.codice_articolo ? 1 : 0));
+  }, 0);
 
   return (
     <div className="bg-white border rounded-lg overflow-hidden">
@@ -968,7 +817,7 @@ function ValueColumnCard({ column, values, valueMappings, onUpdate }: {
           <Columns className="w-4 h-4 text-gray-500" />
           <span className="font-semibold text-sm text-gray-800">{column}</span>
           <span className="text-xs text-gray-400">{values.length} valori</span>
-          {mapped > 0 && <span className="text-xs bg-green-100 text-green-700 px-1.5 rounded-full">{mapped} mappati</span>}
+          {mapped > 0 && <span className="text-xs bg-green-100 text-green-700 px-1.5 rounded-full">{totalArticles} articoli su {mapped} valori</span>}
         </div>
         {expanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
       </button>
@@ -1012,61 +861,64 @@ function ValueRow({ value, mapping, onChange }: {
     debounceRef.current = setTimeout(() => doSearch(q), 300);
   };
 
-  // Normalize: get articles array (backward compat with single codice_articolo)
-  const articoli = mapping.articoli && mapping.articoli.length > 0
-    ? mapping.articoli
-    : (mapping.codice_articolo ? [{ codice: mapping.codice_articolo, descrizione: mapping.descrizione_articolo || '', id: mapping.articolo_id, quantita: 1 }] : []);
+  // Normalizza: converti formato legacy → articoli array
+  const getArticoli = (): ArticoloMapping[] => {
+    if (mapping.articoli && mapping.articoli.length > 0) return mapping.articoli;
+    if (mapping.codice_articolo) return [{
+      codice_articolo: mapping.codice_articolo,
+      descrizione_articolo: mapping.descrizione_articolo || '',
+      articolo_id: mapping.articolo_id || 0,
+    }];
+    return [];
+  };
+
+  const articoli = getArticoli();
+  const hasArticles = mapping.tipo === 'articolo' && articoli.length > 0;
 
   const addArticolo = (art: ArticoloSearch) => {
-    const next = [...articoli, { codice: art.codice, descrizione: art.descrizione, id: art.id, quantita: 1 }];
-    onChange({ tipo: 'articolo', articoli: next });
+    const newList = [...articoli, {
+      codice_articolo: art.codice,
+      descrizione_articolo: art.descrizione,
+      articolo_id: art.id,
+    }];
+    onChange({ tipo: 'articolo', articoli: newList });
     setSearching(false); setSearchQuery(''); setResults([]);
   };
 
   const removeArticolo = (idx: number) => {
-    const next = articoli.filter((_, i) => i !== idx);
-    if (next.length === 0) {
+    const newList = articoli.filter((_, i) => i !== idx);
+    if (newList.length === 0) {
       onChange({ tipo: '' });
     } else {
-      onChange({ tipo: 'articolo', articoli: next });
+      onChange({ tipo: 'articolo', articoli: newList });
     }
   };
-
-  const updateQuantita = (idx: number, q: number) => {
-    const next = [...articoli];
-    next[idx] = { ...next[idx], quantita: Math.max(1, q) };
-    onChange({ tipo: 'articolo', articoli: next });
-  };
-
-  const isArticolo = mapping.tipo === 'articolo' && articoli.length > 0;
 
   return (
     <div className="py-1">
       <div className="flex items-start gap-3">
         <span className="w-28 flex-shrink-0 font-mono text-sm font-semibold bg-gray-100 px-2 py-0.5 rounded text-gray-800 truncate mt-0.5" title={value}>{value}</span>
-        <ArrowRight className={`w-3.5 h-3.5 flex-shrink-0 mt-1 ${isArticolo ? 'text-green-500' : mapping.tipo === 'parametro' ? 'text-blue-400' : 'text-gray-300'}`} />
-        <div className="flex-1 min-w-0 space-y-1">
+        <ArrowRight className={`w-3.5 h-3.5 flex-shrink-0 mt-1 ${hasArticles ? 'text-green-500' : mapping.tipo === 'parametro' ? 'text-blue-400' : 'text-gray-300'}`} />
+        <div className="flex-1 min-w-0">
           {/* Articoli mappati */}
-          {isArticolo && articoli.map((art, idx) => (
-            <div key={idx} className="flex items-center gap-1.5">
-              <span className="flex-1 px-2.5 py-1 bg-green-50 border border-green-200 rounded text-xs text-green-800 truncate">
-                <Package className="w-3 h-3 inline mr-1" />{art.codice} — {art.descrizione}
-              </span>
-              <div className="flex items-center gap-0.5">
-                <span className="text-[10px] text-gray-400">qtà</span>
-                <input type="number" min={1} value={art.quantita} onChange={e => updateQuantita(idx, parseInt(e.target.value) || 1)}
-                  className="w-12 text-center text-xs border rounded px-1 py-0.5" />
-              </div>
-              <button onClick={() => removeArticolo(idx)} className="p-0.5 text-gray-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
+          {hasArticles && (
+            <div className="space-y-1">
+              {articoli.map((art, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <span className="flex-1 px-2.5 py-1 bg-green-50 border border-green-200 rounded text-xs text-green-800 truncate">
+                    <Package className="w-3 h-3 inline mr-1" />{art.codice_articolo} — {art.descrizione_articolo}
+                  </span>
+                  <button onClick={() => removeArticolo(idx)} className="p-0.5 text-gray-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
+                </div>
+              ))}
+              {/* Bottone aggiungi altro articolo — stessa proposta del primo */}
+              {!searching && (
+                <button onClick={() => { setSearching(true); setSearchQuery(value); doSearch(value); }}
+                  className="flex items-center gap-1 px-2 py-0.5 text-xs text-green-600 hover:text-green-800 hover:bg-green-50 rounded">
+                  <Plus className="w-3 h-3" /> Aggiungi articolo
+                </button>
+              )}
             </div>
-          ))}
-
-          {/* Aggiungi altro articolo (se già ha articoli) */}
-          {isArticolo && !searching && (
-            <button onClick={() => { setSearching(true); setSearchQuery(value); doSearch(value); }}
-              className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-green-600 hover:bg-green-50 rounded border border-dashed border-green-300">
-              <Plus className="w-3 h-3" /> Aggiungi articolo
-            </button>
           )}
 
           {/* Parametro */}
@@ -1077,7 +929,7 @@ function ValueRow({ value, mapping, onChange }: {
             </div>
           )}
 
-          {/* Non mappato — bottoni azione */}
+          {/* Non mappato - mostra bottoni */}
           {!mapping.tipo && !searching && (
             <div className="flex items-center gap-2">
               <button onClick={() => { setSearching(true); setSearchQuery(value); doSearch(value); }}
@@ -1088,7 +940,7 @@ function ValueRow({ value, mapping, onChange }: {
             </div>
           )}
 
-          {/* Search box */}
+          {/* Ricerca articolo */}
           {searching && (
             <div className="relative">
               <div className="flex items-center gap-2">
@@ -1152,9 +1004,9 @@ function Step4Result({ result, onReset, onBack, onNavigate }: { result: GeneraRe
         </div>
       )}
       <div className="flex justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex gap-2">
           <button onClick={onBack} className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-gray-600 hover:bg-gray-100">
-            <ChevronLeft className="w-4 h-4" /> Indietro</button>
+            <ChevronLeft className="w-4 h-4" /> Modifica mapping</button>
           <button onClick={onReset} className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-gray-600 hover:bg-gray-100">
             <RefreshCw className="w-4 h-4" /> Nuova importazione</button>
         </div>

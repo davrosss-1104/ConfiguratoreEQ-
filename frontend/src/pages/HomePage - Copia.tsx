@@ -20,13 +20,7 @@ export const HomePage = () => {
     queryFn: () => preventiviService.getPreventivi(),
   });
 
-  // Query TUTTI i templates (per mostrare nome prodotto nei preventivi recenti)
-  const { data: allTemplates = [] } = useQuery<ProductTemplate[]>({
-    queryKey: ['templates', 'all'],
-    queryFn: () => getTemplates(),
-  });
-
-  // Query templates per la categoria selezionata (per il pannello di creazione)
+  // Query templates per la categoria selezionata
   const { data: templates = [] } = useQuery<ProductTemplate[]>({
     queryKey: ['templates', selectedCategory],
     queryFn: () => getTemplates(selectedCategory || undefined),
@@ -342,7 +336,7 @@ export const HomePage = () => {
                 const badgeClass = cat === 'RISE' ? catColors.RISE.badge
                   : cat === 'HOME' ? catColors.HOME.badge
                   : '';
-                const tmpl = allTemplates.find((t: any) => t.id === (preventivo as any).template_id);
+                const tmpl = templates.find((t: any) => t.id === (preventivo as any).template_id);
                 const prodName = tmpl?.nome_display || tmpl?.sottocategoria || '';
 
                 return (

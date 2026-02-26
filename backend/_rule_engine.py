@@ -1,8 +1,6 @@
 """
 rule_engine.py - Rule Engine v2 con lookup_multi/lookup_table/catalog_match
 Two-pass: prima lookup/calc → poi materiali.
-FIX: _apply_actions ora chiamato anche per lookup_rules (add_material + materials legacy).
-FIX: Aggiunto supporto set_field e skip_if in evaluate_rules.
 """
 from typing import List, Dict, Any, Optional, Set
 from sqlalchemy.orm import Session
@@ -372,105 +370,6 @@ class RuleEngine:
         return False
 
     # ====================================================================
-    # SKIP_IF EVALUATION (per singola action)
-    # ====================================================================
-    def _eval_skip_if(self, skip_expr: str, ctx: Dict) -> bool:
-        """
-        Valuta l'espressione skip_if di un'azione.
-        Formati supportati:
-          - "campo is_empty"         → True se campo è None/vuoto
-          - "campo is_not_empty"     → True se campo ha valore
-          - "campo == valore"        → confronto stringa
-          - "campo != valore"        → diverso
-          - "campo > valore"         → confronto numerico
-          - "campo < valore"         → confronto numerico
-          - "campo >= valore"        → confronto numerico
-          - "campo <= valore"        → confronto numerico
-        """
-        if not skip_expr or not skip_expr.strip():
-            return False
-
-        expr = skip_expr.strip()
-
-        # "campo is_empty"
-        if expr.endswith(" is_empty"):
-            field = expr.replace(" is_empty", "").strip()
-            v = self._resolve(field, ctx)
-            return v is None or (isinstance(v, str) and not v.strip())
-
-        # "campo is_not_empty"
-        if expr.endswith(" is_not_empty"):
-            field = expr.replace(" is_not_empty", "").strip()
-            v = self._resolve(field, ctx)
-            return v is not None and (not isinstance(v, str) or v.strip() != "")
-
-        # Operatori di confronto
-        for op_str, op_fn in [
-            (">=", lambda a, b: float(a) >= float(b)),
-            ("<=", lambda a, b: float(a) <= float(b)),
-            ("!=", lambda a, b: str(a).lower() != str(b).lower()),
-            ("==", lambda a, b: str(a).lower() == str(b).lower()),
-            (">",  lambda a, b: float(a) > float(b)),
-            ("<",  lambda a, b: float(a) < float(b)),
-        ]:
-            if op_str in expr:
-                parts = expr.split(op_str, 1)
-                if len(parts) == 2:
-                    field = parts[0].strip()
-                    expected = parts[1].strip()
-                    actual = self._resolve(field, ctx)
-                    if actual is None:
-                        return False
-                    try:
-                        return op_fn(actual, expected)
-                    except (ValueError, TypeError):
-                        return False
-
-        return False
-
-    # ====================================================================
-    # SET_FIELD ACTION
-    # ====================================================================
-    def _exec_set_field(self, action: Dict, ctx: Dict):
-        """Esegue un'azione set_field: imposta un valore nel context."""
-        field = action.get("field", "")
-        if not field:
-            return
-
-        # Modalità: valore diretto, da altro campo, o somma
-        if "value_from" in action:
-            # Copia da altro campo
-            src = action["value_from"]
-            v = self._resolve(src, ctx)
-            if v is not None:
-                multiply = action.get("multiply_by")
-                if multiply is not None:
-                    try:
-                        v = float(v) * float(multiply)
-                    except (ValueError, TypeError):
-                        pass
-                add = action.get("add")
-                if add is not None:
-                    try:
-                        v = float(v) + float(add)
-                    except (ValueError, TypeError):
-                        pass
-                ctx[field] = v
-        elif "add_value" in action:
-            # Somma al valore esistente
-            existing = self._resolve(field, ctx) or 0
-            try:
-                ctx[field] = float(existing) + float(action["add_value"])
-            except (ValueError, TypeError):
-                pass
-        else:
-            # Valore diretto (può contenere placeholder {{campo}})
-            val = action.get("value", "")
-            if isinstance(val, str) and "{{" in val:
-                val = self._replace_ph(val, ctx)
-            ctx[field] = _conv(val) if isinstance(val, str) else val
-
-    # ====================================================================
     # LOOKUP_TABLE (tipo: lookup_range / constants)
     # ====================================================================
     def _exec_lookup_table(self, action: Dict, ctx: Dict) -> Dict:
@@ -660,43 +559,23 @@ class RuleEngine:
         return None
 
     def _lookup_multi_flat(self, tbl, input_fields, prefix, ctx) -> Dict:
-        """Lookup su records piatti. Supporta materiali embedded nei record."""
+        """Lookup su records piatti."""
         records = tbl.get("records", [])
         if not records:
             self.warnings.append("lookup_multi flat: nessun record")
             return {}
 
         inputs = []
-        has_lte = False
-        lte_col = ""
         for inf in input_fields:
             val = self._resolve_input_field(inf, ctx)
             if val is None:
-                fld = inf.get("field", "") or str(inf.get("fields", []))
-                self.warnings.append(f"lookup_multi flat: campo '{fld}' non nel context")
+                self.warnings.append(f"lookup_multi flat: campo non nel context")
                 return {}
             inputs.append((inf, val))
-            if inf.get("match") == "lte":
-                has_lte = True
-                lte_col = inf.get("colonna_tabella", "")
-
-        # Ordina per colonna lte (ascendente) per garantire match "ceiling" corretto
-        if has_lte and lte_col:
-            try:
-                records = sorted(records, key=lambda r: float(r.get(lte_col, 0) or 0))
-            except (ValueError, TypeError):
-                pass
 
         for rec in records:
             if self._record_matches(rec, inputs):
-                written = self._write_record(rec, prefix, ctx)
-                # Salva materiali embedded nel record per processing successivo
-                if rec.get("materiali"):
-                    pending_key = f"_pending_materials"
-                    existing = ctx.get(pending_key, [])
-                    ctx[pending_key] = existing + rec["materiali"]
-                    print(f"[LOOKUP_MULTI] Found {len(rec['materiali'])} embedded materiali in matched record")
-                return written
+                return self._write_record(rec, prefix, ctx)
 
         self.warnings.append("lookup_multi flat: nessun match")
         return {}
@@ -935,7 +814,6 @@ class RuleEngine:
     # ====================================================================
     def _add_material(self, preventivo, mat_data, rule_id, ctx) -> bool:
         """Aggiunge materiale via SQL diretto (bypassa problemi ORM)."""
-        codice = ""
         try:
             codice = self._replace_ph(mat_data.get("codice", ""), ctx)
             desc = self._replace_ph(mat_data.get("descrizione", ""), ctx)
@@ -993,32 +871,15 @@ class RuleEngine:
         return re.sub(r'\{\{([\w.]+)\}\}', repl, text_val)
 
     def _apply_actions(self, rule, preventivo, ctx) -> int:
-        """Processa TUTTE le azioni di una regola: set_field, add_material, legacy materials."""
         added = 0
         rid = rule.get("id", "unknown")
-
-        # 1. Legacy materials
         for mat in rule.get("materials", []):
             if self._add_material(preventivo, mat, rid, ctx):
                 added += 1
-
-        # 2. Actions
         for action in rule.get("actions", []):
-            at = action.get("action", "")
-
-            # Skip_if check
-            skip_expr = action.get("skip_if")
-            if skip_expr and self._eval_skip_if(skip_expr, ctx):
-                continue
-
-            if at == "add_material":
+            if action.get("action") == "add_material":
                 if self._add_material(preventivo, action.get("material", {}), rid, ctx):
                     added += 1
-            elif at == "set_field":
-                self._exec_set_field(action, ctx)
-            # lookup_table/lookup_multi/catalog_match sono già eseguiti nel Pass 1
-            # quindi qui non li rieseguiamo
-
         return added
 
     def _add_materials_from_value_mappings(self, rule, preventivo, ctx) -> int:
@@ -1049,8 +910,8 @@ class RuleEngine:
                 if articoli_list:
                     for art in articoli_list:
                         mat_data = {
-                            "codice": art.get("codice_articolo", art.get("codice", "")),
-                            "descrizione": art.get("descrizione_articolo", art.get("descrizione", "")),
+                            "codice": art.get("codice_articolo", ""),
+                            "descrizione": art.get("descrizione_articolo", ""),
                             "quantita": art.get("quantita", 1),
                             "categoria": "Materiale Automatico (lookup)",
                         }
@@ -1059,11 +920,11 @@ class RuleEngine:
                         if ok:
                             added += 1
                 else:
-                    codice = mapping.get("codice_articolo", mapping.get("codice", ""))
+                    codice = mapping.get("codice_articolo", "")
                     if codice:
                         mat_data = {
                             "codice": codice,
-                            "descrizione": mapping.get("descrizione_articolo", mapping.get("descrizione", "")),
+                            "descrizione": mapping.get("descrizione_articolo", ""),
                             "quantita": 1,
                             "categoria": "Materiale Automatico (lookup)",
                         }
@@ -1072,30 +933,6 @@ class RuleEngine:
                         if ok:
                             added += 1
 
-        return added
-
-    def _add_materials_from_matched_records(self, rule, preventivo, ctx) -> int:
-        """
-        Processa i materiali embedded nei record della data table matchata.
-        Questi vengono salvati in ctx['_pending_materials'] da _lookup_multi_flat.
-        """
-        pending = ctx.get("_pending_materials", [])
-        if not pending:
-            return 0
-
-        rid = rule.get("id", "unknown")
-        added = 0
-        print(f"[RECORD_MAT] {rid}: {len(pending)} materiali pending da record")
-
-        for mat_data in pending:
-            # I materiali da record hanno già codice, descrizione, quantita, categoria
-            ok = self._add_material(preventivo, mat_data, rid, ctx)
-            print(f"[RECORD_MAT]   add {mat_data.get('codice', '?')}: {'OK' if ok else 'SKIP/FAIL'}")
-            if ok:
-                added += 1
-
-        # Pulisci pending per evitare re-processing
-        ctx.pop("_pending_materials", None)
         return added
 
     def _simulate_value_mapping_materials(self, rule, ctx) -> list:
@@ -1120,8 +957,8 @@ class RuleEngine:
                         "source": "value_mapping",
                         "ctx_key": ctx_key,
                         "ctx_value": val_str,
-                        "codice": art.get("codice_articolo", art.get("codice", "")),
-                        "descrizione": art.get("descrizione_articolo", art.get("descrizione", "")),
+                        "codice": art.get("codice_articolo", ""),
+                        "descrizione": art.get("descrizione_articolo", ""),
                         "quantita": art.get("quantita", 1),
                     })
             else:
@@ -1129,658 +966,21 @@ class RuleEngine:
                     "source": "value_mapping",
                     "ctx_key": ctx_key,
                     "ctx_value": val_str,
-                    "codice": mapping.get("codice_articolo", mapping.get("codice", "")),
-                    "descrizione": mapping.get("descrizione_articolo", mapping.get("descrizione", "")),
+                    "codice": mapping.get("codice_articolo", ""),
+                    "descrizione": mapping.get("descrizione_articolo", ""),
                     "quantita": 1,
                 })
 
         return would_add
 
-    def _simulate_matched_record_materials(self, ctx) -> list:
-        """Test-mode: simula materiali embedded nei record matchati dalla data table."""
-        pending = ctx.get("_pending_materials", [])
-        if not pending:
-            return []
-        return [{
-            "source": "record_materiali",
-            "codice": m.get("codice", ""),
-            "descrizione": m.get("descrizione", ""),
-            "quantita": m.get("quantita", 1),
-            "categoria": m.get("categoria", ""),
-        } for m in pending]
-
     # ====================================================================
     # RULE CLASSIFICATION
     # ====================================================================
-    def _is_pipeline(self, rule) -> bool:
-        return bool(rule.get("pipeline_steps"))
-
     def _is_lookup(self, rule) -> bool:
-        if self._is_pipeline(rule):
-            return False
         for a in rule.get("actions", []):
             if a.get("action") in ("lookup_table", "lookup_multi", "catalog_match"):
                 return True
         return False
-
-    def _has_materials(self, rule) -> bool:
-        """Verifica se una regola ha materiali (legacy o add_material actions)."""
-        if rule.get("materials"):
-            return True
-        for a in rule.get("actions", []):
-            if a.get("action") == "add_material":
-                return True
-        return False
-
-    # ====================================================================
-    # PIPELINE — HELPERS
-    # ====================================================================
-
-    def _match_pattern(self, pattern: str, ctx: Dict) -> Dict[str, Any]:
-        """Match wildcard pattern like '_calc.util.*.watt' → {wildcard: value}."""
-        if "*" not in pattern:
-            return {}
-        parts = pattern.split("*")
-        if len(parts) != 2:
-            return {}
-        prefix, suffix = parts
-        results = {}
-        for k, v in ctx.items():
-            if k.startswith(prefix) and k.endswith(suffix):
-                wildcard = k[len(prefix):]
-                if suffix:
-                    wildcard = wildcard[:-len(suffix)]
-                wildcard = wildcard.strip(".")
-                if wildcard:
-                    results[wildcard] = v
-        return results
-
-    def _resolve_pipeline_ref(self, ref: str, ctx: Dict) -> Any:
-        """Resolve a pipeline reference — could be _calc path or context field."""
-        if not ref:
-            return None
-        v = ctx.get(ref)
-        if v is not None:
-            return v
-        return self._resolve(ref, ctx)
-
-    def _round_value(self, val: float, round_type: str) -> float:
-        import math
-        if not round_type:
-            return val
-        rt = round_type.lower().strip()
-        if rt == "ceil":     return float(math.ceil(val))
-        if rt == "floor":    return float(math.floor(val))
-        if rt == "round":    return float(round(val))
-        if rt == "round_2":  return round(val, 2)
-        if rt == "up_10":    return float(math.ceil(val / 10) * 10)
-        if rt == "up_50":    return float(math.ceil(val / 50) * 50)
-        if rt == "up_100":   return float(math.ceil(val / 100) * 100)
-        return val
-
-    # ====================================================================
-    # PIPELINE — STEP EXECUTORS
-    # ====================================================================
-
-    def _pipeline_lookup_each(self, step: Dict, ctx: Dict) -> Dict:
-        """Per ogni checkbox attiva nella sezione, cerca nella data table."""
-        sezione = step.get("sezione", "")
-        tabella = step.get("tabella", "")
-        campo_lookup = step.get("campo_lookup", "componente")
-        output_prefix = step.get("output_prefix", "_calc.util.")
-
-        if not sezione or not tabella:
-            raise ValueError("lookup_each: 'sezione' e 'tabella' obbligatori")
-
-        tbl = self._load_data(tabella)
-        if not tbl:
-            raise ValueError(f"Tabella '{tabella}' non trovata")
-
-        records = tbl.get("records", [])
-        sez_prefix = f"{sezione}."
-
-        # Trova checkbox attive nella sezione
-        active_components = []
-        for k, v in ctx.items():
-            if k.startswith(sez_prefix):
-                campo = k[len(sez_prefix):]
-                if v and str(v).lower() not in ("false", "0", "no", "off", ""):
-                    active_components.append(campo)
-
-        written = {}
-        for comp in active_components:
-            matched = None
-            comp_low = comp.lower()
-            for rec in records:
-                if str(rec.get(campo_lookup, "")).lower() == comp_low:
-                    matched = rec
-                    break
-
-            if not matched:
-                self.warnings.append(f"lookup_each: '{comp}' non trovato in '{tabella}'")
-                continue
-
-            # Scrivi tutti i campi del record
-            for rk, rv in matched.items():
-                if rk in ("output", "materiali", "articoli"):
-                    continue
-                ck = f"{output_prefix}{comp}.{rk}"
-                ctx[ck] = rv
-                written[ck] = rv
-
-            # Scrivi campi output
-            for rk, rv in matched.get("output", {}).items():
-                ck = f"{output_prefix}{comp}.{rk}"
-                ctx[ck] = rv
-                written[ck] = rv
-
-        return written
-
-    def _pipeline_collect_sum(self, step: Dict, ctx: Dict) -> Dict:
-        """Somma valori da più fonti: calc patterns, context, DB materiali."""
-        sources = step.get("sources", [])
-        output = step.get("output", "_calc.pipeline.sum_result")
-        total = 0.0
-
-        for src in sources:
-            src_type = src.get("type", "")
-
-            if src_type == "calc":
-                pattern = src.get("pattern", "")
-                matches = self._match_pattern(pattern, ctx)
-                for _wc, val in matches.items():
-                    try:
-                        total += float(val)
-                    except (ValueError, TypeError):
-                        pass
-
-            elif src_type == "context":
-                field = src.get("field", "")
-                val = self._resolve_pipeline_ref(field, ctx)
-                if val is not None:
-                    try:
-                        total += float(val)
-                    except (ValueError, TypeError):
-                        pass
-
-            elif src_type == "materials":
-                field = src.get("field", "")
-                filt = src.get("filter", {})
-                if field and hasattr(self, "db"):
-                    try:
-                        q = "SELECT * FROM materiali WHERE preventivo_id=:pid"
-                        params: Dict[str, Any] = {"pid": ctx.get("_preventivo_id", 0)}
-                        for fk, fv in filt.items():
-                            q += f" AND {fk}=:{fk}"
-                            params[fk] = fv
-                        rows = self.db.execute(text(q), params).fetchall()
-                        for row in rows:
-                            rd = dict(row._mapping) if hasattr(row, "_mapping") else {}
-                            v = rd.get(field, 0)
-                            try:
-                                total += float(v)
-                            except (ValueError, TypeError):
-                                pass
-                    except Exception as e:
-                        self.warnings.append(f"collect_sum DB: {e}")
-
-        ctx[output] = total
-        return {output: total}
-
-    def _pipeline_group_sum(self, step: Dict, ctx: Dict) -> Dict:
-        """Raggruppa valori per una chiave e somma — opzionalmente applica power factor."""
-        pattern_value = step.get("pattern_value", "")
-        pattern_group = step.get("pattern_group", "")
-        output_prefix = step.get("output_prefix", "_calc.grouped.")
-        pf_field = step.get("power_factor", "")
-
-        values = self._match_pattern(pattern_value, ctx)
-        groups_map = self._match_pattern(pattern_group, ctx)
-
-        # Raggruppa per chiave di gruppo (entrambi i pattern condividono il *)
-        grouped: Dict[str, float] = {}
-        for wildcard, watt_val in values.items():
-            group_key = groups_map.get(wildcard)
-            if group_key is None:
-                self.warnings.append(f"group_sum: nessun gruppo per wildcard '{wildcard}'")
-                continue
-            gk = str(group_key)
-            try:
-                grouped[gk] = grouped.get(gk, 0.0) + float(watt_val)
-            except (ValueError, TypeError):
-                pass
-
-        # Power factor
-        pf = 1.0
-        if pf_field:
-            pf_val = self._resolve_pipeline_ref(pf_field, ctx)
-            if pf_val:
-                try:
-                    pf = float(pf_val)
-                    if pf <= 0:
-                        pf = 1.0
-                except (ValueError, TypeError):
-                    pf = 1.0
-
-        written = {}
-        for gk, total_w in grouped.items():
-            va = total_w / pf if pf != 1.0 else total_w
-            ck = f"{output_prefix}{gk}"
-            ctx[ck] = va
-            written[ck] = va
-
-        return written
-
-    def _pipeline_math_expr(self, step: Dict, ctx: Dict) -> Dict:
-        """Valuta un'espressione matematica con riferimenti _calc."""
-        import re as _re
-        expression = step.get("expression", "")
-        output = step.get("output", "_calc.pipeline.expr_result")
-        round_type = step.get("round", "")
-
-        if not expression:
-            raise ValueError("math_expr: expression vuota")
-
-        # Sostituisci tutti i riferimenti _calc.xxx e sezione.campo
-        tokens = _re.findall(r'[a-zA-Z_][a-zA-Z0-9_.]*', expression)
-        # Ordina per lunghezza decrescente per evitare sostituzioni parziali
-        tokens = sorted(set(tokens), key=len, reverse=True)
-
-        eval_expr = expression
-        for token in tokens:
-            # Salta keyword math built-in
-            if token in ("ceil", "floor", "round", "abs", "min", "max", "pow"):
-                continue
-            val = self._resolve_pipeline_ref(token, ctx)
-            if val is not None:
-                try:
-                    eval_expr = eval_expr.replace(token, str(float(val)))
-                except (ValueError, TypeError):
-                    raise ValueError(f"math_expr: '{token}' = '{val}' non numerico")
-
-        # Validazione sicurezza: solo numeri, operatori, parentesi, spazi, punto
-        allowed = set("0123456789.+-*/() eE")
-        for c in eval_expr:
-            if c not in allowed:
-                raise ValueError(f"math_expr: carattere non consentito '{c}' in '{eval_expr}'")
-
-        result = float(eval(eval_expr))
-        if round_type:
-            result = self._round_value(result, round_type)
-
-        ctx[output] = result
-        return {output: result}
-
-    def _pipeline_catalog_select(self, step: Dict, ctx: Dict) -> Dict:
-        """Seleziona il primo record di un catalogo che soddisfa il criterio."""
-        tabella = step.get("tabella", "")
-        criterio = step.get("criterio", {})
-        filtri = step.get("filtri", [])
-        ordinamento = step.get("ordinamento", {})
-        limit = step.get("limit", 1)
-        output_prefix = step.get("output_prefix", f"_calc.{tabella}.")
-
-        tbl = self._load_data(tabella)
-        if not tbl:
-            raise ValueError(f"Tabella '{tabella}' non trovata")
-
-        records = list(tbl.get("records", []))
-
-        # Ordinamento
-        if ordinamento and ordinamento.get("colonna"):
-            col = ordinamento["colonna"]
-            desc = ordinamento.get("direzione", "ASC").upper() == "DESC"
-            def _sort_key(r):
-                v = r.get(col)
-                if v is None:
-                    return (1, 0)
-                try:
-                    return (0, float(v))
-                except (ValueError, TypeError):
-                    return (0, str(v))
-            try:
-                records.sort(key=_sort_key, reverse=desc)
-            except Exception:
-                pass
-
-        # Criteri: principale + filtri aggiuntivi
-        all_criteria = []
-        if criterio and criterio.get("colonna"):
-            all_criteria.append(criterio)
-        all_criteria.extend(filtri or [])
-
-        matched = []
-        for rec in records:
-            ok = True
-            for crit in all_criteria:
-                col_name = crit.get("colonna", "")
-                op = crit.get("operatore", ">=")
-                val_ref = crit.get("valore", "")
-
-                # Risolvi riferimento
-                if isinstance(val_ref, str) and (val_ref.startswith("_calc.") or "." in val_ref):
-                    compare_val = self._resolve_pipeline_ref(val_ref, ctx)
-                else:
-                    compare_val = val_ref
-
-                rec_val = rec.get(col_name)
-                if rec_val is None or compare_val is None:
-                    ok = False
-                    break
-
-                try:
-                    rv = float(rec_val)
-                    cv = float(compare_val)
-                    if   op == ">="  and not (rv >= cv): ok = False
-                    elif op == ">"   and not (rv > cv):  ok = False
-                    elif op == "<="  and not (rv <= cv): ok = False
-                    elif op == "<"   and not (rv < cv):  ok = False
-                    elif op in ("==", "=") and not (str(rec_val).lower() == str(compare_val).lower()): ok = False
-                except (ValueError, TypeError):
-                    if op in ("==", "="):
-                        if str(rec_val).lower() != str(compare_val).lower():
-                            ok = False
-                    else:
-                        ok = False
-
-                if not ok:
-                    break
-
-            if ok:
-                matched.append(rec)
-                if len(matched) >= limit:
-                    break
-
-        if not matched:
-            self.warnings.append(f"catalog_select: nessun match in '{tabella}'")
-            return {}
-
-        written = {}
-        rec = matched[0]
-        for k, v in rec.items():
-            if isinstance(v, dict):
-                # Campi nested (es. "output": {...}) → flatten
-                for nk, nv in v.items():
-                    ck = f"{output_prefix}{nk}"
-                    ctx[ck] = nv
-                    written[ck] = nv
-            else:
-                ck = f"{output_prefix}{k}"
-                ctx[ck] = v
-                written[ck] = v
-
-        return written
-
-    def _pipeline_multi_match(self, step: Dict, ctx: Dict) -> Dict:
-        """Trova l'articolo più piccolo che copre TUTTI i requisiti per tensione/VA."""
-        tabella = step.get("tabella", "")
-        requisiti_prefix = step.get("requisiti_prefix", "_calc.grouped.")
-        colonna_codice = step.get("colonna_codice", "codice_trasf")
-        colonna_tensione = step.get("colonna_tensione", "tensione_uscita")
-        colonna_va = step.get("colonna_va", "va_disponibili")
-        colonna_ordinamento = step.get("colonna_ordinamento", "potenza_totale_va")
-        output_prefix = step.get("output_prefix", "_calc.trasformatore.")
-
-        # Raccogli requisiti: _calc.va_per_tensione.24 = 43.75
-        requisiti: Dict[str, float] = {}
-        for k, v in ctx.items():
-            if k.startswith(requisiti_prefix):
-                tensione = k[len(requisiti_prefix):]
-                try:
-                    requisiti[str(tensione)] = float(v)
-                except (ValueError, TypeError):
-                    pass
-
-        if not requisiti:
-            self.warnings.append(f"multi_match: nessun requisito con prefix '{requisiti_prefix}'")
-            return {}
-
-        tbl = self._load_data(tabella)
-        if not tbl:
-            raise ValueError(f"Tabella '{tabella}' non trovata")
-
-        records = tbl.get("records", [])
-
-        # Raggruppa record per codice — ogni codice è un potenziale trasformatore
-        from collections import defaultdict
-        catalogo: Dict[str, list] = defaultdict(list)
-        for rec in records:
-            code = rec.get(colonna_codice)
-            if code:
-                catalogo[str(code)].append(rec)
-
-        # Per ogni trasformatore, verifica se copre TUTTI i requisiti
-        candidates = []
-        for code, recs in catalogo.items():
-            uscite: Dict[str, float] = {}
-            potenza_totale = 0.0
-            for rec in recs:
-                tens = str(rec.get(colonna_tensione, ""))
-                try:
-                    va = float(rec.get(colonna_va, 0))
-                except (ValueError, TypeError):
-                    va = 0.0
-                uscite[tens] = uscite.get(tens, 0.0) + va
-                try:
-                    potenza_totale = max(potenza_totale, float(rec.get(colonna_ordinamento, 0)))
-                except (ValueError, TypeError):
-                    pass
-
-            covers_all = True
-            for req_tens, req_va in requisiti.items():
-                if uscite.get(req_tens, 0) < req_va:
-                    covers_all = False
-                    break
-
-            if covers_all:
-                candidates.append({
-                    "codice": code, "uscite": uscite,
-                    "potenza_totale": potenza_totale, "records": recs,
-                })
-
-        if not candidates:
-            self.warnings.append(
-                f"multi_match: nessun articolo in '{tabella}' copre tutti i requisiti {requisiti}"
-            )
-            return {}
-
-        # Ordina per potenza crescente → prendi il più piccolo
-        candidates.sort(key=lambda c: c["potenza_totale"])
-        best = candidates[0]
-
-        written = {}
-        ck = f"{output_prefix}{colonna_codice}"
-        ctx[ck] = best["codice"]
-        written[ck] = best["codice"]
-
-        ck = f"{output_prefix}{colonna_ordinamento}"
-        ctx[ck] = best["potenza_totale"]
-        written[ck] = best["potenza_totale"]
-
-        for tens, va in best["uscite"].items():
-            ck = f"{output_prefix}uscita_{tens}_va"
-            ctx[ck] = va
-            written[ck] = va
-
-        # Tutti i campi dal primo record
-        for k, v in best["records"][0].items():
-            if isinstance(v, dict):
-                for nk, nv in v.items():
-                    ck = f"{output_prefix}{nk}"
-                    if ck not in written:
-                        ctx[ck] = nv
-                        written[ck] = nv
-            else:
-                ck = f"{output_prefix}{k}"
-                if ck not in written:
-                    ctx[ck] = v
-                    written[ck] = v
-
-        return written
-
-    def _pipeline_add_material(self, step: Dict, ctx: Dict,
-                               preventivo=None, dry_run=False) -> Dict:
-        """Aggiunge un materiale, risolvendo riferimenti _calc."""
-        mat = step.get("material", {})
-
-        codice_ref = mat.get("codice", "")
-        desc_ref = mat.get("descrizione", "")
-        quantita_ref = mat.get("quantita", 1)
-        categoria = mat.get("categoria", "Materiale Automatico")
-
-        # Risolvi codice (può essere _calc.trasformatore.codice_trasf)
-        if isinstance(codice_ref, str) and codice_ref.startswith("_calc."):
-            codice = str(ctx.get(codice_ref, codice_ref))
-        else:
-            codice = str(codice_ref)
-        codice = self._replace_ph(codice, ctx)
-
-        # Risolvi descrizione
-        if isinstance(desc_ref, str) and desc_ref.startswith("_calc."):
-            desc = str(ctx.get(desc_ref, desc_ref))
-        else:
-            desc = str(desc_ref)
-        desc = self._replace_ph(desc, ctx)
-
-        # Risolvi quantità
-        try:
-            if isinstance(quantita_ref, str) and quantita_ref.startswith("_calc."):
-                quantita = float(ctx.get(quantita_ref, 1))
-            else:
-                quantita = float(quantita_ref)
-        except (ValueError, TypeError):
-            quantita = 1.0
-
-        result = {
-            "codice": codice, "descrizione": desc,
-            "quantita": quantita, "categoria": categoria,
-        }
-
-        if dry_run or preventivo is None:
-            result["mode"] = "dry_run"
-            return result
-
-        added = self._add_material(preventivo, {
-            "codice": codice, "descrizione": desc,
-            "quantita": quantita, "categoria": categoria,
-        }, "pipeline", ctx)
-        result["added"] = added
-        return result
-
-    # ====================================================================
-    # PIPELINE — ORCHESTRATOR
-    # ====================================================================
-
-    def _exec_pipeline_step(self, step: Dict, ctx: Dict,
-                            preventivo=None, dry_run=False) -> Dict:
-        """Esegue un singolo step di pipeline. Ritorna {status, output, error}."""
-        action = step.get("action", "")
-        result: Dict[str, Any] = {"step_action": action, "status": "ok", "output": {}, "error": None}
-
-        try:
-            if action == "lookup_each":
-                result["output"] = self._pipeline_lookup_each(step, ctx)
-            elif action == "collect_sum":
-                result["output"] = self._pipeline_collect_sum(step, ctx)
-            elif action == "group_sum":
-                result["output"] = self._pipeline_group_sum(step, ctx)
-            elif action == "math_expr":
-                result["output"] = self._pipeline_math_expr(step, ctx)
-            elif action == "catalog_select":
-                result["output"] = self._pipeline_catalog_select(step, ctx)
-            elif action == "multi_match":
-                result["output"] = self._pipeline_multi_match(step, ctx)
-            elif action == "add_material":
-                result["output"] = self._pipeline_add_material(
-                    step, ctx, preventivo, dry_run)
-            else:
-                result["status"] = "error"
-                result["error"] = f"Azione sconosciuta: {action}"
-        except Exception as e:
-            result["status"] = "error"
-            result["error"] = str(e)
-            import traceback; traceback.print_exc()
-
-        return result
-
-    def execute_pipeline(self, rule: Dict, preventivo, ctx: Dict) -> int:
-        """Esegue una pipeline rule e ritorna il numero di materiali aggiunti."""
-        steps = rule.get("pipeline_steps", [])
-        if not steps:
-            return 0
-
-        rid = rule.get("id", "pipeline")
-        added = 0
-        for i, step in enumerate(steps):
-            print(f"[PIPELINE] {rid} step {i}: {step.get('action')}")
-            result = self._exec_pipeline_step(step, ctx, preventivo, dry_run=False)
-            if result["status"] == "error":
-                self.errors.append(
-                    f"Pipeline {rid} step {i} ({step.get('action')}): {result['error']}")
-                break
-            out = result.get("output", {})
-            if out:
-                print(f"[PIPELINE]   → {len(out)} output keys")
-            if step.get("action") == "add_material" and out.get("added"):
-                added += 1
-
-        return added
-
-    def simulate_pipeline(self, pipeline_rule: Dict, preventivo) -> Dict:
-        """Simula una pipeline senza modificare il DB. Usato dal frontend."""
-        self.warnings = []
-        self.errors = []
-        self._data_cache = {}
-
-        ctx = self.build_config_context(preventivo)
-
-        # Esegui prima le lookup rules normali per popolare _calc context
-        all_rules = self.load_all_rules()
-        for rule in all_rules:
-            if not rule.get("enabled", True):
-                continue
-            if self._is_pipeline(rule):
-                continue
-            if not self._is_lookup(rule):
-                continue
-            if not self.should_apply(rule, ctx):
-                continue
-            for action in rule.get("actions", []):
-                at = action.get("action")
-                skip_expr = action.get("skip_if")
-                if skip_expr and self._eval_skip_if(skip_expr, ctx):
-                    continue
-                if at == "lookup_table":
-                    self._exec_lookup_table(action, ctx)
-                elif at == "lookup_multi":
-                    self._exec_lookup_multi(action, ctx)
-                elif at == "catalog_match":
-                    self._exec_catalog_match(action, ctx)
-                elif at == "set_field":
-                    self._exec_set_field(action, ctx)
-
-        # Esegui gli step della pipeline in dry_run
-        steps = pipeline_rule.get("pipeline_steps", [])
-        step_results = []
-
-        for i, step in enumerate(steps):
-            result = self._exec_pipeline_step(step, ctx, preventivo=None, dry_run=True)
-            step_results.append({
-                "step": i,
-                "action": step.get("action", ""),
-                "status": result["status"],
-                "output": result.get("output", {}),
-                "error": result.get("error"),
-            })
-            if result["status"] == "error":
-                break
-
-        return {
-            "steps": step_results,
-            "final_context_calc": {k: v for k, v in ctx.items() if k.startswith("_calc.")},
-            "warnings": self.warnings,
-            "errors": self.errors,
-        }
 
     # ====================================================================
     # MAIN EVALUATE — TWO-PASS
@@ -1791,18 +991,14 @@ class RuleEngine:
         self._data_cache = {}
 
         ctx = self.build_config_context(preventivo)
-        ctx["_preventivo_id"] = preventivo.id
         all_rules = self.load_all_rules()
 
         if not all_rules:
             self.warnings.append("Nessuna regola trovata")
             return self._make_result(set(), 0, 0, preventivo)
 
-        # Classifica regole in 3 categorie
         lookup_rules = [r for r in all_rules if self._is_lookup(r)]
-        pipeline_rules = [r for r in all_rules if self._is_pipeline(r)]
-        mat_rules = [r for r in all_rules
-                     if not self._is_lookup(r) and not self._is_pipeline(r)]
+        mat_rules = [r for r in all_rules if not self._is_lookup(r)]
         active: Set[str] = set()
 
         # ── PASS 1: Lookup → arricchisci context con _calc.* ──
@@ -1817,12 +1013,6 @@ class RuleEngine:
                     active.add(rid)
                     for action in rule.get("actions", []):
                         at = action.get("action")
-
-                        # Skip_if check
-                        skip_expr = action.get("skip_if")
-                        if skip_expr and self._eval_skip_if(skip_expr, ctx):
-                            continue
-
                         if at == "lookup_table":
                             self._exec_lookup_table(action, ctx)
                         elif at == "lookup_multi":
@@ -1830,25 +1020,9 @@ class RuleEngine:
                             print(f"[EVAL]   lookup_multi wrote: {written}")
                         elif at == "catalog_match":
                             self._exec_catalog_match(action, ctx)
-                        elif at == "set_field":
-                            self._exec_set_field(action, ctx)
-                        # add_material verrà gestito dopo nel loop materiali
             except Exception as e:
                 self.errors.append(f"Errore lookup {rid}: {e}")
                 import traceback; traceback.print_exc()
-
-        # ── PASS 1.5: Pipeline rules (vedono _calc.* delle lookup) ──
-        for rule in pipeline_rules:
-            rid = rule.get("id", "unknown")
-            if not rule.get("enabled", True):
-                continue
-            try:
-                if self.should_apply(rule, ctx):
-                    active.add(rid)
-                    print(f"[EVAL] Pipeline {rid}: executing {len(rule.get('pipeline_steps', []))} steps")
-                    # L'esecuzione vera dei materiali avviene dopo il DELETE
-            except Exception as e:
-                self.errors.append(f"Errore pipeline conditions {rid}: {e}")
 
         # ── PASS 2: Material rules (ora vedono _calc.*) ──
         for rule in mat_rules:
@@ -1858,13 +1032,6 @@ class RuleEngine:
             try:
                 if self.should_apply(rule, ctx):
                     active.add(rid)
-                    # Esegui eventuali set_field prima dei materiali
-                    for action in rule.get("actions", []):
-                        if action.get("action") == "set_field":
-                            skip_expr = action.get("skip_if")
-                            if skip_expr and self._eval_skip_if(skip_expr, ctx):
-                                continue
-                            self._exec_set_field(action, ctx)
             except Exception as e:
                 self.errors.append(f"Errore regola {rid}: {e}")
 
@@ -1880,10 +1047,8 @@ class RuleEngine:
             "DELETE FROM materiali WHERE preventivo_id=:pid AND aggiunto_da_regola=1"
         ), {"pid": preventivo.id})
 
-        # ── Aggiungi materiali da TUTTE le regole attive ──
+        # Aggiungi nuovi
         added = 0
-
-        # Mat rules: add_material + legacy materials
         for rule in mat_rules:
             rid = rule.get("id", "unknown")
             if rid in active:
@@ -1895,21 +1060,10 @@ class RuleEngine:
                 except Exception as e:
                     self.errors.append(f"Errore applicazione {rid}: {e}")
 
-        # Lookup rules che hanno ANCHE add_material o legacy materials
+        # Aggiungi materiali da _value_mappings delle lookup rules attive
         for rule in lookup_rules:
             rid = rule.get("id", "unknown")
             if rid in active:
-                # Aggiungi materiali da add_material actions e legacy materials
-                if self._has_materials(rule):
-                    try:
-                        n = self._apply_actions(rule, preventivo, ctx)
-                        if n > 0:
-                            print(f"[EVAL] lookup_rule {rid}: added {n} materials (add_material/legacy)")
-                        added += n
-                    except Exception as e:
-                        self.errors.append(f"Errore materiali lookup {rid}: {e}")
-
-                # Aggiungi materiali da _value_mappings
                 has_vm = bool(rule.get("_value_mappings"))
                 print(f"[EVAL] value_mappings for {rid}: has_vm={has_vm}")
                 try:
@@ -1918,28 +1072,6 @@ class RuleEngine:
                     added += n
                 except Exception as e:
                     self.errors.append(f"Errore value_mappings {rid}: {e}")
-                    import traceback; traceback.print_exc()
-
-                # Aggiungi materiali embedded nei record della data table
-                try:
-                    n = self._add_materials_from_matched_records(rule, preventivo, ctx)
-                    if n > 0:
-                        print(f"[EVAL]   → added {n} from matched record materiali")
-                    added += n
-                except Exception as e:
-                    self.errors.append(f"Errore record materials {rid}: {e}")
-
-        # Pipeline rules: esecuzione completa (calcoli + materiali)
-        for rule in pipeline_rules:
-            rid = rule.get("id", "unknown")
-            if rid in active:
-                try:
-                    n = self.execute_pipeline(rule, preventivo, ctx)
-                    if n > 0:
-                        print(f"[EVAL] pipeline {rid}: added {n} materials")
-                    added += n
-                except Exception as e:
-                    self.errors.append(f"Errore pipeline {rid}: {e}")
                     import traceback; traceback.print_exc()
 
         try:
@@ -1975,7 +1107,6 @@ class RuleEngine:
             )),
             "context_after_lookups": {},
             "lookup_results": [],
-            "pipeline_results": [],
             "material_results": [],
             "rules_loaded": [],
             "summary": {},
@@ -1985,16 +1116,13 @@ class RuleEngine:
         report["rules_loaded"] = [
             {"id": r.get("id"), "enabled": r.get("enabled", True),
              "priority": r.get("priority", r.get("priorita")),
-             "type": "pipeline" if self._is_pipeline(r) else ("lookup" if self._is_lookup(r) else "material"),
-             "has_add_material": self._has_materials(r) or self._is_pipeline(r),
+             "type": "lookup" if self._is_lookup(r) else "material",
              "source": r.get("source", "?")}
             for r in all_rules
         ]
 
         lookup_rules = [r for r in all_rules if self._is_lookup(r)]
-        pipeline_rules_list = [r for r in all_rules if self._is_pipeline(r)]
-        mat_rules = [r for r in all_rules
-                     if not self._is_lookup(r) and not self._is_pipeline(r)]
+        mat_rules = [r for r in all_rules if not self._is_lookup(r)]
 
         # PASS 1: Lookup test
         for rule in lookup_rules:
@@ -2030,18 +1158,7 @@ class RuleEngine:
             if rr["conditions_result"]:
                 for action in rule.get("actions", []):
                     at = action.get("action", "")
-
-                    # Check skip_if in test mode
-                    skip_expr = action.get("skip_if")
-                    skipped = self._eval_skip_if(skip_expr, ctx) if skip_expr else False
-
-                    ar: Dict[str, Any] = {"action": at, "tabella": action.get("tabella"), "skipped": skipped}
-
-                    if skipped:
-                        ar["skip_reason"] = f"skip_if: {skip_expr}"
-                        rr["actions_result"].append(ar)
-                        continue
-
+                    ar: Dict[str, Any] = {"action": at, "tabella": action.get("tabella")}
                     if at == "lookup_table":
                         ar["input_field"] = action.get("input_field")
                         ar["input_value"] = self._resolve(action.get("input_field", ""), ctx)
@@ -2076,83 +1193,15 @@ class RuleEngine:
                             ar["debug_table_found"] = False
                     elif at == "catalog_match":
                         ar["values_written"] = self._exec_catalog_match(action, ctx)
-                    elif at == "set_field":
-                        self._exec_set_field(action, ctx)
-                        ar["field"] = action.get("field")
-                        ar["result_value"] = self._resolve(action.get("field", ""), ctx)
-                    elif at == "add_material":
-                        mat = action.get("material", {})
-                        code_raw = mat.get("codice", "")
-                        code_res = self._replace_ph(code_raw, ctx)
-                        desc_res = self._replace_ph(mat.get("descrizione", ""), ctx)
-                        ar["material"] = {
-                            "codice_template": code_raw,
-                            "codice_resolved": code_res,
-                            "descrizione": desc_res,
-                            "quantita": mat.get("quantita", 1),
-                            "unresolved": "{{" in code_res,
-                        }
                     rr["actions_result"].append(ar)
 
             # Materiali da _value_mappings
             if rr["conditions_result"]:
                 rr["value_mapping_materials"] = self._simulate_value_mapping_materials(rule, ctx)
-                rr["record_materials"] = self._simulate_matched_record_materials(ctx)
-                # Pulisci pending dopo simulazione
-                ctx.pop("_pending_materials", None)
 
             report["lookup_results"].append(rr)
 
         report["context_after_lookups"] = {
-            k: v for k, v in ctx.items() if k.startswith("_calc.")
-        }
-
-        # PASS 1.5: Pipeline test
-        for rule in pipeline_rules_list:
-            rid = rule.get("id", "unknown")
-            pr: Dict[str, Any] = {
-                "rule_id": rid, "enabled": rule.get("enabled", True),
-                "conditions_result": False, "step_results": [],
-                "materials_would_add": [],
-            }
-
-            if not pr["enabled"]:
-                pr["skip_reason"] = "disabled"
-                report["pipeline_results"].append(pr)
-                continue
-
-            conds = rule.get("conditions", [])
-            if isinstance(conds, list) and len(conds) > 0:
-                all_ok = True
-                for c in conds:
-                    if not self._eval_cond(c, ctx):
-                        all_ok = False
-                pr["conditions_result"] = all_ok
-            else:
-                pr["conditions_result"] = True
-
-            if pr["conditions_result"]:
-                steps = rule.get("pipeline_steps", [])
-                for i, step in enumerate(steps):
-                    result = self._exec_pipeline_step(
-                        step, ctx, preventivo=None, dry_run=True)
-                    sr = {
-                        "step": i,
-                        "action": step.get("action", ""),
-                        "status": result["status"],
-                        "output": result.get("output", {}),
-                        "error": result.get("error"),
-                    }
-                    pr["step_results"].append(sr)
-                    if step.get("action") == "add_material" and result["status"] == "ok":
-                        pr["materials_would_add"].append(result.get("output", {}))
-                    if result["status"] == "error":
-                        break
-
-            report["pipeline_results"].append(pr)
-
-        # Aggiorna context dopo pipelines
-        report["context_after_pipelines"] = {
             k: v for k, v in ctx.items() if k.startswith("_calc.")
         }
 
@@ -2187,34 +1236,6 @@ class RuleEngine:
                 rr["conditions_result"] = self.should_apply(rule, ctx)
 
             if rr["conditions_result"]:
-                # Esegui set_field per avere context aggiornato
-                for action in rule.get("actions", []):
-                    if action.get("action") == "set_field":
-                        skip_expr = action.get("skip_if")
-                        if skip_expr and self._eval_skip_if(skip_expr, ctx):
-                            continue
-                        self._exec_set_field(action, ctx)
-
-                # Simula add_material da actions
-                for action in rule.get("actions", []):
-                    if action.get("action") == "add_material":
-                        skip_expr = action.get("skip_if")
-                        skipped = self._eval_skip_if(skip_expr, ctx) if skip_expr else False
-                        if skipped:
-                            continue
-                        mat = action.get("material", {})
-                        code_raw = mat.get("codice", "")
-                        code_res = self._replace_ph(code_raw, ctx)
-                        desc_res = self._replace_ph(mat.get("descrizione", ""), ctx)
-                        rr["materials_would_add"].append({
-                            "codice_template": code_raw,
-                            "codice_resolved": code_res,
-                            "descrizione": desc_res,
-                            "quantita": mat.get("quantita", 1),
-                            "unresolved": "{{" in code_res,
-                        })
-
-                # Legacy materials
                 for mat in rule.get("materials", []):
                     code_raw = mat.get("codice", "")
                     code_res = self._replace_ph(code_raw, ctx)
@@ -2231,36 +1252,17 @@ class RuleEngine:
 
         # Summary
         active_l = [r for r in report["lookup_results"] if r.get("conditions_result")]
-        active_p = [r for r in report["pipeline_results"] if r.get("conditions_result")]
         active_m = [r for r in report["material_results"] if r.get("conditions_result")]
         vm_materials = sum(len(r.get("value_mapping_materials", [])) for r in active_l)
-        record_materials = sum(len(r.get("record_materials", [])) for r in active_l)
-        # Conta anche add_material nelle lookup rules
-        lookup_add_mat = sum(
-            len([a for a in r.get("actions_result", []) if a.get("action") == "add_material" and not a.get("skipped")])
-            for r in active_l
-        )
-        pipeline_materials = sum(len(r.get("materials_would_add", [])) for r in active_p)
         report["summary"] = {
             "total_rules": len(all_rules),
             "lookup_rules": len(lookup_rules),
-            "pipeline_rules": len(pipeline_rules_list),
             "material_rules": len(mat_rules),
             "active_lookups": len(active_l),
-            "active_pipelines": len(active_p),
             "active_materials": len(active_m),
-            "materials_would_add": (
-                sum(len(r.get("materials_would_add", [])) for r in active_m)
-                + vm_materials
-                + record_materials
-                + lookup_add_mat
-                + pipeline_materials
-            ),
+            "materials_would_add": sum(len(r.get("materials_would_add", [])) for r in active_m) + vm_materials,
             "vm_materials": vm_materials,
-            "record_materials": record_materials,
-            "lookup_add_materials": lookup_add_mat,
-            "pipeline_materials": pipeline_materials,
-            "calc_values": len(report.get("context_after_pipelines", report["context_after_lookups"])),
+            "calc_values": len(report["context_after_lookups"]),
             "warnings": self.warnings,
             "errors": self.errors,
         }

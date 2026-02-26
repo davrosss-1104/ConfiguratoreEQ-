@@ -1,0 +1,22 @@
+{
+  "tipo": "lookup_multi",
+  "chiavi": [
+    {"colonna": "componente", "match": "exact"}
+  ],
+  "records": [
+    {"componente": "rele_24v",       "watt": 5,   "tensione_uscita": "24", "label": "Relè 24V"},
+    {"componente": "plc",            "watt": 30,  "tensione_uscita": "24", "label": "PLC"},
+    {"componente": "display",        "watt": 15,  "tensione_uscita": "24", "label": "Display"},
+    {"componente": "sensore_porta",  "watt": 8,   "tensione_uscita": "24", "label": "Sensore porta"},
+    {"componente": "encoder",        "watt": 4,   "tensione_uscita": "12", "label": "Encoder"},
+    {"componente": "sensore_peso",   "watt": 6,   "tensione_uscita": "12", "label": "Sensore peso"},
+    {"componente": "led_cabina",     "watt": 20,  "tensione_uscita": "12", "label": "LED cabina"},
+    {"componente": "ventola",        "watt": 12,  "tensione_uscita": "24", "label": "Ventola vano"},
+    {"componente": "citofono",       "watt": 3,   "tensione_uscita": "12", "label": "Citofono"},
+    {"componente": "buzzer",         "watt": 2,   "tensione_uscita": "24", "label": "Buzzer allarme"}
+  ],
+  "_meta": {
+    "nome": "utilizzatori_trasformatore",
+    "note": "Demo - componenti ascensore con potenza e tensione uscita"
+  }
+}

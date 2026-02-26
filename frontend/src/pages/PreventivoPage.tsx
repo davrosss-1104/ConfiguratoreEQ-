@@ -22,6 +22,7 @@ import GestioneSezioniPage from '@/components/sections/GestioneSezioniPage';
 import { GestioneUtentiPage } from '@/components/sections/GestioneUtentiPage';
 import { GestioneRuoliPage } from '@/components/sections/GestioneRuoliPage';
 import RuleBuilderPage from '@/components/sections/RuleBuilderPage';
+import PipelineBuilderPage from '@/components/sections/PipelineBuilderPage';
 import GestioneClientiPage from '@/components/sections/GestioneClientiPage';
 import GestioneBomPage from '@/components/sections/GestioneBomPage';
 import DynamicSectionForm from '@/components/sections/DynamicSectionForm';
@@ -270,10 +271,12 @@ export const PreventivoPage = () => {
         return <GestioneRuoliPage />;
       case 'rule_engine':
         return <RuleBuilderPage />;
+      case 'pipeline_builder':
+        return <PipelineBuilderPage />;
       case 'editor_template_doc':
         return <DocumentTemplateEditorPage />;
       case 'import_excel':
-        return <ImportExcelPage />;
+        return <ImportExcelPage onNavigate={(section: string) => setActiveSection(section)} />;
       case 'info_app':
         return <InfoAppPage />;
 
@@ -295,6 +298,7 @@ export const PreventivoPage = () => {
   const sectionNorm = activeSection.replace(/-/g, '_');
   const hideSideMaterials = sectionNorm === 'materiali' || sectionNorm === 'ordine'
     || sectionNorm.startsWith('gestione_') || sectionNorm === 'rule_engine'
+    || sectionNorm === 'pipeline_builder'
     || sectionNorm === 'editor_template_doc'
     || sectionNorm === 'import_excel' || sectionNorm === 'info_app';
 

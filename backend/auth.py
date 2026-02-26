@@ -7,6 +7,7 @@ import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
+from sqlalchemy import text as sa_text
 from database import SessionLocal
 from models import Utente, GruppoUtenti, PermessoGruppo, Ruolo, PermessoRuolo
 
@@ -42,23 +43,8 @@ PERMESSI_CATALOGO = [
     # --- Ricambi ---
     {"codice": "ricambi.view", "categoria": "Ricambi", "descrizione": "Visualizzare ricambi"},
     {"codice": "ricambi.edit", "categoria": "Ricambi", "descrizione": "Gestire ricambi"},
-    # --- Sezioni configuratore ---
-    {"codice": "sezione.dati_commessa.view", "categoria": "Sezioni", "descrizione": "Vedere Dati Commessa"},
-    {"codice": "sezione.dati_commessa.edit", "categoria": "Sezioni", "descrizione": "Modificare Dati Commessa"},
-    {"codice": "sezione.dati_principali.view", "categoria": "Sezioni", "descrizione": "Vedere Dati Principali"},
-    {"codice": "sezione.dati_principali.edit", "categoria": "Sezioni", "descrizione": "Modificare Dati Principali"},
-    {"codice": "sezione.normative.view", "categoria": "Sezioni", "descrizione": "Vedere Normative"},
-    {"codice": "sezione.normative.edit", "categoria": "Sezioni", "descrizione": "Modificare Normative"},
-    {"codice": "sezione.disposizione_vano.view", "categoria": "Sezioni", "descrizione": "Vedere Disposizione Vano"},
-    {"codice": "sezione.disposizione_vano.edit", "categoria": "Sezioni", "descrizione": "Modificare Disposizione Vano"},
-    {"codice": "sezione.argano.view", "categoria": "Sezioni", "descrizione": "Vedere Argano"},
-    {"codice": "sezione.argano.edit", "categoria": "Sezioni", "descrizione": "Modificare Argano"},
-    {"codice": "sezione.porte.view", "categoria": "Sezioni", "descrizione": "Vedere Porte"},
-    {"codice": "sezione.porte.edit", "categoria": "Sezioni", "descrizione": "Modificare Porte"},
-    {"codice": "sezione.materiali.view", "categoria": "Sezioni", "descrizione": "Vedere sezione Materiali"},
-    {"codice": "sezione.materiali.edit", "categoria": "Sezioni", "descrizione": "Modificare sezione Materiali"},
-    {"codice": "sezione.ordine.view", "categoria": "Sezioni", "descrizione": "Vedere Ordine & BOM"},
-    {"codice": "sezione.ordine.edit", "categoria": "Sezioni", "descrizione": "Modificare Ordine & BOM"},
+    # --- Sezioni configuratore: GENERATE DINAMICAMENTE da sezioni_configuratore ---
+    # (vedi api_permessi.py → get_catalogo_permessi)
     # --- Amministrazione ---
     {"codice": "admin.utenti", "categoria": "Admin", "descrizione": "Gestione utenti e ruoli"},
     {"codice": "admin.articoli", "categoria": "Admin", "descrizione": "Gestione articoli"},
@@ -70,6 +56,42 @@ PERMESSI_CATALOGO = [
     {"codice": "admin.regole", "categoria": "Admin", "descrizione": "Rule engine"},
     {"codice": "admin.template_doc", "categoria": "Admin", "descrizione": "Template documenti"},
 ]
+
+# Sezioni "fisse" che hanno permessi anche se NON presenti in sezioni_configuratore
+# (tab speciali dell'interfaccia come materiali, ordine, dati_commessa)
+SEZIONI_FISSE = [
+    {"codice": "dati_commessa", "etichetta": "Dati Commessa"},
+    {"codice": "materiali", "etichetta": "Materiali"},
+    {"codice": "ordine", "etichetta": "Ordine & BOM"},
+]
+
+
+def get_tutti_codici_permessi(db: Session) -> List[str]:
+    """Restituisce TUTTI i codici permesso: statici + sezioni dinamiche da DB.
+    Usato per dare tutti i permessi ai super admin."""
+    codici = [p["codice"] for p in PERMESSI_CATALOGO]
+
+    # Sezioni da DB
+    codici_da_db = set()
+    try:
+        rows = db.execute(sa_text(
+            "SELECT codice FROM sezioni_configuratore WHERE attivo = 1"
+        )).fetchall()
+        for row in rows:
+            codice = row[0]
+            codici_da_db.add(codice)
+            codici.append(f"sezione.{codice}.view")
+            codici.append(f"sezione.{codice}.edit")
+    except Exception:
+        pass
+
+    # Sezioni fisse non già coperte dal DB
+    for sez in SEZIONI_FISSE:
+        if sez["codice"] not in codici_da_db:
+            codici.append(f"sezione.{sez['codice']}.view")
+            codici.append(f"sezione.{sez['codice']}.edit")
+
+    return codici
 
 
 # ==========================================
@@ -261,14 +283,14 @@ def get_user_permissions(user: Utente, db: Session) -> List[str]:
     
     # Legacy: is_admin flag
     if user.is_admin:
-        return [p["codice"] for p in PERMESSI_CATALOGO]
+        return get_tutti_codici_permessi(db)
     
     # Ruolo assegnato
     if user.ruolo_id:
         ruolo = db.query(Ruolo).filter(Ruolo.id == user.ruolo_id).first()
         if ruolo:
             if ruolo.is_superadmin:
-                return [p["codice"] for p in PERMESSI_CATALOGO]
+                return get_tutti_codici_permessi(db)
             permessi = db.query(PermessoRuolo).filter(
                 PermessoRuolo.ruolo_id == ruolo.id
             ).all()
@@ -403,8 +425,8 @@ def seed_gruppi_e_ruoli(db: Session):
             # Aggiungi permessi al ruolo
             permessi_codici = config["permessi"]
             if "*" in permessi_codici:
-                # Superadmin: aggiungi tutti
-                permessi_codici = [p["codice"] for p in PERMESSI_CATALOGO]
+                # Superadmin: aggiungi tutti (statici + dinamici da DB)
+                permessi_codici = get_tutti_codici_permessi(db)
             
             for codice_perm in permessi_codici:
                 perm = PermessoRuolo(

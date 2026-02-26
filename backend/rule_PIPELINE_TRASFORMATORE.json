@@ -1,0 +1,55 @@
+{
+  "id": "PIPELINE_TRASFORMATORE",
+  "name": "Selezione Trasformatore Automatica",
+  "description": "Somma VA componenti 24V, applica coeff. sicurezza 1.3, seleziona trasformatore dal catalogo",
+  "enabled": false,
+  "priority": 15,
+  "phase": 1.5,
+  "conditions": [],
+  "pipeline_steps": [
+    {
+      "id": "step_collect",
+      "action": "collect_sum",
+      "sources": [
+        {"type": "calc", "pattern": "_calc.*.va_24v"}
+      ],
+      "output": "_calc.pipeline.totale_va_raw"
+    },
+    {
+      "id": "step_sicurezza",
+      "action": "math_expr",
+      "expression": "_calc.pipeline.totale_va_raw * 1.3",
+      "output": "_calc.pipeline.totale_va_sicurezza",
+      "round": "up_50"
+    },
+    {
+      "id": "step_select",
+      "action": "catalog_select",
+      "tabella": "trasformatori_std",
+      "criterio": {
+        "colonna": "potenza_va",
+        "operatore": ">=",
+        "valore": "_calc.pipeline.totale_va_sicurezza"
+      },
+      "filtri": [],
+      "ordinamento": {
+        "colonna": "potenza_va",
+        "direzione": "ASC"
+      },
+      "limit": 1,
+      "output_prefix": "_calc.trasformatore."
+    },
+    {
+      "id": "step_material",
+      "action": "add_material",
+      "material": {
+        "codice": "_calc.trasformatore.art_trasformatore",
+        "descrizione": "Trasformatore auto-selezionato",
+        "quantita": 1,
+        "categoria": "Trasformatore"
+      }
+    }
+  ],
+  "materials": [],
+  "_source": "pipeline_builder"
+}

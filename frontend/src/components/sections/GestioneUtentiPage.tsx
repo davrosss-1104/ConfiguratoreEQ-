@@ -133,7 +133,7 @@ export function GestioneUtentiPage() {
       if (formData.email) params.append('email', formData.email);
       if (formData.gruppo_id !== null) params.append('gruppo_id', String(formData.gruppo_id));
       if (formData.ruolo_id !== null) params.append('ruolo_id', String(formData.ruolo_id));
-      if (formData.cliente_id !== null) params.append('cliente_id', String(formData.cliente_id));
+      if (formData.cliente_id != null) params.append('cliente_id', String(formData.cliente_id));
       params.append('is_admin', formData.is_admin ? 'true' : 'false');
 
       const url = editingId 
@@ -166,7 +166,7 @@ export function GestioneUtentiPage() {
       email: utente.email || '',
       gruppo_id: utente.gruppo_id,
       ruolo_id: utente.ruolo_id,
-      cliente_id: utente.cliente_id,
+      cliente_id: utente.cliente_id ?? null,
       is_admin: utente.is_admin,
     });
     setEditingId(utente.id);

@@ -6,11 +6,12 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from database import get_db
 from models import GruppoUtenti, Ruolo, PermessoRuolo, Utente
 from auth import (
     get_user_permissions, PERMESSI_CATALOGO, RUOLI_DEFAULT,
-    get_password_hash, seed_gruppi_e_ruoli
+    get_password_hash, seed_gruppi_e_ruoli, SEZIONI_FISSE
 )
 from typing import Optional
 
@@ -21,9 +22,34 @@ router = APIRouter()
 # CATALOGO PERMESSI (lista di tutti i permessi disponibili)
 # ==========================================
 @router.get("/permessi/catalogo")
-def get_catalogo_permessi():
-    """Restituisce il catalogo completo dei permessi disponibili"""
-    return PERMESSI_CATALOGO
+def get_catalogo_permessi(db: Session = Depends(get_db)):
+    """Restituisce il catalogo completo dei permessi disponibili.
+    I permessi sezione vengono generati dinamicamente da sezioni_configuratore + SEZIONI_FISSE.
+    """
+    # 1. Permessi statici (non-sezione)
+    catalogo = list(PERMESSI_CATALOGO)
+
+    # 2. Leggi sezioni dal DB
+    codici_da_db = set()
+    try:
+        rows = db.execute(text(
+            "SELECT codice, etichetta FROM sezioni_configuratore WHERE attivo = 1 ORDER BY ordine"
+        )).fetchall()
+        for row in rows:
+            codice, etichetta = row[0], row[1]
+            codici_da_db.add(codice)
+            catalogo.append({"codice": f"sezione.{codice}.view", "categoria": "Sezioni", "descrizione": f"Vedere {etichetta}"})
+            catalogo.append({"codice": f"sezione.{codice}.edit", "categoria": "Sezioni", "descrizione": f"Modificare {etichetta}"})
+    except Exception:
+        pass  # tabella non ancora creata
+
+    # 3. Aggiungi sezioni fisse se non già presenti da DB
+    for sez in SEZIONI_FISSE:
+        if sez["codice"] not in codici_da_db:
+            catalogo.append({"codice": f"sezione.{sez['codice']}.view", "categoria": "Sezioni", "descrizione": f"Vedere {sez['etichetta']}"})
+            catalogo.append({"codice": f"sezione.{sez['codice']}.edit", "categoria": "Sezioni", "descrizione": f"Modificare {sez['etichetta']}"})
+
+    return catalogo
 
 
 # ==========================================

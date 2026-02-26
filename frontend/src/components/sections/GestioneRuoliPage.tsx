@@ -496,12 +496,13 @@ export function GestioneRuoliPage() {
                               {selezionati}/{permessi.length}
                             </span>
                           </div>
-                          <button
+                          <span
+                            role="button"
                             onClick={(e) => { e.stopPropagation(); toggleCategoriaCompleta(categoria); }}
-                            className={`text-xs px-2 py-0.5 rounded ${tutti ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+                            className={`text-xs px-2 py-0.5 rounded cursor-pointer ${tutti ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
                           >
                             {tutti ? 'Deseleziona tutti' : 'Seleziona tutti'}
-                          </button>
+                          </span>
                         </button>
                         
                         {expanded && (

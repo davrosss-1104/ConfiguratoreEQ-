@@ -1,25 +1,115 @@
 {
   "id": "LOOKUP_CONTATTORI_OLEO",
   "name": "Lookup Contattori Oleo",
-  "description": "Cerca nella tabella contattori_oleo per kW",
-  "version": "1.0",
+  "description": "Lookup generata da esempio_contattori_oleo.xlsx — foglio contattori_oleo",
+  "version": "2.0",
   "enabled": true,
   "priority": 10,
-  "conditions": [
-    {
-      "field": "trazione.potenza_motore_kw",
-      "operator": "greater_than",
-      "value": 0
-    }
-  ],
+  "conditions": [],
   "actions": [
     {
-      "action": "lookup_table",
+      "action": "lookup_multi",
       "tabella": "contattori_oleo",
-      "input_field": "trazione.potenza_motore_kw",
-      "output_prefix": "_calc.contattori_oleo.",
-      "partition_field": "tensioni.frequenza_rete"
+      "input_fields": [
+        {
+          "colonna_tabella": "avviamento_frequenza",
+          "match": "exact",
+          "type": "composite",
+          "fields": [
+            "trazione.tipo_avviamento_motore",
+            "tensioni.frequenza_rete"
+          ],
+          "separator": "_"
+        },
+        {
+          "colonna_tabella": "kw",
+          "match": "lte",
+          "type": "single",
+          "field": "trazione.potenza_motore_kw"
+        }
+      ],
+      "output_prefix": "_calc.contattori_oleo."
     }
   ],
-  "materials": []
+  "materials": [],
+  "_source": "excel_import_v3",
+  "_imported_at": "2026-02-26T15:42:55.901268",
+  "_source_file": "esempio_contattori_oleo.xlsx",
+  "_field_mappings": {
+    "kW": {
+      "type": "single",
+      "field": "trazione.potenza_motore_kw"
+    },
+    "avviamento_frequenza": {
+      "type": "composite",
+      "fields": [
+        "trazione.tipo_avviamento_motore",
+        "tensioni.frequenza_rete"
+      ],
+      "separator": "_"
+    }
+  },
+  "_value_mappings": {
+    "D18": {
+      "tipo": "articolo",
+      "articoli": [
+        {
+          "codice": "CONT-D18-KM",
+          "descrizione": "Contattore D18 marcia (KM)",
+          "id": 29,
+          "quantita": 1
+        },
+        {
+          "codice": "CONT-D18-KS",
+          "descrizione": "Contattore D18 stella (KS)",
+          "id": 30,
+          "quantita": 1
+        }
+      ]
+    },
+    "D25": {
+      "tipo": "articolo",
+      "articoli": [
+        {
+          "codice": "CONT-D25-KM",
+          "descrizione": "Contattore D25 marcia (KM)",
+          "id": 31,
+          "quantita": 1
+        }
+      ]
+    },
+    "D32": {
+      "tipo": "articolo",
+      "articoli": [
+        {
+          "codice": "CONT-D32-KM",
+          "descrizione": "Contattore D32 marcia (KM)",
+          "id": 33,
+          "quantita": 1
+        }
+      ]
+    },
+    "D50": {
+      "tipo": "articolo",
+      "articoli": [
+        {
+          "codice": "CONT-D50-KM",
+          "descrizione": "Contattore D50 marcia (KM)",
+          "id": 35,
+          "quantita": 1
+        }
+      ]
+    },
+    "D80": {
+      "tipo": "articolo",
+      "articoli": [
+        {
+          "codice": "CONT-D80-KM",
+          "descrizione": "Contattore D80 marcia (KM)",
+          "id": 37,
+          "quantita": 1
+        }
+      ]
+    }
+  }
 }

@@ -84,7 +84,6 @@ const ADMIN_MENU_PERMESSI: Record<string, string> = {
   'gestione-utenti': 'admin.utenti',
   'gestione-ruoli': 'admin.utenti',
   'rule-engine': 'admin.regole',
-  'pipeline-builder': 'admin.regole',
   'editor-template-doc': 'admin.template_doc',
 };
 
@@ -188,9 +187,8 @@ export const Sidebar = ({
       { id: 'gestione-utenti', label: 'Gestione Utenti', icon: <UserCog className="h-5 w-5" /> },
       { id: 'gestione-ruoli', label: 'Gestione Ruoli', icon: <Key className="h-5 w-5" /> },
       { id: 'rule-engine', label: 'Rule Engine', icon: <Settings2 className="h-5 w-5" /> },
-      { id: 'import-excel', label: 'Importa da Excel', icon: <LayoutList className="h-5 w-5" /> },
-      { id: 'pipeline-builder', label: 'Pipeline di Calcolo', icon: <Cpu className="h-5 w-5" /> },
       { id: 'editor-template-doc', label: 'Template Documenti', icon: <FileText className="h-5 w-5" /> },
+      { id: 'import-excel', label: 'Importa da Excel', icon: <LayoutList className="h-5 w-5" /> },
       { id: 'info-app', label: 'Info App', icon: <Info className="h-5 w-5" /> },
   ];
 
@@ -272,8 +270,8 @@ export const Sidebar = ({
       {/* Footer */}
       <div className="p-6 border-t mt-auto">
         <div className="text-xs text-gray-500">
-          <p>Versione 3.0</p>
-          <p className="mt-1">&copy; 2026 Elettroquadri</p>
+          <p>Versione 2.1</p>
+          <p className="mt-1">&copy; 2025 Elettroquadri</p>
         </div>
       </div>
     </nav>

@@ -1,6 +1,5 @@
 import sys; sys.stdout.reconfigure(line_buffering=True)
-from fastapi import FastAPI, Depends, HTTPException, Query, Header, UploadFile, File as FastAPIFile, Form, Request
-from fastapi import FastAPI, Depends, HTTPException, Query, Header, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Query, Header, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -619,6 +618,33 @@ def evaluate_rules(preventivo_id: int, db: Session):
         "codici_senza_prezzo": list(codici_senza_prezzo - set(prezzi_articoli.keys())),
         "context_keys": list(config_data.keys()),
     }
+
+# ============================================================
+# AGGIUNGERE IN main.py dopo l'endpoint evaluate_rules
+# ============================================================
+
+@app.post("/preventivi/{preventivo_id}/test-rules")
+def test_rules_endpoint(preventivo_id: int, body: dict = None, db: Session = Depends(get_db)):
+    """Test regole senza side-effects. Restituisce report diagnostico completo."""
+    from rule_engine import RuleEngine
+    preventivo = db.query(Preventivo).get(preventivo_id)
+    if not preventivo:
+        raise HTTPException(404, "Preventivo non trovato")
+    engine = RuleEngine(db)
+    override_ctx = body.get("override_context") if body else None
+    report = engine.test_rules(preventivo, override_context=override_ctx)
+    return report
+
+
+@app.get("/preventivi/{preventivo_id}/rule-context")
+def get_rule_context(preventivo_id: int, db: Session = Depends(get_db)):
+    """Restituisce il context completo che il rule engine vede per questo preventivo."""
+    from rule_engine import RuleEngine
+    preventivo = db.query(Preventivo).get(preventivo_id)
+    if not preventivo:
+        raise HTTPException(404, "Preventivo non trovato")
+    engine = RuleEngine(db)
+    return engine.get_context_debug(preventivo)
 
 
 def safe_evaluate_rules(preventivo_id: int, db: Session):
@@ -2154,15 +2180,80 @@ def evaluate_rules_endpoint(preventivo_id: int, db: Session = Depends(get_db)):
     return safe_evaluate_rules(preventivo_id, db)
 
 # ==========================================
+# RULE ENGINE — TEST / DIAGNOSTICA
+# ==========================================
+@app.post("/preventivi/{preventivo_id}/test-rules")
+def test_rules_endpoint(preventivo_id: int, db: Session = Depends(get_db)):
+    """
+    Testa le regole per un preventivo SENZA modificare il DB.
+    
+    Restituisce un report dettagliato con:
+    - Context iniziale (cosa vede il rule engine)
+    - Per ogni regola lookup: condizioni valutate, valori scritti nel context
+    - Per ogni regola materiale: condizioni valutate, materiali che verrebbero aggiunti
+    - Context _calc.* dopo i lookup
+    - Summary con conteggi e warning
+    """
+    from rule_engine import RuleEngine
+    
+    preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
+    if not preventivo:
+        raise HTTPException(404, "Preventivo non trovato")
+    
+    engine = RuleEngine(db)
+    report = engine.test_rules(preventivo)
+    return report
+
+
+@app.get("/preventivi/{preventivo_id}/rule-context")
+def get_rule_context(preventivo_id: int, db: Session = Depends(get_db)):
+    """
+    Restituisce il context completo che il rule engine vede per un preventivo.
+    Utile per capire quali campi sono disponibili e con quali valori.
+    """
+    from rule_engine import RuleEngine
+    
+    preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
+    if not preventivo:
+        raise HTTPException(404, "Preventivo non trovato")
+    
+    engine = RuleEngine(db)
+    return engine.get_context_debug(preventivo)
+
+# ==========================================
 # REGOLE JSON - CRUD su file in ./rules/
 # ==========================================
 RULES_DIR = "./rules"
 
 @app.get("/regole")
-def get_regole():
-    """Lista tutte le regole JSON"""
+def get_regole(
+    sort: str = Query("priority", regex="^(name|date|priority|id)$"),
+    order: str = Query("asc", regex="^(asc|desc)$"),
+):
+    """Lista tutte le regole JSON con ordinamento."""
     rules = load_rules()
-    return sorted(rules, key=lambda r: r.get("priority", 99))
+    
+    reverse = order == "desc"
+    
+    if sort == "priority":
+        rules.sort(key=lambda r: r.get("priority", r.get("priorita", 99)), reverse=reverse)
+    elif sort == "name":
+        rules.sort(key=lambda r: (r.get("name") or r.get("nome") or r.get("id", "")).lower(), reverse=reverse)
+    elif sort == "date":
+        def date_key(r):
+            d = r.get("_imported_at", "")
+            if not d:
+                rule_id = r.get("id", "")
+                fpath = os.path.join("./rules", f"rule_{rule_id}.json")
+                if os.path.exists(fpath):
+                    return datetime.fromtimestamp(os.path.getmtime(fpath)).isoformat()
+                return ""
+            return d
+        rules.sort(key=date_key, reverse=reverse)
+    elif sort == "id":
+        rules.sort(key=lambda r: r.get("id", "").lower(), reverse=reverse)
+    
+    return rules
 
 @app.get("/regole/{rule_id}")
 def get_regola(rule_id: str):
@@ -2347,6 +2438,217 @@ def delete_regola(rule_id: str):
     
     raise HTTPException(status_code=404, detail=f"Regola {rule_id} non trovata")
 
+# ==========================================
+# PIPELINE BUILDER - API
+# ==========================================
+
+@app.post("/pipeline/simulate")
+def simulate_pipeline_endpoint(data: dict, db: Session = Depends(get_db)):
+    """
+    Simula l'esecuzione di una pipeline senza modificare il DB.
+    Body: { "pipeline_rule": {...}, "preventivo_id": 1 }
+    """
+    from rule_engine import RuleEngine
+    
+    pipeline_rule = data.get("pipeline_rule", {})
+    preventivo_id = data.get("preventivo_id", 1)
+    
+    preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
+    if not preventivo:
+        raise HTTPException(404, "Preventivo non trovato per simulazione")
+    
+    engine = RuleEngine(db)
+    result = engine.simulate_pipeline(pipeline_rule, preventivo)
+    return result
+
+
+@app.get("/pipeline/list")
+def list_pipelines_endpoint():
+    """Lista tutte le regole pipeline (con pipeline_steps)."""
+    rules = load_rules()
+    pipelines = [r for r in rules if r.get("pipeline_steps")]
+    return pipelines
+
+@app.post("/pipeline/crea-campi-da-tabella")
+def crea_campi_da_tabella(data: dict, db: Session = Depends(get_db)):
+    """
+    Generico: data una data table, crea sezione + checkbox nel configuratore.
+    
+    Body: {
+        "tabella": "utilizzatori_trasformatore",
+        "colonna_chiave": "componente",        // diventa codice campo
+        "colonna_label": "label",              // diventa etichetta (opz, fallback=chiave)
+        "sezione_codice": "selezione_trasformatore",
+        "sezione_etichetta": "Selez. Trasformatore",
+        "sezione_icona": "Zap",                // opzionale, default "CircleDot"
+        "campi_extra": [                        // opzionale, campi non-checkbox da aggiungere
+            {"codice": "power_factor", "etichetta": "Power Factor", "tipo": "testo", "default": "0.8"}
+        ]
+    }
+    """
+    from excel_data_loader import ExcelDataLoader
+    
+    tabella_nome = data.get("tabella", "")
+    col_chiave = data.get("colonna_chiave", "")
+    col_label = data.get("colonna_label", "")
+    sez_codice = data.get("sezione_codice", "")
+    sez_etichetta = data.get("sezione_etichetta", sez_codice.replace("_", " ").title())
+    sez_icona = data.get("sezione_icona", "CircleDot")
+    campi_extra = data.get("campi_extra", [])
+    
+    if not tabella_nome or not col_chiave or not sez_codice:
+        raise HTTPException(400, "Servono: tabella, colonna_chiave, sezione_codice")
+    
+    # 1. Carica la data table
+    loader = ExcelDataLoader()
+    table = loader.load_table(tabella_nome)
+    if not table:
+        raise HTTPException(404, f"Tabella '{tabella_nome}' non trovata in ./data/")
+    
+    records = table.get("records", [])
+    if not records:
+        raise HTTPException(400, f"Tabella '{tabella_nome}' vuota")
+    
+    # Verifica colonna chiave
+    if col_chiave not in records[0]:
+        cols_disp = list(records[0].keys())
+        raise HTTPException(400, f"Colonna '{col_chiave}' non trovata. Disponibili: {cols_disp}")
+    
+    # 2. Crea sezione (se non esiste)
+    try:
+        existing = db.execute(
+            text("SELECT id FROM sezioni_configuratore WHERE codice = :c"),
+            {"c": sez_codice}
+        ).fetchone()
+        
+        if existing:
+            sezione_id = existing[0]
+        else:
+            # Trova ordine max + 1
+            max_ord = db.execute(
+                text("SELECT COALESCE(MAX(ordine), 0) FROM sezioni_configuratore")
+            ).scalar()
+            db.execute(
+                text("""INSERT INTO sezioni_configuratore (codice, etichetta, icona, ordine, attivo)
+                        VALUES (:c, :e, :i, :o, 1)"""),
+                {"c": sez_codice, "e": sez_etichetta, "i": sez_icona, "o": (max_ord or 0) + 1}
+            )
+            db.commit()
+            sezione_id = db.execute(
+                text("SELECT id FROM sezioni_configuratore WHERE codice = :c"),
+                {"c": sez_codice}
+            ).scalar()
+    except Exception as e:
+        raise HTTPException(500, f"Errore creazione sezione: {e}")
+    
+    # 3. Raggruppa records per chiave (un componente può avere più righe = più uscite)
+    from collections import OrderedDict
+    componenti: OrderedDict = OrderedDict()  # codice_safe → {label, righe: [{col: val}]}
+    
+    for rec in records:
+        codice_campo = str(rec.get(col_chiave, "")).strip()
+        if not codice_campo:
+            continue
+        
+        codice_safe = codice_campo.lower().strip()
+        codice_safe = codice_safe.replace(" ", "_").replace("-", "_")
+        codice_safe = "".join(c for c in codice_safe if c.isalnum() or c == "_")
+        
+        label = str(rec.get(col_label, codice_campo)) if col_label else codice_campo
+        
+        if codice_safe not in componenti:
+            componenti[codice_safe] = {"label": label, "righe": []}
+        
+        # Raccogli le colonne extra di questa riga
+        extra = {k: v for k, v in rec.items() if k not in (col_chiave, col_label) and v is not None}
+        componenti[codice_safe]["righe"].append(extra)
+    
+    # 3b. Crea un campo checkbox per ogni componente UNICO
+    creati = 0
+    skipped = 0
+    
+    for i, (codice_safe, info) in enumerate(componenti.items()):
+        # Verifica se già esiste
+        exists = db.execute(
+            text("SELECT id FROM campi_configuratore WHERE codice = :c AND sezione = :s"),
+            {"c": codice_safe, "s": sez_codice}
+        ).fetchone()
+        
+        if exists:
+            skipped += 1
+            continue
+        
+        # Note: riassumi tutte le righe del componente
+        righe = info["righe"]
+        if len(righe) == 1:
+            note = ", ".join(f"{k}={v}" for k, v in righe[0].items())
+        else:
+            # Più uscite → "3 uscite: 75V 150W, 15V 150W, 18V 150W"
+            uscite_desc = []
+            for r in righe:
+                vals = [f"{v}" for v in r.values()]
+                uscite_desc.append("/".join(vals))
+            note = f"{len(righe)} uscite: " + " | ".join(uscite_desc)
+        note = note[:200]
+        
+        db.execute(
+            text("""INSERT INTO campi_configuratore 
+                    (codice, etichetta, sezione, tipo, ordine, attivo, obbligatorio,
+                     gruppo_dropdown, valore_default)
+                    VALUES (:codice, :etichetta, :sezione, 'checkbox', :ordine, 1, 0,
+                            '', 'false')"""),
+            {
+                "codice": codice_safe,
+                "etichetta": info["label"],
+                "sezione": sez_codice,
+                "ordine": (i + 1) * 10,
+            }
+        )
+        creati += 1
+    
+    # 4. Campi extra (es. power_factor)
+    extra_creati = 0
+    for campo in campi_extra:
+        cod = campo.get("codice", "")
+        if not cod:
+            continue
+        exists = db.execute(
+            text("SELECT id FROM campi_configuratore WHERE codice = :c AND sezione = :s"),
+            {"c": cod, "s": sez_codice}
+        ).fetchone()
+        if exists:
+            continue
+        
+        db.execute(
+            text("""INSERT INTO campi_configuratore 
+                    (codice, etichetta, sezione, tipo, ordine, attivo, obbligatorio,
+                     gruppo_dropdown, valore_default)
+                    VALUES (:codice, :etichetta, :sezione, :tipo, :ordine, 1, 0,
+                            '', :default)"""),
+            {
+                "codice": cod,
+                "etichetta": campo.get("etichetta", cod),
+                "sezione": sez_codice,
+                "tipo": campo.get("tipo", "testo"),
+                "ordine": 9000 + extra_creati * 10,
+                "default": campo.get("default", ""),
+            }
+        )
+        extra_creati += 1
+    
+    db.commit()
+    
+    # Notifica frontend
+    return {
+        "status": "ok",
+        "sezione_codice": sez_codice,
+        "sezione_id": sezione_id,
+        "campi_creati": creati,
+        "campi_skipped": skipped,
+        "campi_extra_creati": extra_creati,
+        "componenti_unici": len(componenti),
+        "totale_record_tabella": len(records),
+    }
 @app.get("/regole-campi-disponibili")
 def get_campi_disponibili(db: Session = Depends(get_db)):
     """
@@ -3848,7 +4150,7 @@ def create_document_template(
     descrizione: str = Form(""),
     config_json: str = Form(...),
     is_default: bool = Form(False),
-    logo: UploadFile = FastAPIFile(None),
+    logo: UploadFile = File(None),
     db: Session = Depends(get_db)
 ):
     """Crea un nuovo document template"""
@@ -3893,7 +4195,7 @@ def update_document_template(
     attivo: bool = Form(None),
     is_default: bool = Form(None),
     remove_logo: bool = Form(False),
-    logo: UploadFile = FastAPIFile(None),
+    logo: UploadFile = File(None),
     db: Session = Depends(get_db)
 ):
     """Aggiorna un document template esistente"""
@@ -6216,6 +6518,458 @@ def merge_data_tables(data: dict):
     return {"merged": merged_name, "partitions": list(result.get("partizioni", {}).keys())}
 
 # ============================================================================
+# IMPORT EXCEL V3 — WIZARD SENZA _MAPPA
+# ============================================================================
+
+@app.post("/import-excel/parse-sheet")
+async def import_excel_parse_sheet(
+    file: UploadFile = File(...),
+    sheet: Optional[str] = Query(None),
+    header_row: int = Query(1),
+):
+    """
+    V3 Step 1: Parsa un foglio Excel, ritorna colonne + righe anteprima.
+    Se sheet non specificato, usa il primo foglio.
+    header_row = riga delle intestazioni (1-based).
+    """
+    import tempfile, shutil, openpyxl
+
+    suffix = os.path.splitext(file.filename)[1] or ".xlsx"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
+    try:
+        wb = openpyxl.load_workbook(tmp_path, data_only=True)
+        sheets = wb.sheetnames
+        selected = sheet if sheet and sheet in sheets else sheets[0]
+        ws = wb[selected]
+
+        # Leggi tutte le righe
+        all_rows = []
+        for row in ws.iter_rows(values_only=True):
+            all_rows.append(list(row))
+
+        # Headers dalla riga specificata (1-based)
+        h_idx = max(0, header_row - 1)
+        if h_idx >= len(all_rows):
+            return {"sheets": sheets, "selected_sheet": selected, "header_row": header_row,
+                    "columns": [], "rows": [], "total_rows": 0}
+
+        raw_headers = all_rows[h_idx]
+        columns = [str(h) if h is not None else f"Col_{i+1}" for i, h in enumerate(raw_headers)]
+
+        # Righe dati (dopo header, max 50 per preview)
+        data_rows = []
+        for row in all_rows[h_idx + 1:]:
+            if all(v is None for v in row):
+                continue
+            row_dict = {}
+            for i, col in enumerate(columns):
+                row_dict[col] = row[i] if i < len(row) else None
+            data_rows.append(row_dict)
+
+        wb.close()
+        return {
+            "sheets": sheets,
+            "selected_sheet": selected,
+            "header_row": header_row,
+            "columns": columns,
+            "rows": data_rows[:50],
+            "total_rows": len(data_rows),
+        }
+    finally:
+        os.unlink(tmp_path)
+
+
+@app.post("/import-excel/analyze-v3")
+async def import_excel_analyze_v3(
+    file: UploadFile = File(...),
+    config_json: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """
+    V3 Step 2→3: Analizza struttura, estrae valori distinti per colonne output,
+    trova candidati campi configuratore per colonne chiave.
+    """
+    import tempfile, shutil, openpyxl
+
+    config = json.loads(config_json)
+    sheet = config.get("sheet")
+    header_row = config.get("header_row", 1)
+    key_columns = config.get("key_columns", [])
+    output_columns = config.get("output_columns", [])
+
+    suffix = os.path.splitext(file.filename)[1] or ".xlsx"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
+    try:
+        wb = openpyxl.load_workbook(tmp_path, data_only=True)
+        ws = wb[sheet] if sheet and sheet in wb.sheetnames else wb[wb.sheetnames[0]]
+
+        all_rows = []
+        for row in ws.iter_rows(values_only=True):
+            all_rows.append(list(row))
+
+        h_idx = max(0, header_row - 1)
+        raw_headers = all_rows[h_idx] if h_idx < len(all_rows) else []
+        columns = [str(h) if h is not None else f"Col_{i+1}" for i, h in enumerate(raw_headers)]
+
+        data_rows = []
+        for row in all_rows[h_idx + 1:]:
+            if all(v is None for v in row):
+                continue
+            row_dict = {}
+            for i, col in enumerate(columns):
+                row_dict[col] = row[i] if i < len(row) else None
+            data_rows.append(row_dict)
+
+        # Valori distinti per colonne output
+        distinct_values = {}
+        for col in output_columns:
+            vals = set()
+            for row in data_rows:
+                v = row.get(col)
+                if v is not None:
+                    vals.add(str(v))
+            distinct_values[col] = sorted(vals)
+
+        # Candidati campi configuratore per colonne chiave
+        campi_db = []
+        try:
+            result = db.execute(text(
+                "SELECT codice, etichetta, sezione, tipo FROM campi_configuratore WHERE attivo=1"
+            ))
+            campi_db = [{"codice": r[0], "etichetta": r[1], "sezione": r[2], "tipo": r[3]}
+                        for r in result.fetchall()]
+        except Exception:
+            pass
+
+        def find_candidates(keyword: str, limit: int = 5):
+            """Trova i migliori campi candidati per una keyword."""
+            if not keyword or not campi_db:
+                return []
+            kw_lower = keyword.lower().replace(" ", "_").replace(".", "_")
+            kw_parts = [p for p in kw_lower.split("_") if len(p) > 1]
+
+            scored = []
+            for campo in campi_db:
+                codice = (campo["codice"] or "").lower()
+                etichetta = (campo["etichetta"] or "").lower()
+                sezione = (campo["sezione"] or "").lower()
+                full_ref = codice if codice.startswith(f"{sezione}.") else f"{sezione}.{codice}"
+
+                score = 0
+                if kw_lower == codice or kw_lower == codice.split(".")[-1]:
+                    score = 100
+                elif kw_lower in codice:
+                    score = 80
+                elif all(p in codice for p in kw_parts):
+                    score = 70
+                elif kw_lower in etichetta:
+                    score = 60
+                elif any(p in codice for p in kw_parts if len(p) > 2):
+                    score = 40
+                elif any(p in etichetta for p in kw_parts if len(p) > 2):
+                    score = 30
+
+                if score > 0:
+                    scored.append({
+                        "field": full_ref,
+                        "codice": campo["codice"],
+                        "etichetta": campo["etichetta"],
+                        "sezione": sezione,
+                        "tipo": campo["tipo"],
+                        "score": score,
+                    })
+
+            scored.sort(key=lambda x: -x["score"])
+            return scored[:limit]
+
+        field_candidates = {}
+        for col in key_columns:
+            field_candidates[col] = find_candidates(col)
+
+        # All fields (per compositi e mapping manuale)
+        all_fields = []
+        for campo in campi_db:
+            sezione = (campo["sezione"] or "").lower()
+            codice = campo["codice"] or ""
+            full_ref = codice if codice.startswith(f"{sezione}.") else f"{sezione}.{codice}"
+            all_fields.append({
+                "field": full_ref,
+                "codice": codice,
+                "etichetta": campo["etichetta"],
+                "sezione": sezione,
+                "tipo": campo["tipo"],
+            })
+
+        wb.close()
+        return {
+            "success": True,
+            "total_rows": len(data_rows),
+            "distinct_values": distinct_values,
+            "field_candidates": field_candidates,
+            "all_fields": all_fields,
+        }
+    finally:
+        os.unlink(tmp_path)
+
+
+@app.post("/import-excel/genera-v3")
+async def import_excel_genera_v3(
+    file: UploadFile = File(...),
+    config_json: str = Form(...),
+):
+    """
+    V3 Step 3→4: Genera data table JSON (lookup_multi) + regola JSON.
+    
+    config_json contiene:
+    - nome_tabella, sheet, header_row
+    - key_columns, output_columns, key_configs (match type per colonna)
+    - field_mappings: {col_excel: {type, field/fields, separator}}
+    - value_mappings: {valore: {tipo, codice_articolo, ...}}
+    - conditions
+    """
+    import tempfile, shutil, openpyxl
+    from datetime import datetime
+
+    config = json.loads(config_json)
+    nome_tabella = config.get("nome_tabella", "imported_table")
+    sheet_name = config.get("sheet")
+    header_row = config.get("header_row", 1)
+    key_columns = config.get("key_columns", [])
+    output_columns = config.get("output_columns", [])
+    key_configs = config.get("key_configs", {})
+    field_mappings = config.get("field_mappings", {})
+    value_mappings = config.get("value_mappings", {})
+    conditions = config.get("conditions", [])
+
+    suffix = os.path.splitext(file.filename)[1] or ".xlsx"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
+    import_timestamp = datetime.now().isoformat()
+
+    try:
+        wb = openpyxl.load_workbook(tmp_path, data_only=True)
+        ws = wb[sheet_name] if sheet_name and sheet_name in wb.sheetnames else wb[wb.sheetnames[0]]
+
+        all_rows = []
+        for row in ws.iter_rows(values_only=True):
+            all_rows.append(list(row))
+
+        h_idx = max(0, header_row - 1)
+        raw_headers = all_rows[h_idx] if h_idx < len(all_rows) else []
+        columns = [str(h) if h is not None else f"Col_{i+1}" for i, h in enumerate(raw_headers)]
+
+        data_rows = []
+        for row in all_rows[h_idx + 1:]:
+            if all(v is None for v in row):
+                continue
+            row_dict = {}
+            for i, col in enumerate(columns):
+                row_dict[col] = row[i] if i < len(row) else None
+            data_rows.append(row_dict)
+
+        wb.close()
+
+        # Normalizza nome colonna per JSON
+        def norm(s):
+            import re as _re
+            s = str(s).lower().strip()
+            s = _re.sub(r'[^a-z0-9]+', '_', s)
+            return s.strip('_')
+
+        # Costruisci chiavi per data table
+        chiavi = []
+        for col in key_columns:
+            match_type = key_configs.get(col, "exact")
+            chiavi.append({
+                "colonna": norm(col),
+                "colonna_originale": col,
+                "match": match_type,
+            })
+
+        # Costruisci records
+        all_data = []
+        for row in data_rows:
+            record = {}
+            # Chiavi
+            for col in key_columns:
+                val = row.get(col)
+                if val is not None:
+                    try:
+                        record[norm(col)] = float(val)
+                    except (ValueError, TypeError):
+                        record[norm(col)] = str(val).strip()
+                else:
+                    record[norm(col)] = None
+
+            # Output
+            output = {}
+            materiali_record = []
+            for col in output_columns:
+                val = row.get(col)
+                if val is None:
+                    continue
+                val_str = str(val).strip()
+                col_norm = norm(col)
+
+                # Controlla se questo valore ha un mapping articolo
+                vm = value_mappings.get(val_str, {})
+                if vm.get("tipo") == "articolo":
+                    output[col_norm] = val_str
+
+                    # Supporta sia formato vecchio (codice_articolo singolo) che nuovo (articoli array)
+                    vm_articoli = vm.get("articoli", [])
+                    if not vm_articoli and vm.get("codice_articolo"):
+                        # Backward compat: singolo articolo → array
+                        vm_articoli = [{
+                            "codice": vm["codice_articolo"],
+                            "descrizione": vm.get("descrizione_articolo", ""),
+                            "quantita": 1,
+                        }]
+
+                    for art in vm_articoli:
+                        materiali_record.append({
+                            "codice": art.get("codice", ""),
+                            "descrizione": art.get("descrizione", ""),
+                            "quantita": art.get("quantita", 1),
+                            "categoria": art.get("categoria", "Materiale Automatico"),
+                            "unita_misura": art.get("unita_misura", "pz"),
+                            "from_output": col_norm,
+                            "from_value": val_str,
+                        })
+                else:
+                    # Parametro o non mappato
+                    try:
+                        output[col_norm] = float(val)
+                    except (ValueError, TypeError):
+                        output[col_norm] = val_str
+
+            record["output"] = output
+            if materiali_record:
+                record["materiali"] = materiali_record
+            all_data.append(record)
+
+        # Salva data table
+        data_dir = "./data"
+        os.makedirs(data_dir, exist_ok=True)
+        table_path = os.path.join(data_dir, f"{nome_tabella}.json")
+
+        table_json = {
+            "tipo": "lookup_multi",
+            "chiavi": chiavi,
+            "records": all_data,
+            "_meta": {
+                "nome": nome_tabella,
+                "generato_il": import_timestamp,
+                "file_origine": file.filename,
+                "foglio": sheet_name,
+                "righe": len(all_data),
+                "colonne_chiave": key_columns,
+                "colonne_output": output_columns,
+            }
+        }
+        with open(table_path, "w", encoding="utf-8") as f:
+            json.dump(table_json, f, indent=2, ensure_ascii=False)
+
+        # Genera regola
+        rules_dir = "./rules"
+        os.makedirs(rules_dir, exist_ok=True)
+
+        rule_id = f"LOOKUP_{nome_tabella.upper()}"
+        has_todo = False
+
+        # Costruisci input_fields
+        input_fields = []
+        warnings = []
+        for col in key_columns:
+            kc = norm(col)
+            match_type = key_configs.get(col, "exact")
+            fm = field_mappings.get(col, {})
+
+            if fm.get("type") == "composite" and fm.get("fields"):
+                comp_fields = fm["fields"]
+                # Validazione: campi duplicati nel composite
+                if len(comp_fields) != len(set(comp_fields)):
+                    warnings.append(
+                        f"Colonna '{col}': campo composito ha campi duplicati {comp_fields}. "
+                        f"Ogni parte del composite deve mappare un campo diverso del configuratore."
+                    )
+                    has_todo = True
+                # Validazione: campi vuoti
+                if any(not f or f.startswith("TODO") for f in comp_fields):
+                    has_todo = True
+                input_fields.append({
+                    "colonna_tabella": kc,
+                    "match": match_type,
+                    "type": "composite",
+                    "fields": comp_fields,
+                    "separator": fm.get("separator", "_"),
+                })
+            elif fm.get("field"):
+                input_fields.append({
+                    "colonna_tabella": kc,
+                    "match": match_type,
+                    "type": "single",
+                    "field": fm["field"],
+                })
+            else:
+                input_fields.append({
+                    "colonna_tabella": kc,
+                    "match": match_type,
+                    "type": "single",
+                    "field": f"TODO.{kc}",
+                })
+                has_todo = True
+
+        rule = {
+            "id": rule_id,
+            "name": f"Lookup {nome_tabella.replace('_', ' ').title()}",
+            "description": f"Lookup generata da {file.filename} — foglio {sheet_name}",
+            "version": "2.0",
+            "enabled": not has_todo,
+            "priority": 10,
+            "conditions": conditions,
+            "actions": [{
+                "action": "lookup_multi",
+                "tabella": nome_tabella,
+                "input_fields": input_fields,
+                "output_prefix": f"_calc.{nome_tabella}.",
+            }],
+            "materials": [],
+            "_source": "excel_import_v3",
+            "_imported_at": import_timestamp,
+            "_source_file": file.filename,
+            "_field_mappings": field_mappings,
+            "_value_mappings": value_mappings,
+        }
+
+        rule_path = os.path.join(rules_dir, f"rule_{rule_id}.json")
+        with open(rule_path, "w", encoding="utf-8") as f:
+            json.dump(rule, f, indent=2, ensure_ascii=False)
+
+        return {
+            "success": True,
+            "data_table": nome_tabella,
+            "data_table_path": table_path,
+            "rule_id": rule_id,
+            "rule_path": rule_path,
+            "has_todo": has_todo,
+            "rows_imported": len(all_data),
+            "value_mappings_count": len([v for v in value_mappings.values() if isinstance(v, dict) and v.get("tipo") == "articolo"]),
+            "materiali_count": sum(len(r.get("materiali", [])) for r in all_data),
+            "warnings": warnings,
+        }
+    finally:
+        os.unlink(tmp_path)
+
+# ============================================================================
 # IMPORT EXCEL CON _MAPPA
 # ============================================================================
 
@@ -6359,17 +7113,26 @@ async def import_excel_preview(file: UploadFile = File(...)):
 @app.post("/import-excel/genera")
 async def import_excel_genera(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
-    Fase 2 Step 2: genera data tables JSON + regole lookup con matching intelligente.
+    Fase 2 Step 2: genera data tables JSON + regole con matching intelligente.
     
-    Per ogni tabella generata, crea automaticamente una regola di lookup
-    cercando i campi migliori nel configuratore (invece di TODO_SEZIONE).
+    Supporta tutti i tipi di tabella:
+    - lookup_range → regola lookup_table + bozza MAT_ per colonne ART
+    - constants    → regola lookup_table (chiave testuale → valori)
+    - catalog      → bozza catalog_match (selezione multi-criterio, disabilitata)
+    
+    Ogni regola generata include _source="excel_import" e _imported_at per
+    tracciabilità nel Rule Builder.
     """
     import tempfile, shutil
+    from datetime import datetime
 
     suffix = os.path.splitext(file.filename)[1] or ".xlsx"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         shutil.copyfileobj(file.file, tmp)
         tmp_path = tmp.name
+
+    # Timestamp unico per questa sessione di import
+    import_timestamp = datetime.now().isoformat()
 
     try:
         # 1. Genera data tables
@@ -6383,9 +7146,9 @@ async def import_excel_genera(file: UploadFile = File(...), db: Session = Depend
         shutil.copy2(tmp_path, dest)
         result["original_saved"] = dest
 
-        # 2. Per ogni tabella generata, genera regola lookup con matching intelligente
+        # 2. Per ogni tabella generata, genera regola con matching intelligente
         rules_generated = []
-        rules_details = []  # dettagli per il frontend
+        rules_details = []
 
         if result.get("success"):
             # Carica campi configuratore per matching
@@ -6413,7 +7176,6 @@ async def import_excel_genera(file: UploadFile = File(...), db: Session = Depend
                     etichetta = (campo["etichetta"] or "").lower()
                     sezione = (campo["sezione"] or "").lower()
 
-                    # Evita raddoppio sezione
                     if codice.startswith(f"{sezione}."):
                         full_ref = codice
                     else:
@@ -6442,6 +7204,33 @@ async def import_excel_genera(file: UploadFile = File(...), db: Session = Depend
 
                 return (best_field, best_score)
 
+            def stamp_and_save(rule: dict, rule_id: str, has_todo: bool, is_draft: bool,
+                               input_field: str, input_score: int,
+                               partition_field: str = "", partition_score: int = 0):
+                """Aggiunge metadati di import, salva su disco e registra nei risultati."""
+                # Metadati tracciabilità
+                rule["_source"] = "excel_import"
+                rule["_imported_at"] = import_timestamp
+                rule["_source_file"] = file.filename
+
+                rule_path = os.path.join(rules_dir, f"rule_{rule_id}.json")
+                with open(rule_path, "w", encoding="utf-8") as f:
+                    json.dump(rule, f, indent=2, ensure_ascii=False)
+
+                rules_generated.append(rule_id)
+                rules_details.append({
+                    "rule_id": rule_id,
+                    "has_todo": has_todo,
+                    "is_draft": is_draft,
+                    "input_field": input_field if isinstance(input_field, str) else "",
+                    "input_score": input_score,
+                    "partition_field": partition_field if isinstance(partition_field, str) else "",
+                    "partition_score": partition_score,
+                })
+
+            rules_dir = "./rules"
+            os.makedirs(rules_dir, exist_ok=True)
+
             for nome_tabella in result.get("tables_generated", []):
                 try:
                     table = loader.load_table(nome_tabella)
@@ -6454,72 +7243,59 @@ async def import_excel_genera(file: UploadFile = File(...), db: Session = Depend
                     partizionato_per = table.get("partizionato_per", "")
                     colonna_chiave_orig = meta.get("colonna_chiave", parametro_lookup)
 
-                    # Matching intelligente
-                    input_field, input_score = find_best_match(parametro_lookup, "numero")
-                    if not input_field and colonna_chiave_orig:
-                        input_field, input_score = find_best_match(colonna_chiave_orig, "numero")
-
-                    partition_field = ""
-                    partition_score = 0
-                    if partizionato_per:
-                        partition_field, partition_score = find_best_match(partizionato_per, "dropdown")
-
-                    # Costruisci regola
-                    rule_id = f"LOOKUP_{nome_tabella.upper()}"
-
-                    conditions = []
-                    if tipo == "lookup_range" and input_field:
-                        conditions.append({
-                            "field": input_field,
-                            "operator": "greater_than",
-                            "value": 0
-                        })
-
-                    action = {
-                        "action": "lookup_table",
-                        "tabella": nome_tabella,
-                        "input_field": input_field or f"TODO.{parametro_lookup}",
-                        "output_prefix": f"_calc.{nome_tabella}.",
-                    }
-                    if partizionato_per:
-                        action["partition_field"] = partition_field or f"TODO.{partizionato_per}"
-
-                    has_todo = "TODO." in action.get("input_field", "") or "TODO." in action.get("partition_field", "")
-
-                    rule = {
-                        "id": rule_id,
-                        "name": f"Lookup {nome_tabella.replace('_', ' ').title()}",
-                        "description": f"Cerca nella tabella {nome_tabella} per {colonna_chiave_orig or parametro_lookup}",
-                        "version": "1.0",
-                        "enabled": True,
-                        "priority": 10,
-                        "conditions": conditions,
-                        "actions": [action],
-                        "materials": [],
-                    }
-
-                    # Salva regola
-                    rules_dir = "./rules"
-                    os.makedirs(rules_dir, exist_ok=True)
-                    rule_path = os.path.join(rules_dir, f"rule_{rule_id}.json")
-                    with open(rule_path, "w", encoding="utf-8") as f:
-                        json.dump(rule, f, indent=2, ensure_ascii=False)
-
-                    rules_generated.append(rule_id)
-                    rules_details.append({
-                        "rule_id": rule_id,
-                        "has_todo": has_todo,
-                        "input_field": action.get("input_field", ""),
-                        "input_score": input_score,
-                        "partition_field": action.get("partition_field", ""),
-                        "partition_score": partition_score,
-                    })
-
-                    # ===== GENERA BOZZA REGOLA MATERIALI =====
-                    # Per ogni colonna ART: nella tabella, crea un materiale
-                    # che usa il placeholder per leggere il codice dal lookup
-                    art_columns = []
+                    # =============================================
+                    # TIPO: lookup_range (numerico con fasce)
+                    # =============================================
                     if tipo == "lookup_range":
+                        input_field, input_score = find_best_match(parametro_lookup, "numero")
+                        if not input_field and colonna_chiave_orig:
+                            input_field, input_score = find_best_match(colonna_chiave_orig, "numero")
+
+                        partition_field = ""
+                        partition_score = 0
+                        if partizionato_per:
+                            partition_field, partition_score = find_best_match(partizionato_per, "dropdown")
+
+                        rule_id = f"LOOKUP_{nome_tabella.upper()}"
+                        conditions = []
+                        if input_field:
+                            conditions.append({
+                                "field": input_field,
+                                "operator": "greater_than",
+                                "value": 0
+                            })
+
+                        action = {
+                            "action": "lookup_table",
+                            "tabella": nome_tabella,
+                            "input_field": input_field or f"TODO.{parametro_lookup}",
+                            "output_prefix": f"_calc.{nome_tabella}.",
+                        }
+                        if partizionato_per:
+                            action["partition_field"] = partition_field or f"TODO.{partizionato_per}"
+
+                        has_todo = "TODO." in action.get("input_field", "") or "TODO." in action.get("partition_field", "")
+
+                        rule = {
+                            "id": rule_id,
+                            "name": f"Lookup {nome_tabella.replace('_', ' ').title()}",
+                            "description": f"Cerca nella tabella {nome_tabella} per {colonna_chiave_orig or parametro_lookup}",
+                            "version": "1.0",
+                            "enabled": True,
+                            "priority": 10,
+                            "conditions": conditions,
+                            "actions": [action],
+                            "materials": [],
+                        }
+
+                        stamp_and_save(rule, rule_id, has_todo=has_todo, is_draft=False,
+                                       input_field=action.get("input_field", ""),
+                                       input_score=input_score,
+                                       partition_field=action.get("partition_field", ""),
+                                       partition_score=partition_score)
+
+                        # ===== GENERA BOZZA REGOLA MATERIALI (solo per lookup_range con ART) =====
+                        art_columns = []
                         ranges_data = None
                         if "partizioni" in table:
                             first_part = list(table["partizioni"].values())[0]
@@ -6530,69 +7306,158 @@ async def import_excel_genera(file: UploadFile = File(...), db: Session = Depend
                         if ranges_data and len(ranges_data) > 0:
                             art_columns = list(ranges_data[0].get("articoli", {}).keys())
 
-                    if art_columns:
-                        mat_rule_id = f"MAT_{nome_tabella.upper()}"
-                        output_prefix = f"_calc.{nome_tabella}."
+                        if art_columns:
+                            mat_rule_id = f"MAT_{nome_tabella.upper()}"
+                            output_prefix = f"_calc.{nome_tabella}."
 
-                        # Genera un materiale per ogni colonna ART
-                        materials_list = []
-                        for art_col in art_columns:
-                            ctx_key = f"{output_prefix}{art_col}"
-                            # Genera descrizione leggibile dal nome colonna
-                            # art_cont_dir → "Contattore diretto"
-                            desc_parts = art_col.replace("art_", "").replace("_", " ").strip()
-                            materials_list.append({
-                                "codice": "{{" + ctx_key + "}}",
-                                "descrizione": f"{desc_parts.title()} ({nome_tabella})",
-                                "quantita": 1,
-                                "categoria": nome_tabella.replace("_", " ").title(),
-                                "unita_misura": "pz",
+                            materials_list = []
+                            for art_col in art_columns:
+                                ctx_key = f"{output_prefix}{art_col}"
+                                desc_parts = art_col.replace("art_", "").replace("_", " ").strip()
+                                materials_list.append({
+                                    "codice": "{{" + ctx_key + "}}",
+                                    "descrizione": f"{desc_parts.title()} ({nome_tabella})",
+                                    "quantita": 1,
+                                    "categoria": nome_tabella.replace("_", " ").title(),
+                                    "unita_misura": "pz",
+                                })
+
+                            mat_rule = {
+                                "id": mat_rule_id,
+                                "name": f"Materiali {nome_tabella.replace('_', ' ').title()}",
+                                "description": f"Aggiunge materiali basati sul lookup {nome_tabella}. BOZZA: verificare condizioni e scenari.",
+                                "version": "1.0",
+                                "enabled": False,
+                                "priority": 50,
+                                "conditions": [
+                                    {
+                                        "field": f"{output_prefix}{art_columns[0]}",
+                                        "operator": "is_not_empty",
+                                        "_hint": "Verifica che il lookup abbia prodotto risultati"
+                                    }
+                                ],
+                                "materials": materials_list,
+                                "_hints": {
+                                    "nota": "BOZZA AUTOMATICA - Da personalizzare:",
+                                    "suggerimenti": [
+                                        "Questa regola è DISABILITATA. Abilitatela dopo averla verificata.",
+                                        "Aggiungete condizioni per lo scenario (es: tipo_avviamento = 'diretto')",
+                                        "Se servono regole separate per scenario, duplicate e filtrate",
+                                        "Verificate che i codici articolo esistano nel sistema"
+                                    ],
+                                    "output_disponibili": list(
+                                        (ranges_data[0].get("output", {}).keys()) if ranges_data else []
+                                    ),
+                                    "articoli_disponibili": art_columns,
+                                }
+                            }
+
+                            stamp_and_save(mat_rule, mat_rule_id, has_todo=False, is_draft=True,
+                                           input_field=f"{len(art_columns)} materiali",
+                                           input_score=0)
+
+                    # =============================================
+                    # TIPO: constants (chiave testuale → valori)
+                    # =============================================
+                    elif tipo == "constants":
+                        input_field, input_score = find_best_match(parametro_lookup, "dropdown")
+                        if not input_field and colonna_chiave_orig:
+                            input_field, input_score = find_best_match(colonna_chiave_orig, "dropdown")
+
+                        rule_id = f"LOOKUP_{nome_tabella.upper()}"
+                        conditions = []
+                        if input_field:
+                            conditions.append({
+                                "field": input_field,
+                                "operator": "is_not_empty",
                             })
 
-                        mat_rule = {
-                            "id": mat_rule_id,
-                            "name": f"Materiali {nome_tabella.replace('_', ' ').title()}",
-                            "description": f"Aggiunge materiali basati sul lookup {nome_tabella}. BOZZA: verificare condizioni e scenari.",
-                            "version": "1.0",
-                            "enabled": False,  # Disabilitata di default — bozza da confermare
-                            "priority": 50,    # Dopo il lookup (priority 10)
-                            "conditions": [
-                                {
-                                    "field": f"{output_prefix}{art_columns[0]}",
-                                    "operator": "is_not_empty",
-                                    "_hint": "Verifica che il lookup abbia prodotto risultati"
-                                }
-                            ],
-                            "materials": materials_list,
-                            "_hints": {
-                                "nota": "BOZZA AUTOMATICA - Da personalizzare:",
-                                "suggerimenti": [
-                                    "Questa regola è DISABILITATA. Abilitatela dopo averla verificata.",
-                                    "Aggiungete condizioni per lo scenario (es: tipo_avviamento = 'diretto')",
-                                    "Se servono regole separate per scenario, duplicate e filtrate",
-                                    "Verificate che i codici articolo esistano nel sistema"
-                                ],
-                                "output_disponibili": list(
-                                    (ranges_data[0].get("output", {}).keys()) if ranges_data else []
-                                ),
-                                "articoli_disponibili": art_columns,
-                            }
+                        action = {
+                            "action": "lookup_table",
+                            "tabella": nome_tabella,
+                            "input_field": input_field or f"TODO.{parametro_lookup}",
+                            "output_prefix": f"_calc.{nome_tabella}.",
                         }
 
-                        mat_rule_path = os.path.join(rules_dir, f"rule_{mat_rule_id}.json")
-                        with open(mat_rule_path, "w", encoding="utf-8") as f:
-                            json.dump(mat_rule, f, indent=2, ensure_ascii=False)
+                        has_todo = "TODO." in action.get("input_field", "")
 
-                        rules_generated.append(mat_rule_id)
-                        rules_details.append({
-                            "rule_id": mat_rule_id,
-                            "has_todo": False,
-                            "is_draft": True,
-                            "input_field": f"{len(art_columns)} materiali",
-                            "input_score": 0,
-                            "partition_field": "",
-                            "partition_score": 0,
-                        })
+                        chiavi = list(table.get("valori", {}).keys())
+                        desc_chiavi = ", ".join(chiavi[:5])
+                        if len(chiavi) > 5:
+                            desc_chiavi += f" ... ({len(chiavi)} totali)"
+
+                        rule = {
+                            "id": rule_id,
+                            "name": f"Lookup {nome_tabella.replace('_', ' ').title()}",
+                            "description": f"Cerca costanti {nome_tabella} per {colonna_chiave_orig}. Chiavi: {desc_chiavi}",
+                            "version": "1.0",
+                            "enabled": True,
+                            "priority": 10,
+                            "conditions": conditions,
+                            "actions": [action],
+                            "materials": [],
+                        }
+
+                        stamp_and_save(rule, rule_id, has_todo=has_todo, is_draft=False,
+                                       input_field=action.get("input_field", ""),
+                                       input_score=input_score)
+
+                    # =============================================
+                    # TIPO: catalog (selezione multi-criterio)
+                    # =============================================
+                    elif tipo == "catalog":
+                        colonne = table.get("colonne", [])
+                        colonna_id = table.get("colonna_id", "codice")
+                        records = table.get("records", [])
+
+                        rule_id = f"CATALOG_{nome_tabella.upper()}"
+
+                        output_mapping = {}
+                        for col in colonne:
+                            output_mapping[f"_calc.{nome_tabella}.{col}"] = col
+
+                        action = {
+                            "action": "catalog_match",
+                            "tabella": nome_tabella,
+                            "criteri_fissi": [
+                                {
+                                    "colonna": "TODO_COLONNA",
+                                    "operatore": ">=",
+                                    "valore": "TODO_VALORE",
+                                    "_hint": f"Colonne disponibili: {', '.join(colonne)}"
+                                }
+                            ],
+                            "ordinamento": {
+                                "colonna": colonne[1] if len(colonne) > 1 else colonna_id,
+                                "direzione": "ASC"
+                            },
+                            "output": output_mapping,
+                        }
+
+                        rule = {
+                            "id": rule_id,
+                            "name": f"Selezione {nome_tabella.replace('_', ' ').title()}",
+                            "description": (
+                                f"Cerca nel catalogo {nome_tabella} ({len(records)} record). "
+                                f"BOZZA: completare criteri di selezione nel Rule Designer."
+                            ),
+                            "version": "1.0",
+                            "enabled": False,
+                            "priority": 20,
+                            "conditions": [],
+                            "actions": [action],
+                            "materials": [],
+                        }
+
+                        stamp_and_save(rule, rule_id, has_todo=True, is_draft=True,
+                                       input_field=f"{len(colonne)} colonne",
+                                       input_score=0)
+
+                    else:
+                        result.setdefault("warnings", []).append(
+                            f"Tipo '{tipo}' non supportato per generazione regola '{nome_tabella}'"
+                        )
+                        continue
 
                 except Exception as e:
                     result.setdefault("warnings", []).append(
@@ -6652,6 +7517,485 @@ def download_esempio_excel(filename: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=filename
     )
+
+@app.post("/import-excel/parse-sheet")
+async def import_excel_parse_sheet(
+    file: UploadFile = File(...),
+    sheet: str = Query(None, description="Nome foglio (default: primo)"),
+    header_row: int = Query(1, description="Riga intestazioni (1-based)"),
+):
+    """
+    Step 1: Parsa un foglio Excel e restituisce colonne + righe dati.
+    """
+    import tempfile, shutil, openpyxl
+
+    suffix = os.path.splitext(file.filename)[1] or ".xlsx"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
+    try:
+        wb = openpyxl.load_workbook(tmp_path, data_only=True, read_only=True)
+        all_sheets = [s for s in wb.sheetnames if not s.startswith("_")]
+
+        target = sheet or (all_sheets[0] if all_sheets else wb.sheetnames[0])
+        if target not in wb.sheetnames:
+            raise HTTPException(400, f"Foglio '{target}' non trovato. Disponibili: {wb.sheetnames}")
+
+        ws = wb[target]
+        rows_raw = []
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            if i >= header_row - 1 + 500:
+                break
+            rows_raw.append(list(row))
+        wb.close()
+
+        if len(rows_raw) < header_row:
+            return {"sheets": all_sheets, "columns": [], "rows": [], "total_rows": 0}
+
+        headers = []
+        for j, h in enumerate(rows_raw[header_row - 1]):
+            if h is not None and str(h).strip():
+                headers.append(str(h).strip())
+            else:
+                headers.append(f"col_{j+1}")
+
+        data_rows = []
+        for row in rows_raw[header_row:]:
+            d = {}
+            has_data = False
+            for j, h in enumerate(headers):
+                val = row[j] if j < len(row) else None
+                if val is not None:
+                    if isinstance(val, float) and val == int(val):
+                        val = int(val)
+                    d[h] = val
+                    has_data = True
+                else:
+                    d[h] = None
+            if has_data:
+                data_rows.append(d)
+
+        return {
+            "sheets": all_sheets,
+            "selected_sheet": target,
+            "header_row": header_row,
+            "columns": headers,
+            "rows": data_rows[:50],
+            "total_rows": len(data_rows),
+        }
+    finally:
+        os.unlink(tmp_path)
+
+
+@app.post("/import-excel/analyze-v3")
+async def import_excel_analyze_v3(
+    file: UploadFile = File(...),
+    config_json: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Step 2→3: Analizza struttura + estrae valori distinti + candidati campi.
+    
+    config_json:
+    {
+        "sheet": "Foglio1",
+        "header_row": 3,
+        "key_columns": ["kW", "avviamento_freq"],
+        "output_columns": ["contattore_km", "morsetti", "filo", "soft_starter"]
+    }
+    """
+    import tempfile, shutil, openpyxl
+
+    config = json.loads(config_json)
+    sheet_name = config.get("sheet", "")
+    header_row = config.get("header_row", 1)
+    key_columns = config.get("key_columns", [])
+    output_columns = config.get("output_columns", [])
+
+    suffix = os.path.splitext(file.filename)[1] or ".xlsx"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
+    try:
+        wb = openpyxl.load_workbook(tmp_path, data_only=True, read_only=True)
+        if sheet_name not in wb.sheetnames:
+            raise HTTPException(400, f"Foglio '{sheet_name}' non trovato")
+
+        ws = wb[sheet_name]
+        rows_raw = list(ws.iter_rows(values_only=True))
+        wb.close()
+
+        if len(rows_raw) < header_row:
+            return {"success": False, "errors": ["Riga intestazioni fuori range"]}
+
+        headers = []
+        for j, h in enumerate(rows_raw[header_row - 1]):
+            headers.append(str(h).strip() if h is not None and str(h).strip() else f"col_{j+1}")
+
+        all_data = []
+        for row in rows_raw[header_row:]:
+            d = {}
+            has_data = False
+            for j, h in enumerate(headers):
+                val = row[j] if j < len(row) else None
+                if val is not None:
+                    if isinstance(val, float) and val == int(val):
+                        val = int(val)
+                    d[h] = val
+                    has_data = True
+            if has_data:
+                all_data.append(d)
+
+        # Valori distinti per colonne output
+        distinct_values = {}
+        for col in output_columns:
+            vals = set()
+            for row in all_data:
+                v = row.get(col)
+                if v is not None and str(v).strip():
+                    vals.add(str(v).strip())
+            distinct_values[col] = sorted(vals)
+
+        # Campi configuratore per matching
+        campi_db = []
+        try:
+            campi_result = db.execute(text(
+                "SELECT codice, etichetta, sezione, tipo, gruppo_dropdown "
+                "FROM campi_configuratore WHERE attivo=1 ORDER BY sezione, ordine"
+            ))
+            campi_db = [
+                {"codice": r[0], "etichetta": r[1], "sezione": r[2],
+                 "tipo": r[3], "gruppo_dropdown": r[4]}
+                for r in campi_result.fetchall()
+            ]
+        except Exception as e:
+            print(f"Errore caricamento campi: {e}")
+
+        def find_candidates(keyword, prefer_tipo=None):
+            if not keyword or not campi_db:
+                return []
+            kw_lower = keyword.lower().replace(" ", "_").replace(".", "_")
+            kw_parts = [p for p in kw_lower.split("_") if len(p) > 1]
+            candidates = []
+            for campo in campi_db:
+                codice = (campo["codice"] or "").lower()
+                etichetta = (campo["etichetta"] or "").lower()
+                sezione = (campo["sezione"] or "").lower()
+                full_ref = codice if codice.startswith(f"{sezione}.") else f"{sezione}.{codice}"
+                score = 0
+                if kw_lower == codice or kw_lower == codice.split(".")[-1]:
+                    score = 100
+                elif kw_lower in codice:
+                    score = 80
+                elif all(p in codice for p in kw_parts):
+                    score = 70
+                elif kw_lower in etichetta:
+                    score = 60
+                elif any(p in codice for p in kw_parts if len(p) > 2):
+                    score = 40
+                elif any(p in etichetta for p in kw_parts if len(p) > 2):
+                    score = 30
+                if prefer_tipo and campo["tipo"] == prefer_tipo:
+                    score += 5
+                if score > 0:
+                    candidates.append({
+                        "field": full_ref, "codice": campo["codice"],
+                        "etichetta": campo["etichetta"], "sezione": sezione,
+                        "tipo": campo["tipo"], "score": score,
+                    })
+            candidates.sort(key=lambda c: -c["score"])
+            return candidates[:10]
+
+        field_candidates = {}
+        for col in key_columns:
+            prefer = "numero" if key_columns.index(col) == 0 else "dropdown"
+            field_candidates[col] = find_candidates(col, prefer_tipo=prefer)
+
+        all_fields = []
+        for c in campi_db:
+            full_ref = c["codice"] if c["codice"].startswith(f"{c['sezione']}.") else f"{c['sezione']}.{c['codice']}"
+            all_fields.append({
+                "field": full_ref, "codice": c["codice"],
+                "etichetta": c["etichetta"], "sezione": c["sezione"], "tipo": c["tipo"],
+            })
+
+        return {
+            "success": True,
+            "total_rows": len(all_data),
+            "distinct_values": distinct_values,
+            "field_candidates": field_candidates,
+            "all_fields": all_fields,
+        }
+    finally:
+        os.unlink(tmp_path)
+
+
+@app.post("/import-excel/genera-v3")
+async def import_excel_genera_v3(
+    file: UploadFile = File(...),
+    config_json: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Step finale: genera data table JSON + regola lookup.
+    
+    config_json:
+    {
+        "nome_tabella": "contattori_oleo",
+        "sheet": "Dati",
+        "header_row": 3,
+        "key_columns": ["kW", "avviamento_freq"],
+        "output_columns": ["contattore_km", "contattore_ks", "morsetti", "filo", "soft_starter"],
+        "key_configs": {
+            "kW": "lte",
+            "avviamento_freq": "exact"
+        },
+        "field_mappings": {
+            "kW": {"type": "single", "field": "argano.potenza_motore_kw"},
+            "avviamento_freq": {
+                "type": "composite",
+                "fields": ["argano.tipo_avviamento", "tensioni.frequenza_rete"],
+                "separator": "_"
+            }
+        },
+        "value_mappings": {
+            "D18": {"tipo": "articolo", "codice_articolo": "CONT-D18", "articolo_id": 123},
+            "10":  {"tipo": "parametro"}
+        },
+        "conditions": []
+    }
+    """
+    import tempfile, shutil, openpyxl
+    from datetime import datetime
+
+    config = json.loads(config_json)
+    nome_tabella = config.get("nome_tabella", "imported_table")
+    sheet_name = config.get("sheet", "")
+    header_row = config.get("header_row", 1)
+    key_columns = config.get("key_columns", [])
+    output_columns = config.get("output_columns", [])
+    key_configs = config.get("key_configs", {})          # {"kW": "lte", "avviamento_freq": "exact"}
+    field_mappings = config.get("field_mappings", {})    # compositi supportati
+    value_mappings = config.get("value_mappings", {})
+    conditions = config.get("conditions", [])
+
+    suffix = os.path.splitext(file.filename)[1] or ".xlsx"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
+    import_timestamp = datetime.now().isoformat()
+
+    try:
+        wb = openpyxl.load_workbook(tmp_path, data_only=True, read_only=True)
+        if sheet_name not in wb.sheetnames:
+            raise HTTPException(400, f"Foglio '{sheet_name}' non trovato")
+
+        ws = wb[sheet_name]
+        rows_raw = list(ws.iter_rows(values_only=True))
+        wb.close()
+
+        if len(rows_raw) < header_row:
+            raise HTTPException(400, "Riga intestazioni fuori range")
+
+        headers = []
+        for j, h in enumerate(rows_raw[header_row - 1]):
+            headers.append(str(h).strip() if h is not None and str(h).strip() else f"col_{j+1}")
+
+        all_data = []
+        for row in rows_raw[header_row:]:
+            d = {}
+            has_data = False
+            for j, h in enumerate(headers):
+                val = row[j] if j < len(row) else None
+                if val is not None:
+                    if isinstance(val, float) and val == int(val):
+                        val = int(val)
+                    d[h] = val
+                    has_data = True
+            if has_data:
+                all_data.append(d)
+
+        # Normalizza nome per JSON key
+        import re as _re
+        def norm(s):
+            s = s.lower().strip()
+            s = _re.sub(r'[^a-z0-9]+', '_', s)
+            return s.strip('_')
+
+        # =============================================
+        # COSTRUZIONE DATA TABLE JSON
+        # =============================================
+        data_dir = "./data"
+        os.makedirs(data_dir, exist_ok=True)
+
+        # Struttura generica: array di record con chiavi + output + articoli
+        # Il match type è salvato nei metadati, il rule engine lo usa a runtime
+        records = []
+        for row in all_data:
+            record = {}
+
+            # Chiavi
+            for kc in key_columns:
+                v = row.get(kc)
+                if v is not None:
+                    record[norm(kc)] = v if not isinstance(v, str) else str(v).strip()
+
+            # Output
+            output = {}
+            articoli = {}
+            for col in output_columns:
+                v = row.get(col)
+                if v is not None:
+                    v_str = str(v).strip()
+                    col_norm = norm(col)
+                    output[col_norm] = v if not isinstance(v, str) else v_str
+                    # Value mapping → articolo
+                    if v_str in value_mappings:
+                        vm = value_mappings[v_str]
+                        if vm.get("tipo") == "articolo" and vm.get("codice_articolo"):
+                            articoli[col_norm] = vm["codice_articolo"]
+
+            record["output"] = output
+            if articoli:
+                record["articoli"] = articoli
+            records.append(record)
+
+        table_json = {
+            "tipo": "lookup_multi",
+            "chiavi": [
+                {
+                    "colonna": norm(kc),
+                    "colonna_originale": kc,
+                    "match": key_configs.get(kc, "exact"),
+                }
+                for kc in key_columns
+            ],
+            "records": records,
+            "_meta": {
+                "nome": nome_tabella,
+                "generato_il": import_timestamp,
+                "file_origine": file.filename,
+                "foglio": sheet_name,
+                "header_row": header_row,
+                "righe": len(all_data),
+                "colonne_chiave": key_columns,
+                "colonne_output": output_columns,
+                "key_configs": key_configs,
+                "field_mappings": field_mappings,
+                "value_mappings_count": len([v for v in value_mappings.values() if v.get("tipo") == "articolo"]),
+            },
+        }
+
+        table_path = os.path.join(data_dir, f"{nome_tabella}.json")
+        with open(table_path, "w", encoding="utf-8") as f:
+            json.dump(table_json, f, indent=2, ensure_ascii=False)
+
+        # Salva originale
+        originals_dir = os.path.join(data_dir, "excel_originals")
+        os.makedirs(originals_dir, exist_ok=True)
+        shutil.copy2(tmp_path, os.path.join(originals_dir, file.filename))
+
+        # =============================================
+        # COSTRUZIONE REGOLA JSON
+        # =============================================
+        rules_dir = "./rules"
+        os.makedirs(rules_dir, exist_ok=True)
+
+        rule_id = f"LOOKUP_{nome_tabella.upper()}"
+
+        # Costruisci input_fields dalla field_mappings
+        # Ogni chiave Excel → uno o più campi configuratore
+        input_fields = []
+        has_todo = False
+
+        for kc in key_columns:
+            fm = field_mappings.get(kc, {})
+            mt = key_configs.get(kc, "exact")
+
+            if isinstance(fm, dict) and fm.get("type") == "composite":
+                # Campo composto: N campi → concatenati con separatore
+                comp_fields = fm.get("fields", [])
+                separator = fm.get("separator", "_")
+                if not comp_fields or any(not f for f in comp_fields):
+                    has_todo = True
+                input_fields.append({
+                    "colonna_tabella": norm(kc),
+                    "match": mt,
+                    "type": "composite",
+                    "fields": comp_fields,
+                    "separator": separator,
+                })
+            elif isinstance(fm, dict) and fm.get("type") == "single":
+                field_ref = fm.get("field", "")
+                if not field_ref:
+                    has_todo = True
+                    field_ref = f"TODO.{norm(kc)}"
+                input_fields.append({
+                    "colonna_tabella": norm(kc),
+                    "match": mt,
+                    "type": "single",
+                    "field": field_ref,
+                })
+            elif isinstance(fm, str) and fm:
+                # Retrocompatibilità: stringa semplice
+                input_fields.append({
+                    "colonna_tabella": norm(kc),
+                    "match": mt,
+                    "type": "single",
+                    "field": fm,
+                })
+            else:
+                has_todo = True
+                input_fields.append({
+                    "colonna_tabella": norm(kc),
+                    "match": mt,
+                    "type": "single",
+                    "field": f"TODO.{norm(kc)}",
+                })
+
+        rule = {
+            "id": rule_id,
+            "name": f"Lookup {nome_tabella.replace('_', ' ').title()}",
+            "description": f"Lookup generata da {file.filename} — foglio {sheet_name}",
+            "version": "2.0",
+            "enabled": not has_todo,
+            "priority": 10,
+            "conditions": conditions,
+            "actions": [{
+                "action": "lookup_multi",
+                "tabella": nome_tabella,
+                "input_fields": input_fields,
+                "output_prefix": f"_calc.{nome_tabella}.",
+            }],
+            "materials": [],
+            "_source": "excel_import_v3",
+            "_imported_at": import_timestamp,
+            "_source_file": file.filename,
+            "_field_mappings": field_mappings,
+            "_value_mappings": value_mappings,
+        }
+
+        rule_path = os.path.join(rules_dir, f"rule_{rule_id}.json")
+        with open(rule_path, "w", encoding="utf-8") as f:
+            json.dump(rule, f, indent=2, ensure_ascii=False)
+
+        return {
+            "success": True,
+            "data_table": nome_tabella,
+            "data_table_path": table_path,
+            "rule_id": rule_id,
+            "rule_path": rule_path,
+            "has_todo": has_todo,
+            "rows_imported": len(all_data),
+            "value_mappings_count": len([v for v in value_mappings.values() if v.get("tipo") == "articolo"]),
+            "warnings": [],
+        }
+    finally:
+        os.unlink(tmp_path)
+
 # ==========================================
 # GENERA BOZZA REGOLA DA DATA TABLE
 # ==========================================
