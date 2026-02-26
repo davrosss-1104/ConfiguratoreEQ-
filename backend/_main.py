@@ -671,17 +671,6 @@ def safe_evaluate_rules(preventivo_id: int, db: Session):
         return {"error": str(e)}
 
 
-def touch_preventivo(preventivo_id: int, db: Session):
-    """Aggiorna updated_at del preventivo. Necessario per il dirty-check delle revisioni."""
-    try:
-        db.execute(
-            text("UPDATE preventivi SET updated_at = :now WHERE id = :pid"),
-            {"now": datetime.now().isoformat(), "pid": preventivo_id}
-        )
-        db.commit()
-    except Exception as e:
-        print(f"[WARN] touch_preventivo({preventivo_id}): {e}")
-
 
 # ============================================================
 # ORDINI E BOM - FUNZIONI HELPER
@@ -1303,7 +1292,6 @@ def update_dati_commessa(preventivo_id: int, data: DatiCommessaUpdate, db: Sessi
         db.commit()
         db.refresh(dati)
         safe_evaluate_rules(preventivo_id, db)
-        touch_preventivo(preventivo_id, db)
         # Ritorna dict manuale per evitare errori schema
         result = {}
         for col in dati.__table__.columns:
@@ -1358,7 +1346,6 @@ def update_dati_principali(preventivo_id: int, data: DatiPrincipaliUpdate, db: S
     db.commit()
     db.refresh(dati)
     rule_result = safe_evaluate_rules(preventivo_id, db)
-    touch_preventivo(preventivo_id, db)
     result = _orm_to_dict(dati)
     if rule_result and isinstance(rule_result, dict):
         result["materials_added"] = rule_result.get("materiali_aggiunti", 0)
@@ -1395,7 +1382,6 @@ def update_normative(preventivo_id: int, data: NormativeUpdate, db: Session = De
     db.commit()
     db.refresh(normative)
     rule_result = safe_evaluate_rules(preventivo_id, db)
-    touch_preventivo(preventivo_id, db)
     result = _orm_to_dict(normative)
     # Aggiungi info regole alla risposta
     if rule_result and isinstance(rule_result, dict):
@@ -1440,7 +1426,6 @@ def update_disposizione_vano(preventivo_id: int, data: DisposizioneVanoUpdate, d
     
     db.commit()
     db.refresh(disposizione)
-    touch_preventivo(preventivo_id, db)
     return _orm_to_dict(disposizione)
 
 @app.delete("/preventivi/{preventivo_id}/disposizione-vano")
@@ -1478,7 +1463,6 @@ def update_porte(preventivo_id: int, data: PorteUpdate, db: Session = Depends(ge
     db.commit()
     db.refresh(porte)
     safe_evaluate_rules(preventivo_id, db)
-    touch_preventivo(preventivo_id, db)
     return _orm_to_dict(porte)
 
 # ==========================================
@@ -1524,7 +1508,6 @@ def update_argano(preventivo_id: int, data: dict, db: Session = Depends(get_db))
     db.refresh(argano)
 
     safe_evaluate_rules(preventivo_id, db)    # <-- AGGIUNGI QUESTA RIGA
-    touch_preventivo(preventivo_id, db)
 
     return {
         "id": argano.id,
@@ -1568,7 +1551,6 @@ def create_materiale(preventivo_id: int, data: MaterialeCreate, db: Session = De
         totale_calc = sum(m.prezzo_totale for m in all_materials)
         _prev_set(preventivo, totale_calc, "totale_materiali", "total_price")
         db.commit()
-    touch_preventivo(preventivo_id, db)
     return _orm_to_dict(materiale)
 
 @app.put("/preventivi/{preventivo_id}/materiali/{materiale_id}")
@@ -1593,7 +1575,6 @@ def update_materiale(preventivo_id: int, materiale_id: int, data: MaterialeUpdat
         totale_calc = sum(m.prezzo_totale for m in all_materials)
         _prev_set(preventivo, totale_calc, "totale_materiali", "total_price")
         db.commit()
-    touch_preventivo(preventivo_id, db)
     return _orm_to_dict(materiale)
 
 @app.delete("/preventivi/{preventivo_id}/materiali/{materiale_id}")
@@ -1610,7 +1591,6 @@ def delete_materiale(preventivo_id: int, materiale_id: int, db: Session = Depend
         totale_calc = sum(m.prezzo_totale for m in all_materials)
         _prev_set(preventivo, totale_calc, "totale_materiali", "total_price")
         db.commit()
-    touch_preventivo(preventivo_id, db)
     return {"message": "Materiale eliminato"}
 
 # ==========================================
@@ -1663,7 +1643,6 @@ def create_riga_ricambio(preventivo_id: int, data: dict, db: Session = Depends(g
     db.add(riga)
     db.commit()
     db.refresh(riga)
-    touch_preventivo(preventivo_id, db)
     return {"id": riga.id, "status": "ok"}
 
 @app.put("/preventivi/{preventivo_id}/righe-ricambio/{riga_id}")
@@ -1690,7 +1669,6 @@ def update_riga_ricambio(preventivo_id: int, riga_id: int, data: dict, db: Sessi
     
     db.commit()
     db.refresh(riga)
-    touch_preventivo(preventivo_id, db)
     return {"id": riga.id, "status": "ok"}
 
 @app.delete("/preventivi/{preventivo_id}/righe-ricambio/{riga_id}")
@@ -1703,7 +1681,6 @@ def delete_riga_ricambio(preventivo_id: int, riga_id: int, db: Session = Depends
         raise HTTPException(status_code=404, detail="Riga ricambio non trovata")
     db.delete(riga)
     db.commit()
-    touch_preventivo(preventivo_id, db)
     return {"status": "ok"}
 
 # ==========================================
@@ -5052,7 +5029,6 @@ def save_valori_sezione(preventivo_id: int, sezione: str, data: dict, db: Sessio
 
         # Trigger rule engine dopo salvataggio
         result = safe_evaluate_rules(preventivo_id, db)
-        touch_preventivo(preventivo_id, db)
 
         # Rileggi is_default aggiornati per feedback al frontend
         updated_defaults = db.execute(text("""
@@ -5914,24 +5890,6 @@ def _crea_snapshot_preventivo(preventivo_id: int, db, motivo: str = None, create
 
     # Snapshot configurazione da sezioni — PRIMA di usare config_snap
     config_snap = {}
-
-    # Metadata: info preventivo + cliente per ricostruire contesto
-    try:
-        cliente_info = {}
-        cid = prev_dict.get("cliente_id")
-        if cid:
-            cliente_row = cursor.execute("SELECT id, codice, ragione_sociale FROM clienti WHERE id = ?", (cid,)).fetchone()
-            if cliente_row:
-                cliente_info = {"id": cliente_row[0], "codice": cliente_row[1], "ragione_sociale": cliente_row[2]}
-        config_snap["_metadata"] = {
-            "stato": prev_dict.get("status") or prev_dict.get("stato") or "draft",
-            "template_id": prev_dict.get("template_id"),
-            "numero_preventivo": prev_dict.get("numero_preventivo"),
-            "cliente": cliente_info,
-        }
-    except Exception:
-        pass
-
     for table in ['dati_commessa', 'dati_principali', 'normative', 'disposizione_vano', 'porte', 'argano']:
         try:
             cursor.execute(f"SELECT * FROM {table} WHERE preventivo_id = ?", (preventivo_id,))
@@ -6058,148 +6016,6 @@ def get_revisione_dettaglio(preventivo_id: int, revisione_id: int, db: Session =
     return result
 
 
-@app.get("/preventivi/{preventivo_id}/revisioni/{revisione_id}/diff")
-def diff_revisione(preventivo_id: int, revisione_id: int, db: Session = Depends(get_db)):
-    """Confronta una revisione con lo stato corrente del preventivo.
-    Restituisce materiali aggiunti/rimossi/modificati e variazioni totali."""
-    _ensure_revisioni_table(db)
-    conn = db.get_bind().raw_connection()
-    cursor = conn.cursor()
-
-    # Carica snapshot revisione
-    cursor.execute(
-        "SELECT numero_revisione, snapshot_materiali, snapshot_totali, snapshot_configurazione "
-        "FROM revisioni_preventivo WHERE id = ? AND preventivo_id = ?",
-        (revisione_id, preventivo_id)
-    )
-    row = cursor.fetchone()
-    if not row:
-        raise HTTPException(404, "Revisione non trovata")
-
-    num_rev = row[0]
-    rev_materiali = json.loads(row[1]) if row[1] else []
-    rev_totali = json.loads(row[2]) if row[2] else {}
-    rev_config = json.loads(row[3]) if row[3] else {}
-
-    # Stato corrente materiali
-    materiali_correnti = db.query(Materiale).filter(Materiale.preventivo_id == preventivo_id).all()
-    curr_mat_map = {}
-    for m in materiali_correnti:
-        curr_mat_map[m.codice] = {
-            "codice": m.codice, "descrizione": m.descrizione,
-            "quantita": m.quantita, "prezzo_unitario": m.prezzo_unitario,
-            "prezzo_totale": m.prezzo_totale, "categoria": m.categoria,
-        }
-
-    rev_mat_map = {}
-    for m in rev_materiali:
-        cod = m.get("codice", "")
-        rev_mat_map[cod] = m
-
-    # Diff materiali
-    materiali_aggiunti = []
-    materiali_rimossi = []
-    materiali_modificati = []
-
-    for cod, curr in curr_mat_map.items():
-        if cod not in rev_mat_map:
-            materiali_aggiunti.append(curr)
-        else:
-            rev = rev_mat_map[cod]
-            changes = {}
-            for field in ["quantita", "prezzo_unitario", "prezzo_totale"]:
-                cv = curr.get(field, 0) or 0
-                rv = rev.get(field, 0) or 0
-                if abs(float(cv) - float(rv)) > 0.001:
-                    changes[field] = {"rev": rv, "corrente": cv}
-            if changes:
-                materiali_modificati.append({"codice": cod, "descrizione": curr.get("descrizione", ""), "changes": changes})
-
-    for cod, rev in rev_mat_map.items():
-        if cod not in curr_mat_map:
-            materiali_rimossi.append({
-                "codice": cod, "descrizione": rev.get("descrizione", ""),
-                "quantita": rev.get("quantita", 0), "prezzo_totale": rev.get("prezzo_totale", 0),
-            })
-
-    # Diff totali
-    prev_row = cursor.execute("SELECT * FROM preventivi WHERE id = ?", (preventivo_id,)).fetchone()
-    prev_cols = [d[0] for d in cursor.description]
-    prev_dict = dict(zip(prev_cols, prev_row)) if prev_row else {}
-
-    totali_diff = {}
-    for k in ["total_price", "sconto_cliente", "sconto_extra_admin", "total_price_finale"]:
-        cv = float(prev_dict.get(k, 0) or 0)
-        rv = float(rev_totali.get(k, 0) or 0)
-        if abs(cv - rv) > 0.01:
-            totali_diff[k] = {"rev": rv, "corrente": cv, "delta": round(cv - rv, 2)}
-
-    # Diff configurazione (valori_configurazione — campi dinamici)
-    config_changes = []
-    rev_valori = rev_config.get("valori_configurazione", {})
-    if rev_valori:
-        curr_valori_rows = db.execute(text(
-            "SELECT codice_campo, valore, sezione FROM valori_configurazione WHERE preventivo_id = :pid"
-        ), {"pid": preventivo_id}).fetchall()
-        curr_valori = {r[0]: {"valore": r[1], "sezione": r[2]} for r in curr_valori_rows}
-
-        all_keys = set(list(curr_valori.keys()) + list(rev_valori.keys()))
-        for key in sorted(all_keys):
-            cv = curr_valori.get(key, {})
-            rv = rev_valori.get(key, {})
-            c_val = cv.get("valore", "") if isinstance(cv, dict) else str(cv)
-            r_val = rv.get("valore", "") if isinstance(rv, dict) else str(rv)
-            sez = cv.get("sezione", "") if isinstance(cv, dict) else (rv.get("sezione", "") if isinstance(rv, dict) else "")
-            if str(c_val or "") != str(r_val or ""):
-                config_changes.append({
-                    "campo": key, "sezione": sez,
-                    "rev": r_val or "(vuoto)", "corrente": c_val or "(vuoto)",
-                })
-
-    # Diff tabelle ORM fisse (dati_commessa, dati_principali, normative, disposizione_vano, porte, argano)
-    SKIP_FIELDS = {'id', 'preventivo_id', 'created_at', 'updated_at'}
-    for table_name in ['dati_commessa', 'dati_principali', 'normative', 'disposizione_vano', 'porte', 'argano']:
-        rev_table_data = rev_config.get(table_name)
-        if not rev_table_data or not isinstance(rev_table_data, dict):
-            continue
-        try:
-            curr_row = cursor.execute(f"SELECT * FROM {table_name} WHERE preventivo_id = ?", (preventivo_id,)).fetchone()
-            if not curr_row:
-                continue
-            curr_cols = [d[0] for d in cursor.description]
-            curr_data = dict(zip(curr_cols, curr_row))
-
-            for col in curr_cols:
-                if col in SKIP_FIELDS:
-                    continue
-                c_val = str(curr_data.get(col) or "")
-                r_val = str(rev_table_data.get(col) or "")
-                if c_val != r_val:
-                    config_changes.append({
-                        "campo": col, "sezione": table_name,
-                        "rev": r_val or "(vuoto)", "corrente": c_val or "(vuoto)",
-                    })
-        except Exception:
-            pass
-
-    return {
-        "revisione_id": revisione_id,
-        "numero_revisione": num_rev,
-        "materiali_aggiunti": materiali_aggiunti,
-        "materiali_rimossi": materiali_rimossi,
-        "materiali_modificati": materiali_modificati,
-        "totali_diff": totali_diff,
-        "config_changes": config_changes,
-        "summary": {
-            "n_aggiunti": len(materiali_aggiunti),
-            "n_rimossi": len(materiali_rimossi),
-            "n_modificati": len(materiali_modificati),
-            "n_config_changes": len(config_changes),
-            "has_totali_changes": len(totali_diff) > 0,
-        }
-    }
-
-
 @app.post("/preventivi/{preventivo_id}/revisioni")
 def crea_revisione(preventivo_id: int, body: dict = None, db: Session = Depends(get_db)):
     """Crea manualmente una revisione/snapshot del preventivo"""
@@ -6238,14 +6054,11 @@ def auto_snapshot(preventivo_id: int, db: Session = Depends(get_db)):
 
 @app.post("/preventivi/{preventivo_id}/revisioni/{revisione_id}/ripristina")
 def ripristina_revisione(preventivo_id: int, revisione_id: int, db: Session = Depends(get_db)):
-    """Ripristina un preventivo da una revisione precedente.
-    Il numero revisione viene SEMPRE incrementato (mai decrementato).
-    Flow: snapshot stato attuale → ripristino dati → nuovo snapshot stato ripristinato.
-    """
+    """Ripristina un preventivo da una revisione precedente"""
     _ensure_revisioni_table(db)
 
     try:
-        # 1. Auto-snapshot stato corrente (salva "prima del ripristino")
+        # Auto-snapshot stato corrente
         try:
             _crea_snapshot_preventivo(preventivo_id, db, motivo="Auto-snapshot prima di ripristino")
         except Exception as e:
@@ -6254,7 +6067,7 @@ def ripristina_revisione(preventivo_id: int, revisione_id: int, db: Session = De
         conn = db.get_bind().raw_connection()
         cursor = conn.cursor()
 
-        # 2. Carica la revisione target
+        # Carica la revisione (incluso numero_revisione)
         cursor.execute(
             "SELECT numero_revisione, snapshot_configurazione, snapshot_materiali, snapshot_totali "
             "FROM revisioni_preventivo WHERE id = ? AND preventivo_id = ?",
@@ -6269,9 +6082,9 @@ def ripristina_revisione(preventivo_id: int, revisione_id: int, db: Session = De
         snap_materiali = json.loads(row[2]) if row[2] else []
         snap_totali = json.loads(row[3]) if row[3] else {}
 
-        # 3. Ripristina totali (SENZA toccare revisione_corrente — verrà aggiornata dallo snapshot finale)
-        totali_updates = ["updated_at = datetime('now')"]
-        totali_params = []
+        # Ripristina totali + revisione_corrente
+        totali_updates = ["revisione_corrente = ?", "updated_at = datetime('now')"]
+        totali_params = [num_rev_ripristinata]
         if snap_totali:
             for k, v in snap_totali.items():
                 totali_updates.append(f"{k} = ?")
@@ -6282,7 +6095,7 @@ def ripristina_revisione(preventivo_id: int, revisione_id: int, db: Session = De
             totali_params
         )
 
-        # 4. Ripristina materiali
+        # Ripristina materiali
         cursor.execute("DELETE FROM materiali WHERE preventivo_id = ?", (preventivo_id,))
         for mat in snap_materiali:
             mat.pop('id', None)
@@ -6299,7 +6112,7 @@ def ripristina_revisione(preventivo_id: int, revisione_id: int, db: Session = De
             except Exception as e:
                 print(f"[WARN] Skip materiale restore: {e}")
 
-        # 5. Ripristina sezioni configurazione
+        # Ripristina sezioni configurazione
         for table_name, data in snap_config.items():
             if table_name == "valori_configurazione":
                 try:
@@ -6330,8 +6143,6 @@ def ripristina_revisione(preventivo_id: int, revisione_id: int, db: Session = De
                     )
                 except Exception:
                     pass
-            elif table_name == "_metadata":
-                pass  # metadata non va ripristinata, è solo info storica
             elif isinstance(data, dict):
                 try:
                     data_copy = {k: v for k, v in data.items() if k not in ('id', 'preventivo_id')}
@@ -6347,26 +6158,17 @@ def ripristina_revisione(preventivo_id: int, revisione_id: int, db: Session = De
 
         conn.commit()
 
-        # 6. Riesegui regole dopo ripristino
+        # Riesegui regole dopo ripristino
         try:
-            db.expire_all()  # forza ORM a rileggere i dati dopo raw SQL
             safe_evaluate_rules(preventivo_id, db)
         except Exception:
             pass
 
-        # 7. Snapshot dello stato ripristinato → crea NUOVA revisione (numero sempre crescente)
-        snap_result = _crea_snapshot_preventivo(
-            preventivo_id, db,
-            motivo=f"Ripristino da Rev #{num_rev_ripristinata}"
-        )
-        new_rev = snap_result["numero_revisione"] if snap_result else "?"
-
         return {
             "success": True,
-            "message": f"Preventivo ripristinato dalla revisione #{num_rev_ripristinata} → nuova Rev #{new_rev}",
+            "message": f"Preventivo ripristinato dalla revisione #{num_rev_ripristinata}",
             "preventivo_id": preventivo_id,
-            "revisione_ripristinata": num_rev_ripristinata,
-            "revisione_corrente": new_rev
+            "revisione_corrente": num_rev_ripristinata
         }
     except HTTPException:
         raise

@@ -27,7 +27,6 @@ import GestioneClientiPage from '@/components/sections/GestioneClientiPage';
 import GestioneBomPage from '@/components/sections/GestioneBomPage';
 import DynamicSectionForm from '@/components/sections/DynamicSectionForm';
 import { Building, ArrowLeft, FileText } from 'lucide-react';
-import RevisioniDrawer from '@/components/RevisioniDrawer';
 import DocumentTemplateEditorPage from '@/pages/DocumentTemplateEditorPage';
 import ImportExcelPage from '@/components/sections/ImportExcelPage';
 import InfoAppPage from '@/components/sections/InfoAppPage';
@@ -83,7 +82,6 @@ export const PreventivoPage = () => {
   const [activeSection, setActiveSection] = useState('dati_commessa');
 
   const [showRevDialog, setShowRevDialog] = useState(false);
-  const [showRevDrawer, setShowRevDrawer] = useState(false);
   const pendingNavigationRef = useRef<string | null>(null);
 
   const { data: preventivo, refetch: refetchPreventivo } = useQuery({
@@ -366,16 +364,6 @@ export const PreventivoPage = () => {
                       Modificato
                     </span>
                   )}
-                  <button
-                    onClick={() => setShowRevDrawer(true)}
-                    className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 transition-colors"
-                    title="Gestione revisioni"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 3v18M6 3l6 6M6 3L0 9M18 21V3M18 21l6-6M18 21l-6-6" />
-                    </svg>
-                    Revisioni
-                  </button>
                 </div>
               </div>
 
@@ -471,15 +459,6 @@ export const PreventivoPage = () => {
           </div>
         </div>
       )}
-
-      {/* Drawer revisioni */}
-      <RevisioniDrawer
-        isOpen={showRevDrawer}
-        onClose={() => setShowRevDrawer(false)}
-        preventivoId={preventivoId}
-        revisioneCorrente={revisioneCorrente}
-        isDirty={isDirty}
-      />
     </div>
   );
 };
