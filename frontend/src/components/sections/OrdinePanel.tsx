@@ -1,6 +1,7 @@
 /**
  * OrdinePanel.tsx - Flusso Preventivo → Ordine → BOM
- * Con tracciamento revisioni, auto-snapshot, conflict dialogs, filiera compatta
+ * Con tracciamento revisioni, auto-snapshot, conflict dialogs, filiera compatta,
+ * macchina a stati ordine, timeline cambi stato, conferma d'ordine documento.
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
@@ -10,7 +11,9 @@ import {
   CheckCircle2, Package, Loader2, AlertTriangle,
   ArrowRight, Boxes, Truck, ChevronDown, ChevronRight,
   ClipboardList, FileText, History,
-  Tag, Percent, RotateCcw, Plus, Eye, RefreshCw, X, GitBranch
+  Tag, Percent, RotateCcw, Plus, Eye, RefreshCw, X, GitBranch,
+  Play, Ban, Receipt, Download,
+  Clock, MessageSquare, Edit3, Save, XCircle
 } from 'lucide-react';
 
 const API = 'http://localhost:8000';
@@ -35,6 +38,9 @@ interface OrdineInfo {
   bom_revisione_id?: number; bom_numero_revisione?: number; bom_esplosa_at?: string;
   outdated?: boolean; revisioni_dietro?: number;
   bom_outdated?: boolean; bom_revisioni_dietro?: number;
+  note?: string; note_interne?: string;
+  condizioni_pagamento?: string; condizioni_consegna?: string;
+  riferimento_cliente?: string;
 }
 interface RevisioneInfo {
   id: number; preventivo_id: number; numero_revisione: number;
@@ -50,6 +56,73 @@ interface FilieraData {
   ordini: OrdineInfo[];
   revisione_corrente: number;
 }
+interface StoricoStatoItem {
+  id: number; stato_precedente: string | null; stato_nuovo: string;
+  motivo: string; utente: string; created_at: string;
+}
+
+// --- Configurazione stati ---
+const STATO_CONFIG: Record<string, {
+  label: string; color: string; bgClass: string; textClass: string;
+  badgeClass: string; icon: React.ReactNode;
+}> = {
+  confermato: {
+    label: 'Confermato', color: 'green',
+    bgClass: 'bg-green-50 border-green-200',
+    textClass: 'text-green-800',
+    badgeClass: 'bg-green-200 text-green-800',
+    icon: <CheckCircle2 className="w-4 h-4" />,
+  },
+  in_produzione: {
+    label: 'In Produzione', color: 'amber',
+    bgClass: 'bg-amber-50 border-amber-200',
+    textClass: 'text-amber-800',
+    badgeClass: 'bg-amber-200 text-amber-800',
+    icon: <Play className="w-4 h-4" />,
+  },
+  completato: {
+    label: 'Completato', color: 'blue',
+    bgClass: 'bg-blue-50 border-blue-200',
+    textClass: 'text-blue-800',
+    badgeClass: 'bg-blue-200 text-blue-800',
+    icon: <CheckCircle2 className="w-4 h-4" />,
+  },
+  fatturato: {
+    label: 'Fatturato', color: 'purple',
+    bgClass: 'bg-purple-50 border-purple-200',
+    textClass: 'text-purple-800',
+    badgeClass: 'bg-purple-200 text-purple-800',
+    icon: <Receipt className="w-4 h-4" />,
+  },
+  annullato: {
+    label: 'Annullato', color: 'red',
+    bgClass: 'bg-red-50 border-red-200',
+    textClass: 'text-red-800',
+    badgeClass: 'bg-red-200 text-red-800',
+    icon: <Ban className="w-4 h-4" />,
+  },
+};
+
+const TRANSIZIONI_AZIONI: Record<string, {
+  label: string; color: string; icon: React.ReactNode; confirmMsg: string;
+}> = {
+  in_produzione: {
+    label: 'Metti in Produzione', color: 'bg-amber-500 hover:bg-amber-600',
+    icon: <Play className="w-4 h-4" />, confirmMsg: 'Confermi di voler mettere l\'ordine in produzione?',
+  },
+  completato: {
+    label: 'Segna Completato', color: 'bg-blue-600 hover:bg-blue-700',
+    icon: <CheckCircle2 className="w-4 h-4" />, confirmMsg: 'Confermi che l\'ordine è completato?',
+  },
+  fatturato: {
+    label: 'Crea Fattura', color: 'bg-violet-600 hover:bg-violet-700',
+    icon: <Receipt className="w-4 h-4" />, confirmMsg: 'Confermi che l\'ordine è stato fatturato?',
+  },
+  annullato: {
+    label: 'Annulla Ordine', color: 'bg-red-500 hover:bg-red-600',
+    icon: <Ban className="w-4 h-4" />, confirmMsg: 'ATTENZIONE: L\'annullamento è irreversibile. Confermi?',
+  },
+};
 
 // --- Conflict Dialog ---
 function ConflictDialog({ open, title, children, onClose }: {
@@ -72,6 +145,56 @@ function ConflictDialog({ open, title, children, onClose }: {
   );
 }
 
+// --- Timeline Stati ---
+function TimelineStati({ storico }: { storico: StoricoStatoItem[] }) {
+  if (!storico || storico.length === 0) return null;
+  return (
+    <div className="relative pl-6 space-y-3">
+      <div className="absolute left-2.5 top-2 bottom-2 w-0.5 bg-gray-200" />
+      {storico.map((item, idx) => {
+        const config = STATO_CONFIG[item.stato_nuovo];
+        const isLast = idx === storico.length - 1;
+        return (
+          <div key={item.id} className="relative flex items-start gap-3">
+            <div className={`absolute -left-3.5 w-5 h-5 rounded-full border-2 flex items-center justify-center
+              ${isLast
+                ? `${config?.badgeClass || 'bg-gray-200 text-gray-700'} border-current`
+                : 'bg-white border-gray-300 text-gray-400'
+              }`}
+              style={{ zIndex: 1 }}
+            >
+              <div className="w-2 h-2 rounded-full bg-current" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${config?.badgeClass || 'bg-gray-100 text-gray-600'}`}>
+                  {config?.label || item.stato_nuovo}
+                </span>
+                {item.stato_precedente && (
+                  <span className="text-[10px] text-gray-400">
+                    da {STATO_CONFIG[item.stato_precedente]?.label || item.stato_precedente}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-gray-500">
+                <Clock className="w-3 h-3" />
+                <span>{item.created_at ? new Date(item.created_at).toLocaleString('it-IT') : ''}</span>
+                {item.utente && <span>- {item.utente}</span>}
+              </div>
+              {item.motivo && (
+                <p className="text-xs text-gray-600 mt-0.5 flex items-start gap-1">
+                  <MessageSquare className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                  {item.motivo}
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // --- Filiera Compatta ---
 function FilieraCompatta({ filiera, revCorrente }: { filiera: FilieraData | null; revCorrente: number }) {
   if (!filiera) return null;
@@ -79,10 +202,12 @@ function FilieraCompatta({ filiera, revCorrente }: { filiera: FilieraData | null
   const hasBom = ordine?.bom_esplosa;
 
   const prevColor = ordine ? 'bg-green-100 text-green-800 border-green-300' : 'bg-indigo-100 text-indigo-800 border-indigo-300';
+
+  const statoConfig = ordine ? STATO_CONFIG[ordine.stato] : null;
   const ordColor = ordine
     ? ordine.outdated
       ? 'bg-amber-100 text-amber-800 border-amber-300'
-      : 'bg-green-100 text-green-800 border-green-300'
+      : (statoConfig ? `${statoConfig.bgClass} ${statoConfig.textClass}` : 'bg-green-100 text-green-800 border-green-300')
     : 'bg-gray-100 text-gray-400 border-gray-200';
   const bomColor = hasBom
     ? ordine?.bom_outdated
@@ -111,12 +236,17 @@ function FilieraCompatta({ filiera, revCorrente }: { filiera: FilieraData | null
       <div className={`flex-1 border rounded-lg p-3 ${ordColor}`}>
         <div className="flex items-center gap-1.5 font-bold mb-1">
           <Package className="w-3.5 h-3.5" /> ORDINE
-          {ordine && !ordine.outdated && <CheckCircle2 className="w-3.5 h-3.5" />}
+          {ordine && !ordine.outdated && statoConfig?.icon}
           {ordine?.outdated && <AlertTriangle className="w-3.5 h-3.5" />}
         </div>
         {ordine ? (
           <div className="space-y-0.5">
             <div className="font-mono font-medium">{ordine.numero_ordine}</div>
+            <div className="flex items-center gap-1">
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${statoConfig?.badgeClass || 'bg-gray-200 text-gray-700'}`}>
+                {statoConfig?.label || ordine.stato}
+              </span>
+            </div>
             <div className="flex items-center gap-1">
               <GitBranch className="w-3 h-3" /> da REV.{ordine.numero_revisione_origine || '?'}
             </div>
@@ -174,6 +304,15 @@ export default function OrdinePanel() {
   const [scontoExtra, setScontoExtra] = useState<number>(0);
   const [showRevisioni, setShowRevisioni] = useState(false);
   const [revisioneDettaglio, setRevisioneDettaglio] = useState<any>(null);
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteForm, setNoteForm] = useState({ note: '', note_interne: '', condizioni_pagamento: '', condizioni_consegna: '', riferimento_cliente: '' });
+  const [cambioStatoMotivo, setCambioStatoMotivo] = useState('');
+  const [showCambioStatoDialog, setShowCambioStatoDialog] = useState<string | null>(null);
+  const [showFatturaDialog, setShowFatturaDialog] = useState(false);
+  const [selectedOrdiniIds, setSelectedOrdiniIds] = useState<number[]>([]);
+  const [fatturaLoading, setFatturaLoading] = useState(false);
+  const [fatturaError, setFatturaError] = useState('');
 
   // Conflict dialogs
   const [showOrdineConflict, setShowOrdineConflict] = useState(false);
@@ -189,7 +328,6 @@ export default function OrdinePanel() {
 
   useEffect(() => {
     return () => {
-      // Fire-and-forget auto-snapshot when leaving
       const pid = prevIdRef.current;
       if (pid > 0) {
         fetch(`${API}/preventivi/${pid}/auto-snapshot`, { method: 'POST' }).catch(() => {});
@@ -245,9 +383,29 @@ export default function OrdinePanel() {
     enabled: !!ordine?.bom_esplosa,
   });
 
+  // Storico stati ordine
+  const { data: storicoStati } = useQuery<{ storico: StoricoStatoItem[] }>({
+    queryKey: ['storico-stati', ordine?.id],
+    queryFn: async () => { const r = await fetch(`${API}/ordini/${ordine!.id}/storico-stati`); return r.ok ? r.json() : { storico: [] }; },
+    enabled: !!ordine,
+  });
+
   useEffect(() => {
     if (preventivo?.sconto_extra_admin) setScontoExtra(preventivo.sconto_extra_admin);
   }, [preventivo]);
+
+  // Inizializza form note quando ordine cambia
+  useEffect(() => {
+    if (ordine) {
+      setNoteForm({
+        note: ordine.note || '',
+        note_interne: ordine.note_interne || '',
+        condizioni_pagamento: ordine.condizioni_pagamento || '',
+        condizioni_consegna: ordine.condizioni_consegna || '',
+        riferimento_cliente: ordine.riferimento_cliente || '',
+      });
+    }
+  }, [ordine?.id]);
 
   // --- Calcoli sconti ---
   const subtotale = materiali.reduce((s, m) => s + (m.prezzo_totale || 0), 0);
@@ -267,6 +425,7 @@ export default function OrdinePanel() {
     queryClient.invalidateQueries({ queryKey: ['materiali'] });
     queryClient.invalidateQueries({ queryKey: ['esplosi'] });
     queryClient.invalidateQueries({ queryKey: ['lista-acquisti'] });
+    queryClient.invalidateQueries({ queryKey: ['storico-stati'] });
   }, [queryClient]);
 
   // --- Mutations ---
@@ -315,11 +474,94 @@ export default function OrdinePanel() {
     confermaMutation.mutate({ action, ordine_id });
   };
 
+  // Cambio stato ordine
+  const cambioStatoMutation = useMutation({
+    mutationFn: async ({ stato, motivo }: { stato: string; motivo: string }) => {
+      const r = await fetch(`${API}/ordini/${ordine!.id}/stato`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stato, motivo, utente: 'admin' }),
+      });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Errore cambio stato'); }
+      return r.json();
+    },
+    onSuccess: (data) => {
+      const statoLabel = STATO_CONFIG[data.stato_nuovo]?.label || data.stato_nuovo;
+      toast.success(`Ordine ${data.numero_ordine} → ${statoLabel}`);
+      setShowCambioStatoDialog(null);
+      setCambioStatoMotivo('');
+      invalidateAll();
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  // Salva note/condizioni ordine
+  const saveNoteMutation = useMutation({
+    mutationFn: async (formData: typeof noteForm) => {
+      const r = await fetch(`${API}/ordini/${ordine!.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Errore salvataggio'); }
+      return r.json();
+    },
+    onSuccess: () => {
+      toast.success('Note e condizioni salvate');
+      setEditingNote(false);
+      invalidateAll();
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  // Query ordini fatturabili dello stesso cliente (per dialog fattura multi-ordine)
+  const { data: ordiniFatturabili, refetch: refetchOrdiniFatturabili } = useQuery({
+    queryKey: ['ordini-fatturabili', clienteId],
+    queryFn: async () => {
+      const r = await fetch(`/api/fatturazione/ordini-fatturabili/${clienteId}`);
+      if (!r.ok) return { ordini: [] };
+      return r.json();
+    },
+    enabled: false, // caricato on-demand
+  });
+
+  // Apri dialog fattura: preseleziona ordine corrente e carica altri
+  const openFatturaDialog = () => {
+    if (!ordine || !clienteId) return;
+    setSelectedOrdiniIds([ordine.id]);
+    setFatturaError('');
+    setShowFatturaDialog(true);
+    refetchOrdiniFatturabili();
+  };
+
+  // Crea fattura da ordini selezionati
+  const handleCreaFattura = async () => {
+    if (selectedOrdiniIds.length === 0) return;
+    setFatturaLoading(true);
+    setFatturaError('');
+    try {
+      const r = await fetch('/api/fatturazione/fatture/da-ordini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ordine_ids: selectedOrdiniIds }),
+      });
+      if (!r.ok) {
+        const e = await r.json();
+        throw new Error(e.detail || 'Errore creazione fattura');
+      }
+      const data = await r.json();
+      toast.success(`Fattura creata per ${data.totale_ordini} ordine/i`);
+      setShowFatturaDialog(false);
+      invalidateAll();
+    } catch (err: any) {
+      setFatturaError(err.message);
+    } finally {
+      setFatturaLoading(false);
+    }
+  };
+
   // Esplodi BOM con check conflitto
   const handleEsplodiBom = async () => {
     if (!ordine) return;
     if (ordine.bom_esplosa) {
-      // BOM gia esplosa — check
       try {
         const r = await fetch(`${API}/ordini/${ordine.id}/esplodi-bom`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -397,10 +639,22 @@ export default function OrdinePanel() {
     setExpandedCategorie(prev => { const n = new Set(prev); n.has(cat) ? n.delete(cat) : n.add(cat); return n; });
   };
 
+  // Download conferma d'ordine (link diretto, no CORS)
+  const downloadConferma = () => {
+    if (!ordine) return;
+    window.open(`${API}/ordini/${ordine.id}/conferma-ordine/docx`, '_blank');
+  };
+
   const isConfermato = preventivo?.status === 'confermato';
   const canConferma = preventivo && ['draft', 'bozza', 'inviato'].includes(preventivo.status);
-  const canRiconferma = isConfermato && ordine; // Ha ordine, può aggiornarlo o crearne uno nuovo
+  const canRiconferma = isConfermato && ordine;
   const missingCliente = !preventivo?.cliente_id;
+
+  // Transizioni disponibili per lo stato corrente
+  const statoAttuale = ordine?.stato || 'confermato';
+  const transizioniDisponibili = ordine && ordine.stato !== 'annullato' && ordine.stato !== 'fatturato'
+    ? (STATO_CONFIG[statoAttuale]?.color ? getTransizioniStato(statoAttuale) : [])
+    : [];
 
   const raggruppati = (esplosiData?.esplosi || []).reduce((acc: Record<string, EsplosoItem[]>, item: EsplosoItem) => {
     const key = viewMode === 'tipo' ? (item.tipo || 'ALTRO') : (item.categoria || 'Altro');
@@ -544,7 +798,6 @@ export default function OrdinePanel() {
             ) : (
               <div className="space-y-2">
                 {revisioni.map(rev => {
-                  // Check se un ordine o BOM nasce da questa revisione
                   const ordineFromRev = ordini.find(o => o.numero_revisione_origine === rev.numero_revisione);
                   const bomFromRev = ordini.find(o => o.bom_numero_revisione === rev.numero_revisione);
 
@@ -696,43 +949,183 @@ export default function OrdinePanel() {
           </div>
         )}
 
-        {/* Ordine info */}
+        {/* ══════ ORDINE ESISTENTE ══════ */}
         {ordine && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-bold text-green-900 text-lg">{ordine.numero_ordine}</p>
-                <p className="text-sm text-green-700">
-                  Confermato il {ordine.created_at ? new Date(ordine.created_at).toLocaleDateString('it-IT') : ''}
-                  {ordine.numero_revisione_origine ? ` dalla REV.${ordine.numero_revisione_origine}` : ''}
-                </p>
+          <div className={`border rounded-lg overflow-hidden ${STATO_CONFIG[ordine.stato]?.bgClass || 'bg-green-50 border-green-200'}`}>
+            {/* Header ordine con badge stato */}
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="font-bold text-gray-900 text-lg">{ordine.numero_ordine}</p>
+                  <p className="text-sm text-gray-600">
+                    Creato il {ordine.created_at ? new Date(ordine.created_at).toLocaleDateString('it-IT') : ''}
+                    {ordine.numero_revisione_origine ? ` dalla REV.${ordine.numero_revisione_origine}` : ''}
+                  </p>
+                </div>
+                <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase ${STATO_CONFIG[ordine.stato]?.badgeClass || 'bg-gray-200 text-gray-700'}`}>
+                  {STATO_CONFIG[ordine.stato]?.icon}
+                  {STATO_CONFIG[ordine.stato]?.label || ordine.stato}
+                </span>
               </div>
-              <span className="bg-green-200 text-green-800 px-3 py-1 rounded-full text-xs font-bold uppercase">{ordine.stato}</span>
-            </div>
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <div><span className="text-green-600">Totale</span><p className="font-bold text-green-900">{fmt(ordine.totale_netto || ordine.totale_materiali || 0)}</p></div>
-              <div><span className="text-green-600">Lead time</span><p className="font-bold text-green-900">{ordine.lead_time_giorni || 15} giorni</p></div>
-              <div><span className="text-green-600">Consegna</span><p className="font-bold text-green-900">{ordine.data_consegna_prevista ? new Date(ordine.data_consegna_prevista).toLocaleDateString('it-IT') : '-'}</p></div>
+
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div><span className="text-gray-500">Totale</span><p className="font-bold text-gray-900">{fmt(ordine.totale_netto || ordine.totale_materiali || 0)}</p></div>
+                <div><span className="text-gray-500">Lead time</span><p className="font-bold text-gray-900">{ordine.lead_time_giorni || 15} giorni</p></div>
+                <div><span className="text-gray-500">Consegna</span><p className="font-bold text-gray-900">{ordine.data_consegna_prevista ? new Date(ordine.data_consegna_prevista).toLocaleDateString('it-IT') : '-'}</p></div>
+              </div>
+
+              {/* ── Azioni stato ── */}
+              <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-gray-200/50">
+                {/* Download conferma d'ordine */}
+                <button onClick={downloadConferma}
+                  className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium shadow-sm">
+                  <Download className="w-4 h-4" /> Conferma d'Ordine
+                </button>
+
+                {/* Pulsanti cambio stato */}
+                {transizioniDisponibili.map(stato => {
+                  const azione = TRANSIZIONI_AZIONI[stato];
+                  if (!azione) return null;
+                  const handleClick = stato === 'fatturato'
+                    ? openFatturaDialog
+                    : () => setShowCambioStatoDialog(stato);
+                  return (
+                    <button key={stato}
+                      onClick={handleClick}
+                      disabled={cambioStatoMutation.isPending}
+                      className={`flex items-center gap-2 px-3 py-2 text-white rounded-lg text-sm font-medium shadow-sm ${azione.color} disabled:opacity-50`}
+                    >
+                      {cambioStatoMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : azione.icon}
+                      {azione.label}
+                    </button>
+                  );
+                })}
+
+                {/* BOM button */}
+                {!ordine.bom_esplosa && ordine.stato !== 'annullato' && (
+                  <button onClick={handleEsplodiBom} disabled={esplodiMutation.isPending}
+                    className="flex items-center gap-2 px-3 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50 font-medium text-sm shadow-sm">
+                    {esplodiMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Boxes className="w-4 h-4" />}
+                    Esplodi BOM
+                  </button>
+                )}
+                {!!ordine.bom_esplosa && !!ordine.bom_outdated && (
+                  <button onClick={handleEsplodiBom} disabled={esplodiMutation.isPending}
+                    className="flex items-center gap-2 px-3 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-sm font-medium shadow-sm">
+                    <RefreshCw className="w-3.5 h-3.5" /> Riesplodi BOM
+                  </button>
+                )}
+              </div>
             </div>
 
-            {/* BOM button */}
-            {!ordine.bom_esplosa ? (
-              <button onClick={handleEsplodiBom} disabled={esplodiMutation.isPending}
-                className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50 font-medium text-sm">
-                {esplodiMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Boxes className="w-4 h-4" />}
-                Esplodi Distinta Base
-              </button>
-            ) : ordine.bom_outdated ? (
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-amber-700">
-                  BOM esplosa da REV.{ordine.bom_numero_revisione} (ora REV.{revCorrente})
-                </span>
-                <button onClick={handleEsplodiBom} disabled={esplodiMutation.isPending}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-xs font-medium">
-                  <RefreshCw className="w-3.5 h-3.5" /> Riesplodi BOM
-                </button>
+            {/* ── Note e condizioni ── */}
+            <div className="border-t border-gray-200/50 bg-white/50 px-4 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-bold text-gray-700 flex items-center gap-1.5">
+                  <Edit3 className="w-3.5 h-3.5" /> Note e Condizioni
+                </h4>
+                {!editingNote ? (
+                  <button onClick={() => setEditingNote(true)}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1">
+                    <Edit3 className="w-3 h-3" /> Modifica
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <button onClick={() => saveNoteMutation.mutate(noteForm)} disabled={saveNoteMutation.isPending}
+                      className="text-xs text-green-600 hover:text-green-800 font-medium flex items-center gap-1">
+                      {saveNoteMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} Salva
+                    </button>
+                    <button onClick={() => setEditingNote(false)}
+                      className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+                      <XCircle className="w-3 h-3" /> Annulla
+                    </button>
+                  </div>
+                )}
               </div>
-            ) : null}
+
+              {editingNote ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-medium text-gray-600">Rif. Cliente</label>
+                    <input type="text" value={noteForm.riferimento_cliente}
+                      onChange={e => setNoteForm(f => ({ ...f, riferimento_cliente: e.target.value }))}
+                      className="w-full mt-0.5 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-indigo-400"
+                      placeholder="Numero ordine/riferimento del cliente" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-medium text-gray-600">Condizioni Pagamento</label>
+                      <input type="text" value={noteForm.condizioni_pagamento}
+                        onChange={e => setNoteForm(f => ({ ...f, condizioni_pagamento: e.target.value }))}
+                        className="w-full mt-0.5 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-indigo-400"
+                        placeholder="Es: 30gg DFFM" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600">Condizioni Consegna</label>
+                      <input type="text" value={noteForm.condizioni_consegna}
+                        onChange={e => setNoteForm(f => ({ ...f, condizioni_consegna: e.target.value }))}
+                        className="w-full mt-0.5 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-indigo-400"
+                        placeholder="Es: Franco destino" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600">Note (visibili al cliente)</label>
+                    <textarea value={noteForm.note}
+                      onChange={e => setNoteForm(f => ({ ...f, note: e.target.value }))}
+                      rows={2}
+                      className="w-full mt-0.5 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-indigo-400" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600">Note Interne (non visibili al cliente)</label>
+                    <textarea value={noteForm.note_interne}
+                      onChange={e => setNoteForm(f => ({ ...f, note_interne: e.target.value }))}
+                      rows={2}
+                      className="w-full mt-0.5 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-indigo-400 bg-yellow-50" />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  {noteForm.riferimento_cliente && (
+                    <div className="col-span-2"><span className="text-gray-500">Rif. cliente:</span> <span className="font-medium">{noteForm.riferimento_cliente}</span></div>
+                  )}
+                  {noteForm.condizioni_pagamento && (
+                    <div><span className="text-gray-500">Pagamento:</span> <span className="font-medium">{noteForm.condizioni_pagamento}</span></div>
+                  )}
+                  {noteForm.condizioni_consegna && (
+                    <div><span className="text-gray-500">Consegna:</span> <span className="font-medium">{noteForm.condizioni_consegna}</span></div>
+                  )}
+                  {noteForm.note && (
+                    <div className="col-span-2 mt-1"><span className="text-gray-500">Note:</span> <span>{noteForm.note}</span></div>
+                  )}
+                  {noteForm.note_interne && (
+                    <div className="col-span-2 mt-1 bg-yellow-50 rounded px-2 py-1"><span className="text-gray-500">Note interne:</span> <span>{noteForm.note_interne}</span></div>
+                  )}
+                  {!noteForm.riferimento_cliente && !noteForm.condizioni_pagamento && !noteForm.note && (
+                    <p className="col-span-2 text-gray-400 italic">Nessuna nota o condizione impostata</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── Timeline stati ── */}
+            <div className="border-t border-gray-200/50 bg-white/30">
+              <button onClick={() => setShowTimeline(!showTimeline)}
+                className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-white/50 transition-colors">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-gray-500" />
+                  <span className="text-sm font-medium text-gray-700">Timeline Stati</span>
+                  <span className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full">
+                    {storicoStati?.storico?.length || 0}
+                  </span>
+                </div>
+                {showTimeline ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+              </button>
+              {showTimeline && (
+                <div className="px-4 pb-4">
+                  <TimelineStati storico={storicoStati?.storico || []} />
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -763,7 +1156,7 @@ export default function OrdinePanel() {
       </div>
 
       {/* === DISTINTA ESPLOSA === */}
-      {ordine?.bom_esplosa && esplosiData && (
+      {!!ordine?.bom_esplosa && esplosiData && (
         <div className="bg-white rounded-lg shadow">
           <div className="px-5 py-4 border-b flex items-center justify-between">
             <div>
@@ -871,13 +1264,13 @@ export default function OrdinePanel() {
             <div key={o.id} className="bg-gray-50 rounded-lg p-3 text-sm">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-gray-900">{o.numero_ordine}</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  o.stato === 'in_produzione' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'
-                }`}>{o.stato}</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATO_CONFIG[o.stato]?.badgeClass || 'bg-gray-200 text-gray-700'}`}>
+                  {STATO_CONFIG[o.stato]?.label || o.stato}
+                </span>
               </div>
               <p className="text-gray-600 mt-1">
                 Creato dalla REV.{o.numero_revisione_origine || '?'}
-                {o.bom_esplosa && <span> &middot; BOM esplosa (REV.{o.bom_numero_revisione || '?'})</span>}
+                {!!o.bom_esplosa && <span> &middot; BOM esplosa (REV.{o.bom_numero_revisione || '?'})</span>}
               </p>
             </div>
           ))}
@@ -940,6 +1333,156 @@ export default function OrdinePanel() {
         </div>
       </ConflictDialog>
 
+      {/* === DIALOG: Cambio Stato === */}
+      <ConflictDialog
+        open={!!showCambioStatoDialog}
+        title={`Cambio Stato → ${showCambioStatoDialog ? (STATO_CONFIG[showCambioStatoDialog]?.label || showCambioStatoDialog) : ''}`}
+        onClose={() => { setShowCambioStatoDialog(null); setCambioStatoMotivo(''); }}
+      >
+        {showCambioStatoDialog && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-700">
+              {TRANSIZIONI_AZIONI[showCambioStatoDialog]?.confirmMsg}
+            </p>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Motivo (opzionale)</label>
+              <input type="text" value={cambioStatoMotivo}
+                onChange={e => setCambioStatoMotivo(e.target.value)}
+                className="w-full mt-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-400"
+                placeholder="Aggiungi una nota al cambio stato..."
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => cambioStatoMutation.mutate({ stato: showCambioStatoDialog, motivo: cambioStatoMotivo })}
+                disabled={cambioStatoMutation.isPending}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-white rounded-lg font-medium text-sm disabled:opacity-50 ${TRANSIZIONI_AZIONI[showCambioStatoDialog]?.color || 'bg-indigo-600'}`}
+              >
+                {cambioStatoMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : TRANSIZIONI_AZIONI[showCambioStatoDialog]?.icon}
+                Conferma
+              </button>
+              <button onClick={() => { setShowCambioStatoDialog(null); setCambioStatoMotivo(''); }}
+                className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-sm">
+                Annulla
+              </button>
+            </div>
+          </div>
+        )}
+      </ConflictDialog>
+
+      {/* === DIALOG: Crea Fattura da Ordini === */}
+      <ConflictDialog
+        open={showFatturaDialog}
+        title="Crea Fattura da Ordini"
+        onClose={() => setShowFatturaDialog(false)}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Seleziona gli ordini completati da includere nella fattura.
+            {cliente && (
+              <span className="font-medium text-gray-800"> Cliente: {cliente.ragione_sociale}</span>
+            )}
+          </p>
+
+          {fatturaError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm">
+              {fatturaError}
+            </div>
+          )}
+
+          {/* Lista ordini selezionabili */}
+          <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
+            {(ordiniFatturabili?.ordini || []).length === 0 && (
+              <div className="px-4 py-8 text-center text-sm text-gray-400">
+                Nessun altro ordine completato per questo cliente
+              </div>
+            )}
+            {(ordiniFatturabili?.ordini || []).map((o: any) => {
+              const isSelected = selectedOrdiniIds.includes(o.id);
+              const isCurrent = ordine && o.id === ordine.id;
+              return (
+                <label key={o.id}
+                  className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors ${isSelected ? 'bg-indigo-50/50' : ''}`}
+                >
+                  <input type="checkbox" checked={isSelected}
+                    onChange={e => {
+                      setSelectedOrdiniIds(prev =>
+                        e.target.checked
+                          ? [...prev, o.id]
+                          : prev.filter(id => id !== o.id)
+                      );
+                    }}
+                    className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm text-gray-900">{o.numero_ordine}</span>
+                      {isCurrent && (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded font-medium">
+                          CORRENTE
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      {o.tipo_impianto || 'N/D'} · {o.n_materiali || 0} articoli · {new Date(o.created_at).toLocaleDateString('it-IT')}
+                    </div>
+                  </div>
+                  <span className="text-sm font-semibold text-gray-900 whitespace-nowrap">
+                    € {(o.totale_netto || o.totale_materiali || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+
+          {/* Riepilogo */}
+          {selectedOrdiniIds.length > 0 && (
+            <div className="bg-gray-50 rounded-lg px-4 py-3 flex items-center justify-between">
+              <span className="text-sm text-gray-600">
+                {selectedOrdiniIds.length} ordine/i selezionato/i
+              </span>
+              <span className="text-sm font-bold text-gray-900">
+                Totale: € {
+                  (ordiniFatturabili?.ordini || [])
+                    .filter((o: any) => selectedOrdiniIds.includes(o.id))
+                    .reduce((s: number, o: any) => s + (o.totale_netto || o.totale_materiali || 0), 0)
+                    .toLocaleString('it-IT', { minimumFractionDigits: 2 })
+                }
+              </span>
+            </div>
+          )}
+
+          {/* Azioni */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleCreaFattura}
+              disabled={fatturaLoading || selectedOrdiniIds.length === 0}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600 text-white rounded-lg font-medium text-sm hover:bg-violet-700 disabled:opacity-50"
+            >
+              {fatturaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Receipt className="w-4 h-4" />}
+              Crea Fattura
+            </button>
+            <button onClick={() => setShowFatturaDialog(false)}
+              className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-sm">
+              Annulla
+            </button>
+          </div>
+        </div>
+      </ConflictDialog>
+
     </div>
   );
+}
+
+// Helper per ottenere transizioni valide dato uno stato
+function getTransizioniStato(stato: string): string[] {
+  const map: Record<string, string[]> = {
+    confermato: ['in_produzione', 'annullato'],
+    in_produzione: ['completato', 'annullato'],
+    completato: ['fatturato'],
+    fatturato: [],
+    annullato: [],
+  };
+  return map[stato] || [];
 }

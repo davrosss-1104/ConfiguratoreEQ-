@@ -12,6 +12,7 @@ import io
 import math
 import re
 
+
 import base64
 from template_engine import (
     DocumentTemplate, STATIC_SECTIONS,
@@ -49,6 +50,10 @@ import json as json_module
 from excel_data_loader import ExcelDataLoader
 from excel_import import ExcelImporter
 from api_permessi import router as permessi_router
+
+from moduli_attivabili import router as moduli_router, richiedi_modulo
+from fatturazione_api import router as fatturazione_router
+from starlette.responses import StreamingResponse
     
 
 # Custom JSON encoder per SQLAlchemy objects
@@ -110,6 +115,9 @@ app.add_middleware(
 # ROUTER: Gruppi, Ruoli, Permessi
 # ==========================================
 app.include_router(permessi_router)
+app.include_router(moduli_router)
+fatturazione_router.dependencies = [Depends(richiedi_modulo("fatturazione"))]
+app.include_router(fatturazione_router)
 
 # ==========================================
 # DEPENDENCY
@@ -5507,14 +5515,6 @@ def api_conferma_preventivo(preventivo_id: int, body: dict = None, db: Session =
         anno = datetime.now().year
         
         # Auto-crea/aggiorna tabella ordini
-        try:
-            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='ordini'")
-            row = cursor.fetchone()
-            if row and 'NOT NULL' in (row[0] or '') and 'cliente_id' in (row[0] or ''):
-                cursor.execute("DROP TABLE ordini")
-                conn.commit()
-        except Exception:
-            pass
         
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ordini (
@@ -5544,9 +5544,9 @@ def api_conferma_preventivo(preventivo_id: int, body: dict = None, db: Session =
         conn.commit()
         _ensure_ordini_revisione_columns(db)
 
-        cursor.execute("SELECT COUNT(*) FROM ordini WHERE numero_ordine LIKE ?", (f"ORD-{anno}-%",))
-        count = cursor.fetchone()[0]
-        numero_ordine = f"ORD-{anno}-{count + 1:04d}"
+        cursor.execute("SELECT MAX(CAST(SUBSTR(numero_ordine, 10) AS INTEGER)) FROM ordini WHERE numero_ordine LIKE ?", (f"ORD-{anno}-%",))
+        last = cursor.fetchone()[0] or 0
+        numero_ordine = f"ORD-{anno}-{last + 1:04d}"
 
         cursor.execute(
             "INSERT INTO ordini (numero_ordine, preventivo_id, cliente_id, stato, tipo_impianto, "
@@ -5573,6 +5573,29 @@ def api_conferma_preventivo(preventivo_id: int, body: dict = None, db: Session =
         except Exception as e:
             print(f"[WARN] ordine_id backlink failed: {e}")
 
+        # Registra nel storico stati
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ordini_storico_stato (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ordine_id INTEGER NOT NULL,
+                    stato_precedente TEXT,
+                    stato_nuovo TEXT NOT NULL,
+                    motivo TEXT,
+                    utente TEXT,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    FOREIGN KEY (ordine_id) REFERENCES ordini(id)
+                )
+            """)
+            cursor.execute(
+                "INSERT INTO ordini_storico_stato (ordine_id, stato_precedente, stato_nuovo, motivo, utente) "
+                "VALUES (?, NULL, 'confermato', 'Conferma preventivo', ?)",
+                (ordine_id, 'admin')
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"[WARN] Storico stato ordine: {e}")
+
         return {
             "status": "confermato", "preventivo_id": preventivo_id,
             "ordine_id": ordine_id, "numero_ordine": numero_ordine,
@@ -5588,6 +5611,66 @@ def api_conferma_preventivo(preventivo_id: int, body: dict = None, db: Session =
         traceback.print_exc()
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Errore conferma: {str(e)}")
+
+@app.get("/ordini/search")
+def search_ordini(
+    q: str = None,
+    stato: str = None,
+    cliente_id: int = None,
+    data_da: str = None,
+    data_a: str = None,
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
+    print(f">>> SEARCH ORDINI q={q}")
+    try:
+        conn = db.get_bind().raw_connection()
+        cursor = conn.cursor()
+
+        sql = """
+            SELECT o.*,
+                   c.ragione_sociale AS cliente_ragione_sociale,
+                   c.codice AS cliente_codice,
+                   (SELECT COUNT(*) FROM materiali m WHERE m.preventivo_id = o.preventivo_id) AS n_materiali
+            FROM ordini o
+            LEFT JOIN clienti c ON c.id = o.cliente_id
+            WHERE 1=1
+        """
+        params = []
+
+        if q and q.strip():
+            pattern = f"%{q.strip()}%"
+            sql += " AND (o.numero_ordine LIKE ? OR c.ragione_sociale LIKE ? OR o.tipo_impianto LIKE ?)"
+            params.extend([pattern, pattern, pattern])
+
+        if stato:
+            sql += " AND o.stato = ?"
+            params.append(stato)
+
+        if cliente_id:
+            sql += " AND o.cliente_id = ?"
+            params.append(cliente_id)
+
+        if data_da:
+            sql += " AND o.created_at >= ?"
+            params.append(data_da)
+
+        if data_a:
+            sql += " AND o.created_at <= ?"
+            params.append(data_a + "T23:59:59")
+
+        sql += " ORDER BY o.created_at DESC LIMIT ?"
+        params.append(limit)
+
+        cursor.execute(sql, params)
+        cols = [d[0] for d in cursor.description]
+        rows = cursor.fetchall()
+
+        return [dict(zip(cols, r)) for r in rows]
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, str(e))
 
 
 @app.get("/ordini")
@@ -5618,6 +5701,519 @@ def api_get_ordine(ordine_id: int, db: Session = Depends(get_db)):
     cols = [desc[0] for desc in cursor.description]
     return dict(zip(cols, r))
 
+# --- START BLOCCO A ---
+
+STATI_ORDINE = {
+    'confermato': {
+        'label': 'Confermato',
+        'color': 'green',
+        'transizioni': ['in_produzione', 'annullato'],
+    },
+    'in_produzione': {
+        'label': 'In Produzione',
+        'color': 'amber',
+        'transizioni': ['completato', 'annullato'],
+    },
+    'completato': {
+        'label': 'Completato',
+        'color': 'blue',
+        'transizioni': ['fatturato'],
+    },
+    'fatturato': {
+        'label': 'Fatturato',
+        'color': 'purple',
+        'transizioni': [],
+    },
+    'annullato': {
+        'label': 'Annullato',
+        'color': 'red',
+        'transizioni': [],
+    },
+}
+
+
+@app.get("/ordini/stati-config")
+def api_stati_config():
+    """Restituisce la configurazione degli stati ordine (per il frontend)"""
+    return STATI_ORDINE
+
+
+@app.put("/ordini/{ordine_id}/stato")
+def api_cambio_stato_ordine(ordine_id: int, body: dict, db: Session = Depends(get_db)):
+    """
+    Cambia lo stato di un ordine con validazione della macchina a stati.
+    Body: { stato: "in_produzione", motivo?: "...", utente?: "..." }
+    """
+    nuovo_stato = body.get("stato", "").strip()
+    motivo = body.get("motivo", "")
+    utente = body.get("utente", "sistema")
+
+    if not nuovo_stato:
+        raise HTTPException(400, "Campo 'stato' obbligatorio")
+
+    if nuovo_stato not in STATI_ORDINE:
+        raise HTTPException(400, f"Stato '{nuovo_stato}' non valido. Stati: {list(STATI_ORDINE.keys())}")
+
+    conn = db.get_bind().raw_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id, stato, numero_ordine FROM ordini WHERE id = ?", (ordine_id,))
+    ordine = cursor.fetchone()
+    if not ordine:
+        raise HTTPException(404, "Ordine non trovato")
+
+    stato_attuale = ordine[1] or 'confermato'
+    numero_ordine = ordine[2]
+
+    # Validazione transizione
+    config_stato = STATI_ORDINE.get(stato_attuale)
+    if not config_stato:
+        raise HTTPException(400, f"Stato attuale '{stato_attuale}' non riconosciuto")
+
+    if nuovo_stato not in config_stato['transizioni']:
+        transizioni_valide = config_stato['transizioni'] or ['nessuna']
+        raise HTTPException(
+            400,
+            f"Transizione '{stato_attuale}' → '{nuovo_stato}' non consentita. "
+            f"Transizioni valide da '{stato_attuale}': {transizioni_valide}"
+        )
+
+    # Ensure storico table exists
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ordini_storico_stato (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ordine_id INTEGER NOT NULL,
+            stato_precedente TEXT,
+            stato_nuovo TEXT NOT NULL,
+            motivo TEXT,
+            utente TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (ordine_id) REFERENCES ordini(id)
+        )
+    """)
+
+    # Aggiorna stato
+    # Aggiorna stato (senza colonne opzionali che potrebbero mancare)
+    try:
+        cursor.execute(
+            "UPDATE ordini SET stato = ?, stato_precedente = ?, data_cambio_stato = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+            (nuovo_stato, stato_attuale, ordine_id)
+        )
+    except Exception:
+        cursor.execute(
+            "UPDATE ordini SET stato = ?, updated_at = datetime('now') WHERE id = ?",
+            (nuovo_stato, ordine_id)
+        )
+
+    # Inserisci record storico
+    cursor.execute(
+        "INSERT INTO ordini_storico_stato (ordine_id, stato_precedente, stato_nuovo, motivo, utente) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (ordine_id, stato_attuale, nuovo_stato, motivo, utente)
+    )
+
+    conn.commit()
+
+    return {
+        "ordine_id": ordine_id,
+        "numero_ordine": numero_ordine,
+        "stato_precedente": stato_attuale,
+        "stato_nuovo": nuovo_stato,
+        "transizioni_disponibili": STATI_ORDINE[nuovo_stato]['transizioni'],
+    }
+
+
+@app.get("/ordini/{ordine_id}/storico-stati")
+def api_storico_stati_ordine(ordine_id: int, db: Session = Depends(get_db)):
+    """Restituisce la timeline dei cambi stato di un ordine"""
+    conn = db.get_bind().raw_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id FROM ordini WHERE id = ?", (ordine_id,))
+    if not cursor.fetchone():
+        raise HTTPException(404, "Ordine non trovato")
+
+    # Ensure table exists
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ordini_storico_stato (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ordine_id INTEGER NOT NULL,
+            stato_precedente TEXT,
+            stato_nuovo TEXT NOT NULL,
+            motivo TEXT,
+            utente TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (ordine_id) REFERENCES ordini(id)
+        )
+    """)
+
+    cursor.execute(
+        "SELECT id, stato_precedente, stato_nuovo, motivo, utente, created_at "
+        "FROM ordini_storico_stato WHERE ordine_id = ? ORDER BY created_at ASC, id ASC",
+        (ordine_id,)
+    )
+    cols = [d[0] for d in cursor.description]
+    rows = [dict(zip(cols, r)) for r in cursor.fetchall()]
+
+    return {"ordine_id": ordine_id, "storico": rows}
+
+
+@app.put("/ordini/{ordine_id}")
+def api_update_ordine(ordine_id: int, body: dict, db: Session = Depends(get_db)):
+    """Aggiorna campi dell'ordine (note, condizioni, riferimento, lead_time, data_consegna)"""
+    conn = db.get_bind().raw_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id FROM ordini WHERE id = ?", (ordine_id,))
+    if not cursor.fetchone():
+        raise HTTPException(404, "Ordine non trovato")
+
+    # Campi aggiornabili
+    campi_ammessi = {
+        'note', 'note_interne', 'condizioni_pagamento', 'condizioni_consegna',
+        'riferimento_cliente', 'lead_time_giorni', 'data_consegna_prevista',
+    }
+
+    updates = []
+    values = []
+    for campo, valore in body.items():
+        if campo in campi_ammessi:
+            updates.append(f"{campo} = ?")
+            values.append(valore)
+
+    if not updates:
+        raise HTTPException(400, "Nessun campo valido da aggiornare")
+
+    updates.append("updated_at = datetime('now')")
+    values.append(ordine_id)
+
+    cursor.execute(f"UPDATE ordini SET {', '.join(updates)} WHERE id = ?", values)
+    conn.commit()
+
+    # Ritorna ordine aggiornato
+    cursor.execute("SELECT * FROM ordini WHERE id = ?", (ordine_id,))
+    cols = [d[0] for d in cursor.description]
+    return dict(zip(cols, cursor.fetchone()))
+
+
+@app.get("/ordini/{ordine_id}/conferma-ordine/{formato}")
+def api_conferma_ordine_doc(ordine_id: int, formato: str, request: Request, db: Session = Depends(get_db)):
+    """
+    Genera il documento "Conferma d'Ordine" basandosi sullo stesso template
+    usato per l'export del preventivo, con sezioni aggiuntive per l'ordine.
+    """
+    from docx import Document as DocxDocument
+    from docx.shared import Pt, Cm, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.oxml.ns import qn
+
+    conn = db.get_bind().raw_connection()
+    cursor = conn.cursor()
+
+    # ── 1. Carica ordine ──
+    cursor.execute("SELECT * FROM ordini WHERE id = ?", (ordine_id,))
+    r = cursor.fetchone()
+    if not r:
+        raise HTTPException(404, "Ordine non trovato")
+    ord_cols = [d[0] for d in cursor.description]
+    ordine_data = dict(zip(ord_cols, r))
+
+    preventivo_id = ordine_data.get("preventivo_id")
+    if not preventivo_id:
+        raise HTTPException(400, "Ordine senza preventivo associato")
+
+    # ── 2. Carica dati preventivo (stessa logica dell'export preventivo) ──
+    preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
+    if not preventivo:
+        raise HTTPException(404, "Preventivo non trovato")
+
+    dati_commessa = db.query(DatiCommessa).filter(DatiCommessa.preventivo_id == preventivo_id).first()
+    dati_principali = db.query(DatiPrincipali).filter(DatiPrincipali.preventivo_id == preventivo_id).first()
+    normative_data = db.query(Normative).filter(Normative.preventivo_id == preventivo_id).first()
+    materiali = db.query(Materiale).filter(Materiale.preventivo_id == preventivo_id).all()
+
+    argano_data = None
+    try:
+        argano_data = db.query(Argano).filter(Argano.preventivo_id == preventivo_id).first()
+    except Exception:
+        pass
+
+    cliente = None
+    try:
+        cid = getattr(preventivo, 'cliente_id', None)
+        if cid:
+            cliente = db.query(Cliente).filter(Cliente.id == cid).first()
+    except Exception:
+        pass
+
+    # Icona prodotto
+    product_icon_png = None
+    product_name = ""
+    product_category = ""
+    try:
+        tid = getattr(preventivo, 'template_id', None)
+        if tid:
+            prod_tpl = db.query(ProductTemplate).filter(ProductTemplate.id == tid).first()
+            if prod_tpl:
+                product_name = getattr(prod_tpl, 'nome_display', '') or ''
+                product_category = getattr(prod_tpl, 'categoria', '') or ''
+                icon_name = getattr(prod_tpl, 'icona', None)
+                if icon_name:
+                    from export_utils import load_product_icon_png
+                    product_icon_png = load_product_icon_png(icon_name, size=160)
+    except Exception as e:
+        print(f"WARN: Icona prodotto conferma ordine: {e}")
+
+    # ── 3. Genera DOCX base con il template preventivo ──
+    doc_template = None
+    doc_template_id = request.query_params.get("template_id")
+    if doc_template_id:
+        doc_template = db.query(DocumentTemplate).filter(
+            DocumentTemplate.id == int(doc_template_id)
+        ).first()
+    else:
+        doc_template = db.query(DocumentTemplate).filter(
+            DocumentTemplate.tipo == "preventivo",
+            DocumentTemplate.is_default == True,
+            DocumentTemplate.attivo == True
+        ).first()
+
+    buf_base = None
+
+    if doc_template and doc_template.config:
+        try:
+            available = get_available_fields_from_db(db)
+            valori_din = load_valori_dinamici(db, preventivo_id)
+            def_info = load_defaults_info(db, preventivo_id)
+            buf_base = genera_docx_da_template(
+                template_config=doc_template.config,
+                preventivo=preventivo,
+                dati_commessa=dati_commessa,
+                dati_principali=dati_principali,
+                normative=normative_data,
+                argano=argano_data,
+                materiali=materiali,
+                cliente=cliente,
+                logo_data=doc_template.logo_data,
+                logo_mime=doc_template.logo_mime,
+                valori_dinamici=valori_din,
+                available_fields=available,
+                defaults_info=def_info,
+                product_icon_png=product_icon_png,
+                product_name=product_name,
+                product_category=product_category,
+            )
+        except Exception as e:
+            print(f"WARN: Template conferma ordine fallito, uso fallback: {e}")
+
+    if not buf_base:
+        # Fallback: genera con v2
+        try:
+            dati_doc = get_dati_documento_preventivo(preventivo_id, db)
+            preventivo_info = {
+                "numero": _prev_numero(preventivo),
+                "customer": getattr(preventivo, 'customer_name', '') or '',
+                "status": _prev_stato(preventivo),
+                "totale": safe_float(_prev_totale(preventivo)),
+                "sconto": safe_float(getattr(preventivo, 'sconto_cliente', 0)) + safe_float(getattr(preventivo, 'sconto_extra_admin', 0)),
+                "netto": safe_float(_prev_netto(preventivo)),
+                "note": getattr(preventivo, 'note', '') or '',
+                "revisione": getattr(preventivo, 'revisione_corrente', 0) or 0,
+            }
+            if cliente:
+                preventivo_info["customer"] = getattr(cliente, 'ragione_sociale', preventivo_info["customer"]) or preventivo_info["customer"]
+            from export_utils import genera_docx_preventivo_v2
+            buf_base = genera_docx_preventivo_v2(preventivo_info, dati_doc, materiali,
+                                                  product_icon_png=product_icon_png,
+                                                  product_name=product_name,
+                                                  product_category=product_category)
+        except Exception as e:
+            raise HTTPException(500, f"Errore generazione documento base: {e}")
+
+    # ── 4. Apri il DOCX generato e appendi sezioni ordine ──
+    buf_base.seek(0)
+    doc = DocxDocument(buf_base)
+
+    # Aggiungi page break prima delle sezioni ordine
+    from docx.oxml.ns import qn as _qn
+    doc.add_page_break()
+
+    # --- TITOLO CONFERMA D'ORDINE ---
+    numero_ordine = ordine_data.get('numero_ordine', '')
+    h = doc.add_heading('CONFERMA D\'ORDINE', level=1)
+    h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    for run in h.runs:
+        run.font.color.rgb = RGBColor(0x1A, 0x3C, 0x6E)
+        run.font.size = Pt(16)
+
+    p_num = doc.add_paragraph()
+    p_num.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r_num = p_num.add_run(f"N° {numero_ordine}")
+    r_num.font.size = Pt(14)
+    r_num.font.bold = True
+
+    p_data = doc.add_paragraph()
+    p_data.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    from datetime import datetime as _dt
+    r_data = p_data.add_run(f"Data: {_dt.now().strftime('%d/%m/%Y')}")
+    r_data.font.size = Pt(10)
+    r_data.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+
+    doc.add_paragraph()
+
+    # --- DATI ORDINE ---
+    doc.add_heading('Dati Ordine', level=2)
+
+    t_ord = doc.add_table(rows=5, cols=4)
+    t_ord.style = 'Table Grid'
+
+    from export_utils import fmt_euro, safe_str
+
+    totale_mat = ordine_data.get('totale_materiali', 0) or 0
+    totale_netto = ordine_data.get('totale_netto', 0) or totale_mat
+    lead_time = ordine_data.get('lead_time_giorni', 15) or 15
+    data_consegna = ordine_data.get('data_consegna_prevista', '')
+    if data_consegna and len(str(data_consegna)) >= 10:
+        try:
+            data_consegna = _dt.fromisoformat(str(data_consegna)[:19]).strftime("%d/%m/%Y")
+        except Exception:
+            data_consegna = str(data_consegna)[:10]
+    data_creazione = ordine_data.get('created_at', '')
+    if data_creazione and len(str(data_creazione)) >= 10:
+        try:
+            data_creazione = _dt.fromisoformat(str(data_creazione)[:19]).strftime("%d/%m/%Y")
+        except Exception:
+            data_creazione = str(data_creazione)[:10]
+
+    rif_prev = f"PREV-{preventivo_id}"
+    rev_corr = getattr(preventivo, 'revisione_corrente', 0) or 0
+    if rev_corr:
+        rif_prev += f" (REV.{rev_corr})"
+    rif_cliente = ordine_data.get('riferimento_cliente', '') or ''
+
+    info_rows = [
+        ('N° Ordine', safe_str(numero_ordine), 'Data', safe_str(data_creazione)),
+        ('Rif. Preventivo', safe_str(rif_prev), 'Rif. Cliente', safe_str(rif_cliente)),
+        ('Tipo Impianto', safe_str(ordine_data.get('tipo_impianto', '')), 'Lead Time', f"{lead_time} gg lavorativi"),
+        ('Consegna Prevista', safe_str(data_consegna), '', ''),
+        ('Totale Ordine', fmt_euro(totale_netto), '', ''),
+    ]
+
+    for i, (l1, v1, l2, v2) in enumerate(info_rows):
+        t_ord.cell(i, 0).text = l1
+        t_ord.cell(i, 1).text = v1
+        t_ord.cell(i, 2).text = l2
+        t_ord.cell(i, 3).text = v2
+        for j in [0, 2]:
+            for run in t_ord.cell(i, j).paragraphs[0].runs:
+                run.font.bold = True
+                run.font.size = Pt(9)
+        for j in [1, 3]:
+            for run in t_ord.cell(i, j).paragraphs[0].runs:
+                run.font.size = Pt(9)
+
+    # Totale in evidenza
+    for run in t_ord.cell(4, 1).paragraphs[0].runs:
+        run.font.bold = True
+        run.font.size = Pt(11)
+        run.font.color.rgb = RGBColor(0x1A, 0x3C, 0x6E)
+
+    # --- CONDIZIONI ---
+    doc.add_paragraph()
+    doc.add_heading('Condizioni', level=2)
+
+    cond_pagamento = ordine_data.get('condizioni_pagamento', '') or ''
+    cond_consegna = ordine_data.get('condizioni_consegna', '') or ''
+
+    def _add_condizione(label, valore, default):
+        p = doc.add_paragraph()
+        r = p.add_run(f'{label}: ')
+        r.font.bold = True
+        r.font.size = Pt(10)
+        r2 = p.add_run(valore if valore else default)
+        r2.font.size = Pt(10)
+
+    _add_condizione('Pagamento', cond_pagamento, 'Come da accordi')
+    _add_condizione('Consegna', cond_consegna, f'Entro {lead_time} giorni lavorativi dalla data del presente ordine')
+    _add_condizione('Validità', '', '30 giorni dalla data del presente documento')
+
+    # Note
+    note = ordine_data.get('note', '') or ''
+    if note:
+        doc.add_paragraph()
+        doc.add_heading('Note', level=2)
+        p = doc.add_paragraph(note)
+        for run in p.runs:
+            run.font.size = Pt(10)
+
+    # --- FIRME ---
+    doc.add_paragraph()
+    doc.add_paragraph()
+
+    # Linea separatrice
+    p_line = doc.add_paragraph()
+    r_line = p_line.add_run('_' * 80)
+    r_line.font.color.rgb = RGBColor(0xCC, 0xCC, 0xCC)
+
+    # Nome azienda per la firma
+    nome_azienda = ''
+    try:
+        cursor.execute("SELECT valore FROM parametri_sistema WHERE chiave = 'azienda_ragione_sociale'")
+        row = cursor.fetchone()
+        if row:
+            nome_azienda = row[0]
+    except Exception:
+        pass
+    if not nome_azienda:
+        nome_azienda = 'Il Fornitore'
+
+    t_firme = doc.add_table(rows=4, cols=2)
+    t_firme.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+    t_firme.cell(0, 0).text = 'Per accettazione del Committente'
+    t_firme.cell(0, 1).text = f'Per {nome_azienda}'
+    for j in range(2):
+        for run in t_firme.cell(0, j).paragraphs[0].runs:
+            run.font.bold = True
+            run.font.size = Pt(10)
+        t_firme.cell(0, j).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    t_firme.cell(1, 0).text = ''
+    t_firme.cell(1, 1).text = ''
+
+    t_firme.cell(2, 0).text = '________________________________'
+    t_firme.cell(2, 1).text = '________________________________'
+    for j in range(2):
+        t_firme.cell(2, j).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    t_firme.cell(3, 0).text = 'Firma e timbro'
+    t_firme.cell(3, 1).text = 'Firma e timbro'
+    for j in range(2):
+        for run in t_firme.cell(3, j).paragraphs[0].runs:
+            run.font.size = Pt(8)
+            run.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
+        t_firme.cell(3, j).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Footer
+    doc.add_paragraph()
+    fp = doc.add_paragraph()
+    fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r = fp.add_run(f'Conferma d\'ordine generata il {_dt.now().strftime("%d/%m/%Y %H:%M")}')
+    r.font.size = Pt(7)
+    r.font.color.rgb = RGBColor(0xAA, 0xAA, 0xAA)
+
+    # ── 5. Salva e restituisci ──
+    buf_out = io.BytesIO()
+    doc.save(buf_out)
+    buf_out.seek(0)
+
+    num_safe = numero_ordine.replace('/', '_')
+    return StreamingResponse(
+        buf_out,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="Conferma_Ordine_{num_safe}.docx"'}
+    )
 
 @app.post("/ordini/{ordine_id}/esplodi-bom")
 

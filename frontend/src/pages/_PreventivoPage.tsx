@@ -7,7 +7,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Sidebar } from '@/components/Sidebar';
 import { DatiCommessaForm } from "@/components/sections/DatiCommessaForm";
-// DatiPrincipaliForm e NormativeForm → ora DynamicSectionForm (migrate_orm_to_dynamic.py)
+import { DatiPrincipaliForm } from "@/components/sections/DatiPrincipaliForm";
+import { NormativeForm } from "@/components/sections/NormativeForm";
 import DisposizioneVanoForm from "@/components/sections/DisposizioneVanoForm";
 import OrdinePanel from "@/components/sections/OrdinePanel";
 import { MaterialsTable } from "@/components/MaterialsTable";
@@ -30,7 +31,6 @@ import RevisioniDrawer from '@/components/RevisioniDrawer';
 import DocumentTemplateEditorPage from '@/pages/DocumentTemplateEditorPage';
 import ImportExcelPage from '@/components/sections/ImportExcelPage';
 import InfoAppPage from '@/components/sections/InfoAppPage';
-import GestioneModuliPage from '@/components/sections/GestioneModuliPage';
 
 const API = 'http://localhost:8000';
 
@@ -215,11 +215,15 @@ export const PreventivoPage = () => {
       case 'dati_commessa':
         return <DatiCommessaForm />;
       
+      case 'dati_principali':
+        return <DatiPrincipaliForm />;
+      
+      case 'normative':
+        return <NormativeForm preventivoId={preventivoId} />;
+      
       case 'disposizione_vano':
         return <DisposizioneVanoForm preventivoId={preventivoId} />;
       
-      case 'dati_principali':
-      case 'normative':
       case 'argano':
       case 'quadro':
       case 'tensioni':
@@ -277,8 +281,6 @@ export const PreventivoPage = () => {
         return <ImportExcelPage onNavigate={(section: string) => setActiveSection(section)} />;
       case 'info_app':
         return <InfoAppPage />;
-      case 'gestione_moduli':
-        return <GestioneModuliPage />;
 
       default:
         // Fallback: tutte le sezioni non gestite usano il form dinamico

@@ -29,7 +29,6 @@ import {
   ClipboardList,
   GitBranch,
   Key,
-  Receipt,
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000';
@@ -87,18 +86,7 @@ const ADMIN_MENU_PERMESSI: Record<string, string> = {
   'rule-engine': 'admin.regole',
   'pipeline-builder': 'admin.regole',
   'editor-template-doc': 'admin.template_doc',
-  'gestione-moduli': 'admin.parametri',
-  'fatturazione-config': 'admin.fatturazione',
 };
-
-// Voci che navigano a route separate (non renderizzate inline nel PreventivoPage)
-const ROUTE_NAVIGATION: Record<string, string> = {
-  'fatturazione': '/fatturazione',
-  'ordini': '/ordini',
-  'fatturazione-config': '/fatturazione/configurazione',
-};
-
-
 
 // ==========================================
 // INTERFACES
@@ -124,7 +112,7 @@ interface SidebarProps {
 // HELPER: controlla permesso
 // ==========================================
 function haPermesso(permessi: string[], codice: string): boolean {
-  if (!permessi || permessi.length === 0) return true;
+  if (!permessi || permessi.length === 0) return true; // Nessun filtro → mostra tutto (retrocompatibilità)
   return permessi.includes(codice);
 }
 
@@ -146,20 +134,6 @@ export const Sidebar = ({
   const [adminExpanded, setAdminExpanded] = useState(false);
   const [sezioniDB, setSezioniDB] = useState<SezioneAPI[] | null>(null);
 
-  // ==========================================
-  // FEATURE FLAGS: moduli attivabili
-  // ==========================================
-  const [moduliAttivi, setModuliAttivi] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    fetch(`${API_BASE}/moduli-attivi`)
-      .then(res => res.ok ? res.json() : {})
-      .then(data => setModuliAttivi(data))
-      .catch(() => {});
-  }, []);
-
-  const fatturazioneAttiva = moduliAttivi['fatturazione'] === true;
-
   useEffect(() => {
     const loadSezioni = () => {
       fetch(`${API_BASE}/sezioni-configuratore`)
@@ -169,34 +143,40 @@ export const Sidebar = ({
             setSezioniDB(data.filter((s: SezioneAPI) => s.attivo));
           }
         })
-        .catch(() => {});
+        .catch(() => { /* fallback silenzioso */ });
     };
 
     loadSezioni();
+
+    // Ricarica quando GestioneSezioniPage emette l'evento
     window.addEventListener('sezioni-updated', loadSezioni);
     return () => window.removeEventListener('sezioni-updated', loadSezioni);
   }, []);
 
-  // Sezioni configurazione
+  // Sezioni: da DB oppure fallback, filtrate per permessi
   const sezioniConfigurazione = useMemo(() => {
     const base = sezioniDB
       ? sezioniDB.map(s => ({ id: s.codice, label: s.etichetta, icon: ICON_MAP[s.icona] || DEFAULT_ICON }))
       : FALLBACK_SECTIONS.map(s => ({ id: s.codice, label: s.etichetta, icon: ICON_MAP[s.icona] || DEFAULT_ICON }));
 
+    // "Materiali" sempre visibile in fondo (se non già presente)
     if (!base.find(s => s.id === 'materiali')) {
       base.push({ id: 'materiali', label: 'Materiali', icon: <Package className="h-5 w-5" /> });
     }
+
+    // "Ordine & BOM" sempre visibile in fondo
     if (!base.find(s => s.id === 'ordine')) {
       base.push({ id: 'ordine', label: 'Ordine & BOM', icon: <ClipboardList className="h-5 w-5" /> });
     }
 
+    // Filtra per permesso sezione.{codice}.view
     if (permessi.length > 0) {
       return base.filter(s => haPermesso(permessi, `sezione.${s.id}.view`));
     }
     return base;
   }, [sezioniDB, permessi]);
 
-  // Admin menu
+  // Admin menu (filtrato per permessi)
   const adminMenuItems = useMemo(() => {
     const allItems = [
       { id: 'gestione-articoli', label: 'Gestione Articoli', icon: <Package className="h-5 w-5" /> },
@@ -211,14 +191,10 @@ export const Sidebar = ({
       { id: 'import-excel', label: 'Importa da Excel', icon: <LayoutList className="h-5 w-5" /> },
       { id: 'pipeline-builder', label: 'Pipeline di Calcolo', icon: <Cpu className="h-5 w-5" /> },
       { id: 'editor-template-doc', label: 'Template Documenti', icon: <FileText className="h-5 w-5" /> },
-      { id: 'gestione-moduli', label: 'Moduli & Parametri', icon: <Power className="h-5 w-5" /> },
-      // Config fatturazione: solo se modulo attivo
-      ...(fatturazioneAttiva ? [
-        { id: 'fatturazione-config', label: 'Config. Fatturazione', icon: <Receipt className="h-5 w-5" /> },
-      ] : []),
       { id: 'info-app', label: 'Info App', icon: <Info className="h-5 w-5" /> },
-    ];
+  ];
 
+    // Se abbiamo permessi, filtra
     if (permessi.length > 0) {
       return allItems.filter(item => {
         const permReq = ADMIN_MENU_PERMESSI[item.id];
@@ -226,29 +202,17 @@ export const Sidebar = ({
       });
     }
     return allItems;
-  }, [permessi, fatturazioneAttiva]);
+  }, [permessi]);
 
+  // Mostra sezione admin?
   const showAdmin = isAdmin || haAlmenoUnPermessoAdmin(permessi);
-
-  // ==========================================
-  // CLICK: inline section o navigazione route
-  // ==========================================
-  const handleItemClick = (itemId: string) => {
-    const routePath = ROUTE_NAVIGATION[itemId];
-    if (routePath) {
-      window.open(routePath, '_blank');
-      return;
-    }
-    onSectionChange(itemId);
-  };
 
   const renderMenuItem = (item: { id: string; label: string; icon: React.ReactNode }) => {
     const isActive = activeSection === item.id;
-    const isRouteLink = !!ROUTE_NAVIGATION[item.id];
     return (
       <button
         key={item.id}
-        onClick={() => handleItemClick(item.id)}
+        onClick={() => onSectionChange(item.id)}
         className={`
           w-full flex items-center gap-3 px-6 py-3 text-left transition-colors
           ${isActive
@@ -259,7 +223,6 @@ export const Sidebar = ({
       >
         <span className={isActive ? 'text-blue-600' : 'text-gray-500'}>{item.icon}</span>
         <span className="font-medium">{item.label}</span>
-        {isRouteLink && <span className="ml-auto text-gray-300 text-xs">↗</span>}
       </button>
     );
   };
@@ -283,24 +246,12 @@ export const Sidebar = ({
         )}
       </div>
 
-      {/* Menu Configurazione */}
+      {/* Menu Configurazione (DINAMICO da DB, filtrato per permessi) */}
       <div className="py-4 flex-1">
         <div className="px-6 mb-2">
           <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Configurazione</span>
         </div>
         {sezioniConfigurazione.map(renderMenuItem)}
-
-        {/* FATTURAZIONE: visibile solo se modulo attivo */}
-        {fatturazioneAttiva && haPermesso(permessi, 'fatturazione.view') && (
-          <>
-            <div className="my-4 border-t" />
-            <div className="px-6 mb-2">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Fatturazione</span>
-            </div>
-            {renderMenuItem({ id: 'fatturazione', label: 'Fatture', icon: <Receipt className="h-5 w-5" /> })}
-            {renderMenuItem({ id: 'ordini', label: 'Ordini', icon: <Package className="h-5 w-5" /> })}
-          </>
-        )}
 
         {/* Admin */}
         {showAdmin && adminMenuItems.length > 0 && (

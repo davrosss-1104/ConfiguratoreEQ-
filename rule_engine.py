@@ -1,1549 +1,2325 @@
 """
-rule_engine.py - Rule Engine unificato
-Combina il meglio di:
-  - evaluate_rules() da main.py (rimozione orfani smart, trigger automatico, aggiornamento totali)
-  - RuleEngine class da rule_engine.py (AND/OR, placeholder, parametri BOM, operatori estesi)
-
-Nuove funzionalità:
-  - build_config_context() legge da TUTTE le fonti (ORM dedicati + valori_configurazione dinamici)
-  - Supporto regole da DB (tabella regole) E da file JSON (directory rules/)
-  - Pipeline Builder: azioni collect_sum, math_expr, catalog_select (phase 1.5)
+rule_engine.py - Rule Engine v2 con lookup_multi/lookup_table/catalog_match
+Two-pass: prima lookup/calc → poi materiali.
+FIX: _apply_actions ora chiamato anche per lookup_rules (add_material + materials legacy).
+FIX: Aggiunto supporto set_field e skip_if in evaluate_rules.
 """
-from typing import List, Dict, Any, Tuple, Optional, Set
+from typing import List, Dict, Any, Optional, Set
 from sqlalchemy.orm import Session
-from sqlalchemy import inspect as sa_inspect, text
-import re
-import os
-import json
-import logging
-import math
-import fnmatch
+from sqlalchemy import text
+import re, os, json, logging
 
 logger = logging.getLogger(__name__)
 
+CAMPI_ESCLUSI = {"id", "preventivo_id", "created_at", "updated_at"}
 
-# ============================================================================
-# CONFIGURAZIONE SEZIONI DEDICATE
-# ============================================================================
-# Mappa: nome_sezione -> (nome_relationship su Preventivo, nome_classe_model)
-# Se il tuo Preventivo ha relationship "dati_principali" -> model DatiPrincipali,
-# aggiungile qui. Il context builder leggerà automaticamente tutti i campi.
-
-SEZIONI_DEDICATE = {
-    "dati_principali": "dati_principali",
-    "normative": "normative",
-    "argano": "argano",
-    "disposizione_vano": "disposizione_vano",
-    "porte": "porte",
-    "dati_commessa": "dati_commessa",
+# Tabelle ORM dedicate → prefix + alias
+# dati_principali, normative, argano, porte → ora in valori_configurazione
+TABELLE_DEDICATE = {
+    "disposizione_vano": {"prefix": "disposizione_vano", "aliases": []},
+    "dati_commessa":     {"prefix": "dati_commessa",     "aliases": []},
 }
 
-# Campi da escludere dal context (tecnici/interni)
-CAMPI_ESCLUSI = {"id", "preventivo_id", "created_at", "updated_at"}
+# alias → prefix della tabella (es. "trazione" → "argano")
+ALIAS_MAP = {}
+for _tbl, _cfg in TABELLE_DEDICATE.items():
+    for _a in _cfg["aliases"]:
+        ALIAS_MAP[_a] = _cfg["prefix"]
 
 
 class RuleEngine:
-    """
-    Motore valutazione regole business unificato.
-    
-    Flusso:
-    1. build_config_context() → raccoglie tutti i dati configurazione
-    2. Carica regole attive (DB + file)
-    3. PASS 1: Lookup rules (phase 1)
-    4. PASS 1.5: Pipeline rules (collect_sum, math_expr, catalog_select)
-    5. PASS 2: Material rules (phase 2)
-    6. Rimuove materiali orfani (regole non più attive)
-    7. Aggiorna totale preventivo
-    """
-
     def __init__(self, db: Session):
         self.db = db
         self.warnings: List[str] = []
         self.errors: List[str] = []
+        self._data_cache: Dict[str, Any] = {}
 
-    # ========================================================================
-    # 1. CONTEXT BUILDING
-    # ========================================================================
+    # ====================================================================
+    # CONTEXT BUILDING
+    # ====================================================================
     def build_config_context(self, preventivo) -> Dict[str, Any]:
-        """
-        Costruisce il context completo per la valutazione regole.
-        
-        Legge da:
-        - Tabelle ORM dedicate (dati_principali, normative, argano, ...)
-        - Tabella valori_configurazione (sezioni dinamiche)
-        - Metadati preventivo
-        
-        Produce chiavi con DUE formati per ogni valore:
-        - Con prefisso: "normative.en_81_20" → "2020"
-        - Senza prefisso: "en_81_20" → "2020"  (per compatibilità regole esistenti)
-        
-        In caso di conflitto tra chiavi senza prefisso (es. due sezioni hanno
-        un campo "tipo"), vince l'ultimo inserito. Usare il prefisso per precisione.
-        """
-        context: Dict[str, Any] = {}
+        ctx: Dict[str, Any] = {}
+        pid = preventivo.id
 
-        # --- Metadati preventivo ---
-        context["preventivo_id"] = preventivo.id
-        context["preventivo_tipo"] = getattr(preventivo, "tipo", None)
-        context["preventivo_categoria"] = getattr(preventivo, "categoria", None)
-        context["cliente_id"] = getattr(preventivo, "cliente_id", None)
-        context["template_id"] = getattr(preventivo, "template_id", None)
-
-        # --- Sezioni dedicate (ORM) ---
-        for sezione_nome, relationship_name in SEZIONI_DEDICATE.items():
-            obj = getattr(preventivo, relationship_name, None)
-            if obj is None:
-                continue
-            
-            campi = self._extract_fields_from_orm(obj)
-            for campo, valore in campi.items():
-                # Chiave con prefisso sezione
-                context[f"{sezione_nome}.{campo}"] = valore
-                # Chiave piatta (senza prefisso) per compatibilità
-                context[campo] = valore
-
-        # --- Sezioni dinamiche (tabella valori_configurazione) ---
+        # 0. Defaults da campi_configuratore
         try:
-            rows = self.db.execute(
-                text("""
-                    SELECT sezione, codice_campo, valore 
-                    FROM valori_configurazione 
-                    WHERE preventivo_id = :pid
-                """),
-                {"pid": preventivo.id}
-            ).fetchall()
-            
-            for row in rows:
-                sezione, codice_campo, valore = row[0], row[1], row[2]
-                # Prova a convertire in numero se possibile
-                valore_convertito = self._try_convert_value(valore)
-                context[f"{sezione}.{codice_campo}"] = valore_convertito
-                context[codice_campo] = valore_convertito
-                
-        except Exception as e:
-            # Tabella potrebbe non esistere ancora
-            self.warnings.append(f"Tabella valori_configurazione non disponibile: {e}")
-
-        # --- JSON legacy (preventivo.configurazione) come fallback ---
-        config_json = getattr(preventivo, "configurazione", None)
-        if config_json and isinstance(config_json, dict):
-            for k, v in config_json.items():
-                # Non sovrascrivere valori già presenti da fonti più affidabili
-                if k.lower() not in context:
-                    context[k.lower()] = v
-
-        logger.debug(f"Context costruito con {len(context)} chiavi per preventivo {preventivo.id}")
-        return context
-
-    def _extract_fields_from_orm(self, obj) -> Dict[str, Any]:
-        """Estrae tutti i campi da un oggetto ORM tramite introspezione."""
-        campi = {}
-        try:
-            mapper = sa_inspect(type(obj))
-            for col in mapper.columns:
-                if col.key in CAMPI_ESCLUSI:
-                    continue
-                valore = getattr(obj, col.key, None)
-                if valore is not None:
-                    campi[col.key] = valore
+            rows = self.db.execute(text(
+                "SELECT codice, valore_default FROM campi_configuratore "
+                "WHERE attivo=1 AND valore_default IS NOT NULL AND valore_default != '-'"
+            )).fetchall()
+            for r in rows:
+                if r[0] and r[1]:
+                    ctx[r[0]] = _conv(r[1])
         except Exception:
-            # Fallback: usa __dict__
-            for key, value in vars(obj).items():
-                if key.startswith("_") or key in CAMPI_ESCLUSI:
-                    continue
-                if value is not None:
-                    campi[key] = value
-        return campi
-
-    def _try_convert_value(self, valore: str) -> Any:
-        """Tenta conversione stringa → numero se possibile."""
-        if valore is None:
-            return None
-        if isinstance(valore, (int, float, bool)):
-            return valore
-        valore_str = str(valore).strip()
-        if not valore_str:
-            return valore_str
-        # Prova int
-        try:
-            return int(valore_str)
-        except ValueError:
             pass
-        # Prova float
-        try:
-            return float(valore_str)
-        except ValueError:
-            pass
-        return valore_str
 
-    # ========================================================================
-    # 2. CARICAMENTO REGOLE
-    # ========================================================================
-    def _load_rules_from_db(self) -> List[Dict[str, Any]]:
-        """Carica regole attive dalla tabella regole, ordinate per priorità."""
+        # 1. Metadati preventivo
+        for attr in ("tipo", "categoria", "cliente_id", "template_id"):
+            v = getattr(preventivo, attr, None)
+            if v is not None:
+                ctx[f"preventivo_{attr}"] = v
+        ctx["preventivo_id"] = pid
+
+        # 2. Tabelle dedicate (SQL diretto)
+        for tbl_name, cfg in TABELLE_DEDICATE.items():
+            self._load_table_ctx(ctx, pid, tbl_name, cfg["prefix"], cfg["aliases"])
+
+        # 3. valori_configurazione (massima priorità, sovrascrive)
         try:
-            rows = self.db.execute(
-                text("""
-                    SELECT rule_id, nome, rule_json, priorita, categoria
-                    FROM regole
-                    WHERE attiva = 1
-                    ORDER BY priorita ASC
-                """)
-            ).fetchall()
-            
-            rules = []
-            for row in rows:
-                rule_id, nome, rule_json_raw, priorita, categoria = (
-                    row[0], row[1], row[2], row[3], row[4]
-                )
-                # Parse JSON se stringa
-                if isinstance(rule_json_raw, str):
-                    rule_json = json.loads(rule_json_raw)
-                else:
-                    rule_json = rule_json_raw or {}
-                
-                rules.append({
-                    "id": rule_id,
-                    "nome": nome,
-                    "source": "db",
-                    "priorita": priorita or 100,
-                    "categoria": categoria,
-                    **rule_json
-                })
-            
-            return rules
+            rows = self.db.execute(text(
+                "SELECT sezione, codice_campo, valore FROM valori_configurazione "
+                "WHERE preventivo_id = :pid"
+            ), {"pid": pid}).fetchall()
+            for r in rows:
+                sez, campo, val = r[0], r[1], r[2]
+                v = _conv(val)
+                if sez:
+                    ctx[f"{sez}.{campo}"] = v
+                    # propaga alias
+                    target = ALIAS_MAP.get(sez)
+                    if target:
+                        ctx[f"{target}.{campo}"] = v
+                    for t2, c2 in TABELLE_DEDICATE.items():
+                        if c2["prefix"] == sez:
+                            for a in c2["aliases"]:
+                                ctx[f"{a}.{campo}"] = v
+                ctx[campo] = v  # chiave piatta
         except Exception as e:
-            self.warnings.append(f"Errore caricamento regole da DB: {e}")
-            return []
+            self.warnings.append(f"valori_configurazione: {e}")
 
-    def _load_rules_from_files(self, rules_dir: str = "./rules") -> List[Dict[str, Any]]:
-        """Carica regole da file JSON nella directory rules/."""
-        rules = []
-        if not os.path.exists(rules_dir):
-            return rules
-        
-        for filename in sorted(os.listdir(rules_dir)):
-            if not filename.endswith(".json"):
-                continue
-            try:
-                filepath = os.path.join(rules_dir, filename)
-                with open(filepath, "r", encoding="utf-8") as f:
-                    rule = json.load(f)
-                rule["source"] = "file"
-                rule.setdefault("id", filename.replace(".json", ""))
-                rule.setdefault("priorita", rule.get("priority", 100))
-                rules.append(rule)
-            except Exception as e:
-                self.errors.append(f"Errore caricamento {filename}: {e}")
-        
-        # Carica anche regole rule_*.json dalla root
-        for filename in sorted(os.listdir(".")):
-            if not filename.startswith("rule_") or not filename.endswith(".json"):
-                continue
-            try:
-                with open(filename, "r", encoding="utf-8") as f:
-                    rule = json.load(f)
-                rule["source"] = "file"
-                rule.setdefault("id", filename.replace(".json", "").replace("rule_", ""))
-                rule.setdefault("priorita", rule.get("priority", 100))
-                rules.append(rule)
-            except Exception as e:
-                self.errors.append(f"Errore caricamento {filename}: {e}")
-        
-        return rules
+        # 4. JSON legacy
+        cj = getattr(preventivo, "configurazione", None)
+        if cj and isinstance(cj, dict):
+            for k, v in cj.items():
+                if k.lower() not in ctx:
+                    ctx[k.lower()] = v
 
-    def load_all_rules(self) -> List[Dict[str, Any]]:
-        """
-        Carica regole da TUTTE le fonti (DB + file), 
-        deduplica per rule_id (DB ha priorità), ordina per priorità.
-        """
-        rules_db = self._load_rules_from_db()
-        rules_file = self._load_rules_from_files()
-        
-        # DB ha precedenza: se stessa rule_id esiste in DB e file, usa DB
-        db_ids = {r["id"] for r in rules_db}
-        rules_file_unique = [r for r in rules_file if r["id"] not in db_ids]
-        
-        all_rules = rules_db + rules_file_unique
-        all_rules.sort(key=lambda r: r.get("priorita", 100))
-        
-        return all_rules
+        return ctx
 
-    # ========================================================================
-    # 3. VALUTAZIONE CONDIZIONI
-    # ========================================================================
-    def evaluate_condition(self, condition: Dict[str, Any], context: Dict[str, Any]) -> bool:
-        """
-        Valuta una singola condizione.
-        
-        Supporta field lookup con e senza prefisso sezione:
-        - "field": "en_81_20"              → cerca context["en_81_20"]
-        - "field": "normative.en_81_20"    → cerca context["normative.en_81_20"]
-        """
-        if isinstance(condition, str):
-            return False
-
-        field = condition.get("field", "")
-        operator = condition.get("operator", "equals")
-        expected_value = condition.get("value")
-
-        # Lookup: prova prima la chiave esatta, poi lowercase
-        actual_value = context.get(field)
-        if actual_value is None:
-            actual_value = context.get(field.lower())
-        
-        # Se non trovato e non ha punto, prova con tutte le sezioni
-        if actual_value is None and "." not in field:
-            for key, val in context.items():
-                if key.endswith(f".{field}") or key.endswith(f".{field.lower()}"):
-                    actual_value = val
-                    break
-
-        # Valore non trovato nel context
-        if actual_value is None:
-            return False
-
-        # Stringa vuota = non valorizzato
-        if isinstance(actual_value, str) and actual_value.strip() == "":
-            return False
-
-        # Valuta operatore
-        return self._compare(actual_value, operator, expected_value)
-
-    def _compare(self, actual: Any, operator: str, expected: Any) -> bool:
-        """Confronta actual vs expected con l'operatore dato."""
+    def _load_table_ctx(self, ctx, pid, tbl_name, prefix, aliases):
         try:
-            if operator == "equals":
-                return str(actual).lower() == str(expected).lower()
-            
-            elif operator == "not_equals":
-                return str(actual).lower() != str(expected).lower()
-            
-            elif operator == "contains":
-                return str(expected).lower() in str(actual).lower()
-            
-            elif operator == "not_contains":
-                return str(expected).lower() not in str(actual).lower()
-            
-            elif operator == "starts_with":
-                return str(actual).lower().startswith(str(expected).lower())
-            
-            elif operator == "greater_than":
-                return float(actual) > float(expected)
-            
-            elif operator == "less_than":
-                return float(actual) < float(expected)
-            
-            elif operator == "greater_equal":
-                return float(actual) >= float(expected)
-            
-            elif operator == "less_equal":
-                return float(actual) <= float(expected)
-            
-            elif operator == "in":
-                if isinstance(expected, list):
-                    return str(actual).lower() in [str(v).lower() for v in expected]
-                return False
-            
-            elif operator == "not_in":
-                if isinstance(expected, list):
-                    return str(actual).lower() not in [str(v).lower() for v in expected]
-                return True
-            
-            elif operator == "is_empty":
-                return actual is None or str(actual).strip() == ""
-            
-            elif operator == "is_not_empty":
-                return actual is not None and str(actual).strip() != ""
-            
-            else:
-                self.warnings.append(f"Operatore sconosciuto: {operator}")
-                return False
-                
-        except (ValueError, TypeError):
-            return False
-
-    def should_apply_rule(self, rule: Dict[str, Any], context: Dict[str, Any]) -> bool:
-        """
-        Valuta se una regola deve essere applicata.
-        
-        Supporta 3 formati di condizioni:
-        
-        1. Lista di condizioni (AND implicito) - formato file JSON:
-           "conditions": [{"field": "x", "operator": "equals", "value": "y"}, ...]
-        
-        2. Condizione singola:
-           "conditions": {"field": "x", "operator": "equals", "value": "y"}
-        
-        3. Condizioni con logica esplicita:
-           "conditions": {"logic": "OR", "conditions": [...]}
-        """
-        conditions = rule.get("conditions")
-        
-        if not conditions:
-            # Nessuna condizione = applica sempre
-            return True
-
-        # Formato 1: lista di condizioni → AND implicito
-        if isinstance(conditions, list):
-            return all(self.evaluate_condition(c, context) for c in conditions)
-
-        # Formato 2: condizione singola (ha "field")
-        if isinstance(conditions, dict) and "field" in conditions:
-            return self.evaluate_condition(conditions, context)
-
-        # Formato 3: logica esplicita AND/OR
-        if isinstance(conditions, dict) and "logic" in conditions:
-            logic = conditions.get("logic", "AND").upper()
-            sub_conditions = conditions.get("conditions", [])
-            
-            if not sub_conditions:
-                return True
-            
-            results = [self.evaluate_condition(c, context) for c in sub_conditions]
-            
-            if logic == "AND":
-                return all(results)
-            elif logic == "OR":
-                return any(results)
-            else:
-                self.warnings.append(f"Logic operator sconosciuto: {logic}")
-                return False
-
-        self.warnings.append(f"Formato conditions non riconosciuto: {type(conditions)}")
-        return False
-
-    # ========================================================================
-    # 4. ESECUZIONE AZIONI
-    # ========================================================================
-    def apply_rule_actions(self, rule: Dict[str, Any], preventivo, context: Dict[str, Any]) -> int:
-        """
-        Esegue le azioni di una regola. Supporta due formati:
-        
-        Formato file JSON (materials array diretto):
-          {"materials": [{"codice": "X", "descrizione": "Y", ...}]}
-        
-        Formato DB (actions array con tipo):
-          {"actions": [{"action": "add_material", "material": {...}}]}
-        """
-        materiali_aggiunti = 0
-        rule_id = rule.get("id", "unknown")
-
-        # Formato 1: materials array diretto (file JSON)
-        materials = rule.get("materials", [])
-        for mat_data in materials:
-            if self._add_material(preventivo, mat_data, rule_id, context):
-                materiali_aggiunti += 1
-
-        # Formato 2: actions array (DB)
-        actions = rule.get("actions", [])
-        for action in actions:
-            action_type = action.get("action")
-            if action_type == "add_material":
-                mat_data = action.get("material", {})
-                if self._add_material(preventivo, mat_data, rule_id, context):
-                    materiali_aggiunti += 1
-            elif action_type == "set_field":
-                self._set_field(preventivo, action, context)
-            else:
-                self.warnings.append(f"Action type sconosciuto: {action_type}")
-
-        return materiali_aggiunti
-
-    # ========================================================================
-    # 4b. PIPELINE STEP EXECUTION (phase 1.5)
-    # ========================================================================
-    def _exec_pipeline_steps(self, rule: Dict[str, Any], context: Dict[str, Any],
-                              preventivo) -> int:
-        """
-        Esegue gli step di una pipeline rule.
-        
-        pipeline_steps è un array di azioni in sequenza:
-        - collect_sum: raccoglie e somma valori da _calc.* e/o materiali
-        - math_expr: calcolo aritmetico con variabili dal contesto
-        - catalog_select: seleziona dal catalogo in base a un criterio singolo
-        - lookup_each: per ogni campo selezionato, cerca nella lookup e scrive nel context
-        - group_sum: raggruppa per un campo e somma un altro
-        - multi_match: match multi-criterio su catalogo appiattito
-        - add_material: aggiunge un materiale dal risultato
-        
-        Ogni step può leggere output degli step precedenti dal context.
-        """
-        steps = rule.get("pipeline_steps", [])
-        if not steps:
-            return 0
-
-        rule_id = rule.get("id", "unknown")
-        materiali_aggiunti = 0
-
-        for i, step in enumerate(steps):
-            action = step.get("action", "")
-            try:
-                if action == "collect_sum":
-                    self._exec_collect_sum(step, context, preventivo)
-                elif action == "math_expr":
-                    self._exec_math_expr(step, context)
-                elif action == "catalog_select":
-                    self._exec_catalog_select(step, context)
-                elif action == "lookup_each":
-                    self._exec_lookup_each(step, context)
-                elif action == "group_sum":
-                    self._exec_group_sum(step, context)
-                elif action == "multi_match":
-                    self._exec_multi_match(step, context)
-                elif action == "add_material":
-                    mat_data = step.get("material", step)
-                    if self._add_material(preventivo, mat_data, rule_id, context):
-                        materiali_aggiunti += 1
-                else:
-                    self.warnings.append(
-                        f"Pipeline step #{i} azione sconosciuta: {action} (rule {rule_id})"
-                    )
-            except Exception as e:
-                self.errors.append(
-                    f"Pipeline step #{i} ({action}) errore in {rule_id}: {e}"
-                )
-
-        return materiali_aggiunti
-
-    def _exec_collect_sum(self, step: Dict[str, Any], context: Dict[str, Any],
-                           preventivo) -> None:
-        """
-        Raccoglie valori da più fonti e li somma.
-        
-        sources:
-        - {"type": "calc", "pattern": "_calc.*.va_24v"}
-            → cerca nel context tutte le chiavi che matchano il pattern
-        - {"type": "materials", "field": "va_assorbimento", "filter": {"categoria": "..."}}
-            → query materiali dal DB con filtro opzionale
-        - {"type": "context", "field": "campo_specifico"}
-            → legge un singolo valore dal context
-        
-        output: chiave nel context dove scrivere il risultato (es. "_calc.pipeline.totale_va")
-        """
-        sources = step.get("sources", [])
-        output_key = step.get("output", "_calc.pipeline.sum_result")
-        totale = 0.0
-
-        for source in sources:
-            src_type = source.get("type", "")
-
-            if src_type == "calc":
-                # Pattern matching su chiavi _calc.* nel context
-                pattern = source.get("pattern", "")
-                for key, val in context.items():
-                    if fnmatch.fnmatch(key, pattern):
-                        try:
-                            totale += float(val)
-                        except (ValueError, TypeError):
-                            self.warnings.append(
-                                f"collect_sum: non numerico {key}={val}"
-                            )
-
-            elif src_type == "materials":
-                # Query materiali dal DB
-                field_name = source.get("field", "")
-                filter_cond = source.get("filter", {})
-                
-                if not field_name:
-                    continue
-                    
-                try:
-                    pid = preventivo.id
-                    query = f"SELECT {field_name} FROM materiali WHERE preventivo_id = :pid"
-                    params: Dict[str, Any] = {"pid": pid}
-                    
-                    for fk, fv in filter_cond.items():
-                        safe_key = f"f_{fk}"
-                        query += f" AND {fk} = :{safe_key}"
-                        params[safe_key] = fv
-                    
-                    rows = self.db.execute(text(query), params).fetchall()
-                    for row in rows:
-                        try:
-                            if row[0] is not None:
-                                totale += float(row[0])
-                        except (ValueError, TypeError):
-                            pass
-                except Exception as e:
-                    self.warnings.append(f"collect_sum materials query error: {e}")
-
-            elif src_type == "context":
-                # Singolo valore dal context
-                field = source.get("field", "")
-                val = self._resolve_value(field, context)
-                if val is not None:
-                    try:
-                        totale += float(val)
-                    except (ValueError, TypeError):
-                        self.warnings.append(
-                            f"collect_sum context: non numerico {field}={val}"
-                        )
-
-        context[output_key] = totale
-        logger.debug(f"collect_sum → {output_key} = {totale}")
-
-    def _exec_math_expr(self, step: Dict[str, Any], context: Dict[str, Any]) -> None:
-        """
-        Valuta un'espressione aritmetica sicura con variabili dal context.
-        
-        expression: stringa con operazioni base (+, -, *, /) e riferimenti a _calc.*
-        output: chiave dove scrivere il risultato
-        round: "up_10", "up_50", "up_100", "ceil", "floor", "round_2", ecc.
-        """
-        expression = step.get("expression", "")
-        output_key = step.get("output", "_calc.pipeline.expr_result")
-        round_mode = step.get("round", None)
-
-        if not expression:
-            self.warnings.append("math_expr: expression vuota")
-            return
-
-        # Sostituisci le variabili _calc.xxx con i valori dal context
-        resolved_expr = expression
-        # Trova tutti i riferimenti a variabili (parole con punti o underscore)
-        var_pattern = re.compile(r'_calc\.[\w.]+|[a-zA-Z_][\w.]*')
-        
-        used_vars = set(var_pattern.findall(expression))
-        for var_name in sorted(used_vars, key=len, reverse=True):
-            val = self._resolve_value(var_name, context)
-            if val is not None:
-                try:
-                    resolved_expr = resolved_expr.replace(var_name, str(float(val)))
-                except (ValueError, TypeError):
-                    self.warnings.append(f"math_expr: non numerico {var_name}={val}")
-                    context[output_key] = 0
-                    return
-
-        # Eval sicuro: solo numeri e operazioni base
-        allowed_chars = set("0123456789.+-*/() ")
-        clean = resolved_expr.strip()
-        if not all(c in allowed_chars for c in clean):
-            self.errors.append(
-                f"math_expr: caratteri non ammessi in '{clean}'"
-            )
-            return
-
-        try:
-            result = eval(clean, {"__builtins__": {}}, {})
-            result = float(result)
-        except Exception as e:
-            self.errors.append(f"math_expr eval error: {e} expr='{clean}'")
-            return
-
-        # Arrotondamento
-        if round_mode:
-            result = self._apply_rounding(result, round_mode)
-
-        context[output_key] = result
-        logger.debug(f"math_expr → {output_key} = {result} (expr: {expression})")
-
-    def _apply_rounding(self, value: float, mode: str) -> float:
-        """Applica arrotondamento in varie modalità."""
-        if mode == "ceil":
-            return math.ceil(value)
-        elif mode == "floor":
-            return math.floor(value)
-        elif mode.startswith("up_"):
-            # up_50 → arrotonda per eccesso al multiplo di 50 più vicino
-            try:
-                step = int(mode.replace("up_", ""))
-                return math.ceil(value / step) * step
-            except ValueError:
-                return math.ceil(value)
-        elif mode.startswith("round_"):
-            try:
-                decimals = int(mode.replace("round_", ""))
-                return round(value, decimals)
-            except ValueError:
-                return round(value, 2)
-        elif mode == "round":
-            return round(value)
-        return value
-
-    def _exec_catalog_select(self, step: Dict[str, Any], context: Dict[str, Any]) -> None:
-        """
-        Seleziona un record da un catalogo (data table JSON) in base a criteri.
-        
-        tabella: nome della data table (es. "trasformatori_std")
-        criterio: {"colonna": "potenza_va", "operatore": ">=", "valore": "_calc.xxx"}
-        filtri: [{"colonna": "tipo", "operatore": "==", "valore": "Monofase"}] (opzionale)
-        ordinamento: {"colonna": "potenza_va", "direzione": "ASC"}
-        limit: 1
-        output_prefix: "_calc.trasformatore_selezionato."
-        """
-        tabella_nome = step.get("tabella", "")
-        criterio = step.get("criterio", {})
-        filtri = step.get("filtri", [])
-        ordinamento = step.get("ordinamento", {})
-        limit = step.get("limit", 1)
-        output_prefix = step.get("output_prefix", f"_calc.{tabella_nome}.")
-
-        # Carica la data table
-        table_data = self._load_data_table(tabella_nome)
-        if not table_data:
-            self.warnings.append(f"catalog_select: tabella '{tabella_nome}' non trovata")
-            return
-
-        records = table_data.get("records", [])
-        if not records:
-            self.warnings.append(f"catalog_select: tabella '{tabella_nome}' vuota")
-            return
-
-        # Applica filtri fissi (es. tipo = "Monofase")
-        filtered = records
-        for filtro in filtri:
-            col = filtro.get("colonna", "")
-            op = filtro.get("operatore", "==")
-            val_raw = filtro.get("valore", "")
-            # Resolve se è un riferimento a _calc
-            val = self._resolve_value(str(val_raw), context) if isinstance(val_raw, str) and val_raw.startswith("_calc.") else val_raw
-            
-            new_filtered = []
-            for rec in filtered:
-                rec_val = rec.get(col)
-                if rec_val is not None and self._catalog_compare(rec_val, op, val):
-                    new_filtered.append(rec)
-            filtered = new_filtered
-
-        # Applica criterio principale (es. potenza_va >= totale_va_sicurezza)
-        if criterio:
-            col = criterio.get("colonna", "")
-            op = criterio.get("operatore", ">=")
-            val_raw = criterio.get("valore", 0)
-            
-            # Resolve valore dinamico
-            if isinstance(val_raw, str) and (val_raw.startswith("_calc.") or val_raw.startswith("_")):
-                val = self._resolve_value(val_raw, context)
-                if val is None:
-                    self.warnings.append(
-                        f"catalog_select: valore criterio '{val_raw}' non trovato nel context"
-                    )
-                    return
-            else:
-                val = val_raw
-
-            try:
-                val = float(val)
-            except (ValueError, TypeError):
-                self.warnings.append(f"catalog_select: valore criterio non numerico: {val}")
+            cols = self._table_columns(tbl_name)
+            if not cols:
                 return
+            row = self.db.execute(
+                text(f"SELECT {','.join(cols)} FROM {tbl_name} WHERE preventivo_id = :pid"),
+                {"pid": pid}
+            ).fetchone()
+            if not row:
+                return
+            for i, col in enumerate(cols):
+                if col in CAMPI_ESCLUSI:
+                    continue
+                v = row[i]
+                if v is None:
+                    continue
+                v = _conv(v)
+                ctx[f"{prefix}.{col}"] = v
+                ctx[col] = v  # piatto
+                for a in aliases:
+                    ctx[f"{a}.{col}"] = v
+        except Exception:
+            pass
 
-            result = []
-            for rec in filtered:
-                rec_val = rec.get(col)
-                if rec_val is not None:
-                    try:
-                        if self._catalog_compare(float(rec_val), op, val):
-                            result.append(rec)
-                    except (ValueError, TypeError):
-                        pass
-            filtered = result
-
-        # Ordinamento
-        if ordinamento:
-            sort_col = ordinamento.get("colonna", "")
-            sort_dir = ordinamento.get("direzione", "ASC").upper()
-            
-            def sort_key(rec):
-                v = rec.get(sort_col, 0)
-                try:
-                    return float(v)
-                except (ValueError, TypeError):
-                    return str(v)
-            
-            filtered.sort(key=sort_key, reverse=(sort_dir == "DESC"))
-
-        # Limita risultati
-        filtered = filtered[:limit]
-
-        if not filtered:
-            self.warnings.append(
-                f"catalog_select: nessun record trovato in '{tabella_nome}' con i criteri dati"
-            )
-            return
-
-        # Scrivi risultati nel context
-        selected = filtered[0]
-        for col_name, col_val in selected.items():
-            context[f"{output_prefix}{col_name}"] = col_val
-        
-        # Scrivi anche un flag di successo
-        context[f"{output_prefix}_found"] = True
-        context[f"{output_prefix}_count"] = len(filtered)
-
-        logger.debug(
-            f"catalog_select → {output_prefix}* = {selected.get(ordinamento.get('colonna', ''), '?')}"
-        )
-
-    # ========================================================================
-    # 4c. PIPELINE ACTIONS: lookup_each, group_sum, multi_match
-    # ========================================================================
-    def _exec_lookup_each(self, step: Dict[str, Any], context: Dict[str, Any]) -> None:
-        """
-        Per ogni campo configuratore che ha valore "true"/"si"/"1",
-        cerca il nome del campo nella data table e scrive i risultati nel context.
-        
-        Supporta RIGHE MULTIPLE per lo stesso componente (es. un componente che
-        richiede uscite a tensioni diverse). Ogni riga viene scritta con suffisso _N.
-        
-        sezione: sezione del configuratore da scansionare
-        tabella: nome data table lookup
-        campo_lookup: colonna nella tabella da matchare col nome campo
-        output_prefix: prefisso per i risultati
-        
-        Risultato per componente con 3 righe:
-          _calc.util.pattino_retrattile_0.watt = 150
-          _calc.util.pattino_retrattile_0.tensione_uscita = 75
-          _calc.util.pattino_retrattile_1.watt = 150
-          _calc.util.pattino_retrattile_1.tensione_uscita = 15
-          _calc.util.pattino_retrattile_2.watt = 150
-          _calc.util.pattino_retrattile_2.tensione_uscita = 18
-        """
-        sezione = step.get("sezione", "")
-        tabella_nome = step.get("tabella", "")
-        campo_lookup = step.get("campo_lookup", "componente")
-        output_prefix = step.get("output_prefix", "_calc.util.")
-        
-        # Carica la data table
-        table_data = self._load_data_table(tabella_nome)
-        if not table_data:
-            self.warnings.append(f"lookup_each: tabella '{tabella_nome}' non trovata")
-            return
-        
-        records = table_data.get("records", [])
-        
-        # Indicizza per campo_lookup → LISTA di record (supporta righe multiple)
-        lookup_index: Dict[str, List[Dict[str, Any]]] = {}
-        for rec in records:
-            key = str(rec.get(campo_lookup, "")).strip().lower()
-            if key:
-                lookup_index.setdefault(key, []).append(rec)
-        
-        # Scansiona il context per trovare campi della sezione con valore true
-        found_count = 0
-        row_count = 0
-        for ctx_key, ctx_val in context.items():
-            campo_nome = None
-            if sezione and ctx_key.startswith(f"{sezione}."):
-                campo_nome = ctx_key[len(sezione) + 1:]
-            elif not sezione:
-                campo_nome = ctx_key
-            
-            if campo_nome is None:
-                continue
-            
-            if not self._is_truthy(ctx_val):
-                continue
-            
-            # Cerca nella lookup
-            campo_lower = campo_nome.lower().strip()
-            recs = lookup_index.get(campo_lower, [])
-            if not recs:
-                continue
-            
-            found_count += 1
-            
-            # Scrivi ogni riga con suffisso _N
-            for idx, rec in enumerate(recs):
-                suffix = f"{campo_nome}_{idx}" if len(recs) > 1 else campo_nome
-                for col_name, col_val in rec.items():
-                    context[f"{output_prefix}{suffix}.{col_name}"] = col_val
-                row_count += 1
-        
-        context[f"{output_prefix}_count"] = found_count
-        context[f"{output_prefix}_rows"] = row_count
-        logger.debug(f"lookup_each → {found_count} componenti, {row_count} righe totali")
-
-    def _exec_group_sum(self, step: Dict[str, Any], context: Dict[str, Any]) -> None:
-        """
-        Raggruppa valori dal context per un campo e somma un altro campo.
-        
-        pattern_value: pattern per i valori da sommare (es. "_calc.util.*.watt")
-        pattern_group: pattern per il campo di raggruppamento (es. "_calc.util.*.tensione_uscita")
-        output_prefix: prefisso output (es. "_calc.grouped.")
-        power_factor: se specificato, divide per PF dopo la somma → VA
-        
-        Le due pattern devono avere lo stesso wildcard (*) che identifica l'utilizzatore.
-        
-        Risultato:
-          _calc.grouped.75 = 300  (somma watt degli utilizzatori a 75V)
-          _calc.grouped.18 = 121  (somma watt degli utilizzatori a 18V)
-          _calc.grouped._keys = [75, 18, ...]
-        """
-        pattern_value = step.get("pattern_value", "")
-        pattern_group = step.get("pattern_group", "")
-        output_prefix = step.get("output_prefix", "_calc.grouped.")
-        power_factor_key = step.get("power_factor", None)
-        
-        if not pattern_value or not pattern_group:
-            self.warnings.append("group_sum: pattern_value e pattern_group richiesti")
-            return
-        
-        # Estrai il prefisso/suffisso dal pattern per trovare le chiavi corrispondenti
-        # Pattern: "_calc.util.*.watt" → prefisso="_calc.util.", suffisso=".watt"
-        # Pattern: "_calc.util.*.tensione_uscita" → prefisso="_calc.util.", suffisso=".tensione_uscita"
-        
-        def parse_pattern(p):
-            if '*' not in p:
-                return p, "", ""
-            idx = p.index('*')
-            return p, p[:idx], p[idx+1:]
-        
-        _, val_prefix, val_suffix = parse_pattern(pattern_value)
-        _, grp_prefix, grp_suffix = parse_pattern(pattern_group)
-        
-        # Trova tutti i "nomi" (il * nei pattern)
-        nomi = set()
-        for key in context.keys():
-            if key.startswith(val_prefix) and key.endswith(val_suffix):
-                nome = key[len(val_prefix):]
-                if val_suffix:
-                    nome = nome[:-len(val_suffix)]
-                if nome:
-                    nomi.add(nome)
-        
-        # Raggruppa e somma
-        groups: Dict[str, float] = {}
-        for nome in nomi:
-            val_key = f"{val_prefix}{nome}{val_suffix}"
-            grp_key = f"{grp_prefix}{nome}{grp_suffix}"
-            
-            value = context.get(val_key)
-            group = context.get(grp_key)
-            
-            if value is None or group is None:
-                continue
-            
-            try:
-                v = float(value)
-            except (ValueError, TypeError):
-                continue
-            
-            group_str = str(int(float(group)) if isinstance(group, (int, float)) else group)
-            groups[group_str] = groups.get(group_str, 0) + v
-        
-        # Applica power factor se specificato
-        pf = 0.8  # default
-        if power_factor_key:
-            pf_val = self._resolve_value(power_factor_key, context)
-            if pf_val is not None:
-                try:
-                    pf = float(pf_val)
-                except (ValueError, TypeError):
-                    pass
-        
-        if power_factor_key and pf > 0:
-            groups = {k: round(v / pf, 1) for k, v in groups.items()}
-        
-        # Scrivi risultati
-        for group_key, total in groups.items():
-            context[f"{output_prefix}{group_key}"] = total
-        
-        # Lista delle chiavi di gruppo
-        context[f"{output_prefix}_keys"] = sorted(groups.keys())
-        context[f"{output_prefix}_count"] = len(groups)
-        
-        logger.debug(f"group_sum → {len(groups)} gruppi: {groups}")
-
-    def _exec_multi_match(self, step: Dict[str, Any], context: Dict[str, Any]) -> None:
-        """
-        Match multi-criterio su catalogo appiattito.
-        
-        Trova il trasformatore che soddisfa TUTTI i requisiti per tensione:
-        per ogni tensione richiesta, deve avere un'uscita con va_disponibili >= va_richiesti.
-        
-        tabella: nome data table catalogo appiattito
-        requisiti_prefix: prefisso dei requisiti raggruppati (es. "_calc.grouped.")
-          Le chiavi sono le tensioni, i valori sono i VA necessari
-        colonna_codice: colonna che identifica il trasformatore (es. "codice_trasf")
-        colonna_tensione: colonna tensione nel catalogo (es. "tensione_uscita")
-        colonna_va: colonna VA disponibili (es. "va_disponibili")
-        colonna_ordinamento: colonna per ordinare i candidati (es. "potenza_totale_va")
-        filtri: filtri fissi opzionali (es. [{"colonna": "tipo", "valore": "Monofase"}])
-        output_prefix: dove scrivere il risultato
-        """
-        tabella_nome = step.get("tabella", "")
-        requisiti_prefix = step.get("requisiti_prefix", "_calc.grouped.")
-        col_codice = step.get("colonna_codice", "codice_trasf")
-        col_tensione = step.get("colonna_tensione", "tensione_uscita")
-        col_va = step.get("colonna_va", "va_disponibili")
-        col_sort = step.get("colonna_ordinamento", "potenza_totale_va")
-        filtri = step.get("filtri", [])
-        output_prefix = step.get("output_prefix", "_calc.trasformatore.")
-        
-        # Carica catalogo
-        table_data = self._load_data_table(tabella_nome)
-        if not table_data:
-            self.warnings.append(f"multi_match: tabella '{tabella_nome}' non trovata")
-            return
-        
-        records = table_data.get("records", [])
-        
-        # Applica filtri fissi
-        for filtro in filtri:
-            f_col = filtro.get("colonna", "")
-            f_val = filtro.get("valore", "")
-            records = [r for r in records if str(r.get(f_col, "")).lower() == str(f_val).lower()]
-        
-        # Leggi requisiti dal context
-        requisiti: Dict[str, float] = {}
-        keys_list = context.get(f"{requisiti_prefix}_keys", [])
-        
-        if keys_list:
-            for key in keys_list:
-                val = context.get(f"{requisiti_prefix}{key}")
-                if val is not None:
-                    try:
-                        requisiti[str(key)] = float(val)
-                    except (ValueError, TypeError):
-                        pass
-        else:
-            # Fallback: scansiona il context per il prefisso
-            for ctx_key, ctx_val in context.items():
-                if ctx_key.startswith(requisiti_prefix) and not ctx_key.endswith(('_keys', '_count')):
-                    tensione = ctx_key[len(requisiti_prefix):]
-                    try:
-                        requisiti[tensione] = float(ctx_val)
-                    except (ValueError, TypeError):
-                        pass
-        
-        if not requisiti:
-            self.warnings.append("multi_match: nessun requisito trovato")
-            return
-        
-        logger.debug(f"multi_match requisiti: {requisiti}")
-        
-        # Raggruppa catalogo per codice trasformatore
-        catalogo_per_codice: Dict[str, List[Dict[str, Any]]] = {}
-        for rec in records:
-            codice = rec.get(col_codice, "")
-            if codice:
-                catalogo_per_codice.setdefault(codice, []).append(rec)
-        
-        # Per ogni trasformatore, verifica se soddisfa TUTTI i requisiti
-        candidati = []
-        
-        for codice, righe in catalogo_per_codice.items():
-            # Costruisci mappa tensione → max VA disponibili per questo trasformatore
-            va_per_tensione: Dict[str, float] = {}
-            for riga in righe:
-                t = str(int(float(riga.get(col_tensione, 0))))
-                va = float(riga.get(col_va, 0))
-                # Se ci sono più uscite alla stessa tensione, somma
-                va_per_tensione[t] = va_per_tensione.get(t, 0) + va
-            
-            # Verifica che tutte le tensioni richieste siano coperte
-            soddisfa_tutto = True
-            dettaglio = {}
-            for tensione_richiesta, va_richiesti in requisiti.items():
-                va_disp = va_per_tensione.get(tensione_richiesta, 0)
-                if va_disp < va_richiesti:
-                    soddisfa_tutto = False
-                    break
-                dettaglio[tensione_richiesta] = {
-                    "richiesti": va_richiesti,
-                    "disponibili": va_disp,
-                    "margine": va_disp - va_richiesti,
-                }
-            
-            if soddisfa_tutto:
-                # Prendi info generali dal primo record
-                info = righe[0]
-                potenza = float(info.get(col_sort, 0))
-                candidati.append({
-                    "codice": codice,
-                    "potenza": potenza,
-                    "info": info,
-                    "dettaglio": dettaglio,
-                })
-        
-        if not candidati:
-            self.warnings.append(
-                f"multi_match: nessun trasformatore soddisfa tutti i requisiti: {requisiti}"
-            )
-            context[f"{output_prefix}_found"] = False
-            return
-        
-        # Ordina per potenza (il più piccolo che soddisfa)
-        candidati.sort(key=lambda c: c["potenza"])
-        
-        # Scrivi il vincitore nel context
-        winner = candidati[0]
-        for col_name, col_val in winner["info"].items():
-            context[f"{output_prefix}{col_name}"] = col_val
-        
-        context[f"{output_prefix}_found"] = True
-        context[f"{output_prefix}_candidati"] = len(candidati)
-        context[f"{output_prefix}_dettaglio"] = winner["dettaglio"]
-        
-        logger.debug(
-            f"multi_match → codice={winner['codice']} potenza={winner['potenza']}VA "
-            f"({len(candidati)} candidati su {len(catalogo_per_codice)} trasformatori)"
-        )
-
-    def _is_truthy(self, value: Any) -> bool:
-        """Verifica se un valore è 'attivo' (true, si, 1, on, ecc.)."""
-        if value is None:
-            return False
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return value != 0
-        s = str(value).strip().lower()
-        return s in ("true", "1", "si", "sì", "yes", "on", "vero", "x")
-
-    def _catalog_compare(self, actual: Any, operator: str, expected: Any) -> bool:
-        """Confronto per catalog_select."""
+    def _table_columns(self, tbl):
         try:
-            a = float(actual)
-            b = float(expected)
-            if operator in (">=", "gte"):
-                return a >= b
-            elif operator in (">", "gt"):
-                return a > b
-            elif operator in ("<=", "lte"):
-                return a <= b
-            elif operator in ("<", "lt"):
-                return a < b
-            elif operator in ("==", "equals"):
-                return a == b
-            elif operator in ("!=", "not_equals"):
-                return a != b
-        except (ValueError, TypeError):
-            # Fallback su confronto stringa
-            if operator in ("==", "equals"):
-                return str(actual).lower() == str(expected).lower()
-            elif operator in ("!=", "not_equals"):
-                return str(actual).lower() != str(expected).lower()
-        return False
+            rows = self.db.execute(text(f"PRAGMA table_info({tbl})")).fetchall()
+            if rows:
+                return [r[1] for r in rows]
+        except Exception:
+            pass
+        try:
+            rows = self.db.execute(text(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE TABLE_NAME=:t ORDER BY ORDINAL_POSITION"
+            ), {"t": tbl}).fetchall()
+            if rows:
+                return [r[0] for r in rows]
+        except Exception:
+            pass
+        return []
 
-    def _resolve_value(self, field: str, context: Dict[str, Any]) -> Any:
-        """Risolve un valore dal context con fallback multi-strategia."""
-        # Tentativo diretto
-        val = context.get(field)
-        if val is not None:
-            return val
-        # Lowercase
-        val = context.get(field.lower())
-        if val is not None:
-            return val
-        # Senza prefisso sezione
+    # ====================================================================
+    # FIELD RESOLUTION (con alias chain)
+    # ====================================================================
+    def _resolve(self, field: str, ctx: Dict) -> Any:
+        if not field:
+            return None
+        # 1. Esatto
+        v = ctx.get(field)
+        if v is not None:
+            return v
+        # 2. Lowercase
+        v = ctx.get(field.lower())
+        if v is not None:
+            return v
+        # 3. Alias sezione
         if "." in field:
-            short = field.split(".")[-1]
-            val = context.get(short)
-            if val is not None:
-                return val
-        # Ricerca parziale
-        for key, v in context.items():
-            if key.endswith(f".{field}") or key.endswith(f".{field.lower()}"):
+            sez, campo = field.split(".", 1)
+            # sez → prefix
+            target = ALIAS_MAP.get(sez)
+            if target:
+                v = ctx.get(f"{target}.{campo}")
+                if v is not None:
+                    return v
+            # prefix → alias
+            for t, c in TABELLE_DEDICATE.items():
+                if sez == c["prefix"]:
+                    for a in c["aliases"]:
+                        v = ctx.get(f"{a}.{campo}")
+                        if v is not None:
+                            return v
+            # piatto
+            v = ctx.get(campo)
+            if v is not None:
                 return v
+        else:
+            # cerca in qualsiasi sezione
+            for k, v2 in ctx.items():
+                if "." in k and k.split(".", 1)[1] == field:
+                    return v2
         return None
 
-    def _load_data_table(self, nome: str) -> Optional[Dict[str, Any]]:
-        """
-        Carica una data table JSON.
-        Cerca in: ./data/, ./, ./rules/data/
-        """
+    # ====================================================================
+    # RULE LOADING
+    # ====================================================================
+    def load_all_rules(self) -> List[Dict]:
+        db_rules = self._load_rules_db()
+        file_rules = self._load_rules_files()
+        db_ids = {r["id"] for r in db_rules}
+        all_r = db_rules + [r for r in file_rules if r["id"] not in db_ids]
+        all_r.sort(key=lambda r: r.get("priority", r.get("priorita", 100)))
+        return all_r
+
+    def _load_rules_db(self):
+        try:
+            rows = self.db.execute(text(
+                "SELECT rule_id, nome, rule_json, priorita, categoria FROM regole WHERE attiva=1 ORDER BY priorita"
+            )).fetchall()
+            rules = []
+            for r in rows:
+                rj = json.loads(r[2]) if isinstance(r[2], str) else (r[2] or {})
+                rj.setdefault("id", r[0])
+                rj.setdefault("priority", r[3] or 100)
+                rj["source"] = "db"
+                rules.append(rj)
+            return rules
+        except Exception:
+            return []
+
+    def _load_rules_files(self):
+        rules = []
+        loaded = set()
+        # 1. ./rules/
+        if os.path.exists("./rules"):
+            for fn in sorted(os.listdir("./rules")):
+                if fn.endswith(".json"):
+                    try:
+                        with open(f"./rules/{fn}", "r", encoding="utf-8") as f:
+                            r = json.load(f)
+                        r.setdefault("id", fn.replace(".json", ""))
+                        r["source"] = "file"
+                        rules.append(r)
+                        loaded.add(r["id"])
+                    except Exception as e:
+                        self.errors.append(f"Err {fn}: {e}")
+        # 2. root rule_*.json
+        for fn in sorted(os.listdir(".")):
+            if not fn.startswith("rule_") or not fn.endswith(".json"):
+                continue
+            rid = fn.replace("rule_", "").replace(".json", "")
+            if rid in loaded:
+                continue
+            try:
+                with open(fn, "r", encoding="utf-8") as f:
+                    r = json.load(f)
+                r.setdefault("id", rid)
+                r["source"] = "file"
+                rules.append(r)
+                loaded.add(rid)
+            except Exception as e:
+                self.errors.append(f"Err {fn}: {e}")
+        return rules
+
+    # ====================================================================
+    # DATA TABLE LOADING (./data/ + root)
+    # ====================================================================
+    def _load_data(self, nome: str) -> Optional[Dict]:
+        if nome in self._data_cache:
+            return self._data_cache[nome]
+
+        # Cerca in più directory
         search_paths = [
-            os.path.join("./data", f"{nome}.json"),
-            os.path.join(".", f"{nome}.json"),
-            os.path.join("./rules/data", f"{nome}.json"),
+            f"./data/{nome}.json",
+            f"./{nome}.json",
+            f"./rules/data/{nome}.json",
         ]
-        
+        # Cerca anche in sottocartelle di ./data/
+        data_dir = "./data"
+        if os.path.isdir(data_dir):
+            for sub in os.listdir(data_dir):
+                subpath = os.path.join(data_dir, sub)
+                if os.path.isdir(subpath):
+                    candidate = os.path.join(subpath, f"{nome}.json")
+                    if candidate not in search_paths:
+                        search_paths.append(candidate)
+
+        # Carica tutti i candidati trovati, preferisci lookup_range
+        candidates = []
         for path in search_paths:
             if os.path.exists(path):
                 try:
                     with open(path, "r", encoding="utf-8") as f:
-                        return json.load(f)
+                        tbl = json.load(f)
+                    candidates.append((path, tbl))
                 except Exception as e:
-                    self.warnings.append(f"Errore caricamento data table {path}: {e}")
-        
+                    self.errors.append(f"Data table {path}: {e}")
+
+        if not candidates:
+            self.errors.append(f"Data table '{nome}' non trovata (cercato in: {search_paths[:3]})")
+            return None
+
+        # Se c'è un solo candidato, usalo
+        if len(candidates) == 1:
+            path, tbl = candidates[0]
+            self._data_cache[nome] = tbl
+            return tbl
+
+        # Se ci sono più candidati, preferisci lookup_range con partizioni
+        for path, tbl in candidates:
+            if tbl.get("tipo") == "lookup_range" and "partizioni" in tbl:
+                self.warnings.append(f"Data table '{nome}': preferito {path} (lookup_range)")
+                self._data_cache[nome] = tbl
+                return tbl
+
+        # Altrimenti prendi il primo
+        path, tbl = candidates[0]
+        self._data_cache[nome] = tbl
+        return tbl
+
+    # ====================================================================
+    # CONDITION EVALUATION
+    # ====================================================================
+    _TRUTHY = {"true", "1", "yes", "sì", "si", "on", "vero"}
+    _FALSY  = {"false", "0", "no", "off", "falso", ""}
+
+    def _normalize_bool(self, val) -> str:
+        """Normalizza valori booleani per confronto: true/1/yes → 'true', false/0/no → 'false'."""
+        s = str(val).strip().lower()
+        if s in self._TRUTHY:
+            return "true"
+        if s in self._FALSY:
+            return "false"
+        return s
+
+    def _eval_cond(self, c: Dict, ctx: Dict) -> bool:
+        field = c.get("field", "")
+        op = c.get("operator", "equals")
+        exp = c.get("value")
+        actual = self._resolve(field, ctx)
+
+        if actual is None or (isinstance(actual, str) and not actual.strip()):
+            return op == "is_empty"
+
+        try:
+            if op == "equals":
+                # Prima confronto standard
+                if str(actual).lower() == str(exp).lower():
+                    return True
+                # Poi confronto booleano normalizzato (true/1/yes ↔ false/0/no)
+                return self._normalize_bool(actual) == self._normalize_bool(exp)
+            if op == "not_equals":
+                if str(actual).lower() != str(exp).lower():
+                    na, ne = self._normalize_bool(actual), self._normalize_bool(exp)
+                    # Se sono entrambi bool-like, confronta normalizzati
+                    if na in ("true", "false") and ne in ("true", "false"):
+                        return na != ne
+                    return True
+                return False
+            if op == "contains":     return str(exp).lower() in str(actual).lower()
+            if op == "not_contains": return str(exp).lower() not in str(actual).lower()
+            if op == "starts_with":  return str(actual).lower().startswith(str(exp).lower())
+            if op == "greater_than": return float(actual) > float(exp)
+            if op == "less_than":    return float(actual) < float(exp)
+            if op == "greater_equal":return float(actual) >= float(exp)
+            if op == "less_equal":   return float(actual) <= float(exp)
+            if op == "in":           return isinstance(exp, list) and str(actual).lower() in [str(v).lower() for v in exp]
+            if op == "not_in":       return not isinstance(exp, list) or str(actual).lower() not in [str(v).lower() for v in exp]
+            if op == "is_empty":     return False  # se arriviamo qui actual ha valore
+            if op == "is_not_empty": return True
+        except (ValueError, TypeError):
+            return False
+        return False
+
+    def should_apply(self, rule, ctx) -> bool:
+        conds = rule.get("conditions")
+        if not conds:
+            return True
+        if isinstance(conds, list):
+            if len(conds) == 0:
+                return True
+            return all(self._eval_cond(c, ctx) for c in conds)
+        if isinstance(conds, dict):
+            if "field" in conds:
+                return self._eval_cond(conds, ctx)
+            logic = conds.get("logic", "AND").upper()
+            subs = conds.get("conditions", [])
+            results = [self._eval_cond(c, ctx) for c in subs]
+            return all(results) if logic == "AND" else any(results)
+        return False
+
+    # ====================================================================
+    # SKIP_IF EVALUATION (per singola action)
+    # ====================================================================
+    def _eval_skip_if(self, skip_expr: str, ctx: Dict) -> bool:
+        """
+        Valuta l'espressione skip_if di un'azione.
+        Formati supportati:
+          - "campo is_empty"         → True se campo è None/vuoto
+          - "campo is_not_empty"     → True se campo ha valore
+          - "campo == valore"        → confronto stringa
+          - "campo != valore"        → diverso
+          - "campo > valore"         → confronto numerico
+          - "campo < valore"         → confronto numerico
+          - "campo >= valore"        → confronto numerico
+          - "campo <= valore"        → confronto numerico
+        """
+        if not skip_expr or not skip_expr.strip():
+            return False
+
+        expr = skip_expr.strip()
+
+        # "campo is_empty"
+        if expr.endswith(" is_empty"):
+            field = expr.replace(" is_empty", "").strip()
+            v = self._resolve(field, ctx)
+            return v is None or (isinstance(v, str) and not v.strip())
+
+        # "campo is_not_empty"
+        if expr.endswith(" is_not_empty"):
+            field = expr.replace(" is_not_empty", "").strip()
+            v = self._resolve(field, ctx)
+            return v is not None and (not isinstance(v, str) or v.strip() != "")
+
+        # Operatori di confronto
+        for op_str, op_fn in [
+            (">=", lambda a, b: float(a) >= float(b)),
+            ("<=", lambda a, b: float(a) <= float(b)),
+            ("!=", lambda a, b: str(a).lower() != str(b).lower()),
+            ("==", lambda a, b: str(a).lower() == str(b).lower()),
+            (">",  lambda a, b: float(a) > float(b)),
+            ("<",  lambda a, b: float(a) < float(b)),
+        ]:
+            if op_str in expr:
+                parts = expr.split(op_str, 1)
+                if len(parts) == 2:
+                    field = parts[0].strip()
+                    expected = parts[1].strip()
+                    actual = self._resolve(field, ctx)
+                    if actual is None:
+                        return False
+                    try:
+                        return op_fn(actual, expected)
+                    except (ValueError, TypeError):
+                        return False
+
+        return False
+
+    # ====================================================================
+    # SET_FIELD ACTION
+    # ====================================================================
+    def _exec_set_field(self, action: Dict, ctx: Dict):
+        """Esegue un'azione set_field: imposta un valore nel context."""
+        field = action.get("field", "")
+        if not field:
+            return
+
+        # Modalità: valore diretto, da altro campo, o somma
+        if "value_from" in action:
+            # Copia da altro campo
+            src = action["value_from"]
+            v = self._resolve(src, ctx)
+            if v is not None:
+                multiply = action.get("multiply_by")
+                if multiply is not None:
+                    try:
+                        v = float(v) * float(multiply)
+                    except (ValueError, TypeError):
+                        pass
+                add = action.get("add")
+                if add is not None:
+                    try:
+                        v = float(v) + float(add)
+                    except (ValueError, TypeError):
+                        pass
+                ctx[field] = v
+        elif "add_value" in action:
+            # Somma al valore esistente
+            existing = self._resolve(field, ctx) or 0
+            try:
+                ctx[field] = float(existing) + float(action["add_value"])
+            except (ValueError, TypeError):
+                pass
+        else:
+            # Valore diretto (può contenere placeholder {{campo}})
+            val = action.get("value", "")
+            if isinstance(val, str) and "{{" in val:
+                val = self._replace_ph(val, ctx)
+            ctx[field] = _conv(val) if isinstance(val, str) else val
+
+    # ====================================================================
+    # LOOKUP_TABLE (tipo: lookup_range / constants)
+    # ====================================================================
+    def _exec_lookup_table(self, action: Dict, ctx: Dict) -> Dict:
+        tbl_name = action.get("tabella", "")
+        input_field = action.get("input_field", "")
+        prefix = action.get("output_prefix", f"_calc.{tbl_name}.")
+        partition_field = action.get("partition_field")
+
+        tbl = self._load_data(tbl_name)
+        if not tbl:
+            return {}
+
+        input_val = self._resolve(input_field, ctx)
+        if input_val is None:
+            self.warnings.append(f"lookup_table({tbl_name}): campo '{input_field}' non nel context")
+            return {}
+
+        tipo = tbl.get("tipo", "")
+        if tipo == "lookup_range":
+            return self._range_lookup(tbl, input_val, partition_field, prefix, ctx)
+        elif tipo == "constants":
+            return self._constants_lookup(tbl, input_val, prefix, ctx)
+        else:
+            self.warnings.append(f"lookup_table: tipo '{tipo}' non supportato")
+            return {}
+
+    # ====================================================================
+    # LOOKUP_MULTI (multi-key, works on lookup_range + flat)
+    # ====================================================================
+    def _exec_lookup_multi(self, action: Dict, ctx: Dict) -> Dict:
+        tbl_name = action.get("tabella", "")
+        input_fields = action.get("input_fields", [])
+        prefix = action.get("output_prefix", f"_calc.{tbl_name}.")
+
+        tbl = self._load_data(tbl_name)
+        if not tbl:
+            return {}
+
+        tipo = tbl.get("tipo", "")
+        if tipo == "lookup_range":
+            return self._lookup_multi_on_range(tbl, tbl_name, input_fields, prefix, ctx)
+        elif tipo == "lookup_multi":
+            return self._lookup_multi_flat(tbl, input_fields, prefix, ctx)
+        else:
+            self.warnings.append(f"lookup_multi({tbl_name}): tipo '{tipo}', provo auto-detect")
+            if "partizioni" in tbl:
+                return self._lookup_multi_on_range(tbl, tbl_name, input_fields, prefix, ctx)
+            elif "records" in tbl:
+                return self._lookup_multi_flat(tbl, input_fields, prefix, ctx)
+            self.warnings.append(f"lookup_multi({tbl_name}): formato non riconosciuto")
+            return {}
+
+    def _lookup_multi_on_range(self, tbl, tbl_name, input_fields, prefix, ctx) -> Dict:
+        """Adatta lookup_multi su data table lookup_range partizionata."""
+        partizioni = tbl.get("partizioni", {})
+        part_key_name = tbl.get("partizionato_per", "")
+
+        if not partizioni:
+            self.warnings.append(f"lookup_multi({tbl_name}): nessuna partizione")
+            return {}
+
+        # Identifica: quale input è il range numerico, quale dà la partizione
+        range_val = None
+        partition_val = None
+
+        for inf in input_fields:
+            match_type = inf.get("match", "exact")
+            resolved = self._resolve_input_field(inf, ctx)
+
+            if resolved is None:
+                fld = inf.get("field", "") or str(inf.get("fields", []))
+                self.warnings.append(f"lookup_multi({tbl_name}): campo '{fld}' non nel context")
+                return {}
+
+            if match_type == "lte":
+                range_val = resolved
+            elif match_type == "exact":
+                # Il campo exact potrebbe essere composito (tipo_avviamento_freq)
+                # Devo identificare quale sotto-campo corrisponde alla partizione
+                if inf.get("type") == "composite":
+                    for f in inf.get("fields", []):
+                        v = self._resolve(f, ctx)
+                        if v is None:
+                            continue
+                        vs = str(v).strip()
+
+                        # 1. Match diretto contro partizioni
+                        pk_match = self._fuzzy_match_partition(vs, partizioni)
+                        if pk_match:
+                            partition_val = pk_match
+                            break
+
+                        # 2. Se il nome campo corrisponde a partizionato_per
+                        if part_key_name and "." in f:
+                            fname = f.split(".")[-1]
+                            if (fname == part_key_name
+                                or fname.replace("_", "") == part_key_name.replace("_", "")
+                                or part_key_name in fname
+                                or fname in part_key_name):
+                                pk_match = self._fuzzy_match_partition(vs, partizioni)
+                                if pk_match:
+                                    partition_val = pk_match
+                                    break
+                                # Ultimo tentativo: estrai solo i numeri
+                                nums = ''.join(c for c in vs if c.isdigit())
+                                if nums and nums in partizioni:
+                                    partition_val = nums
+                                    break
+                else:
+                    vs = str(resolved).strip()
+                    pk_match = self._fuzzy_match_partition(vs, partizioni)
+                    if pk_match:
+                        partition_val = pk_match
+
+        # Fallback: cerca nel context direttamente per partizionato_per
+        if partition_val is None and part_key_name:
+            pv = self._resolve(part_key_name, ctx)
+            if pv is not None:
+                pvs = str(pv).strip()
+                pk_match = self._fuzzy_match_partition(pvs, partizioni)
+                if pk_match:
+                    partition_val = pk_match
+                else:
+                    # Estrai numeri
+                    nums = ''.join(c for c in pvs if c.isdigit())
+                    if nums and nums in partizioni:
+                        partition_val = nums
+
+        if partition_val is None:
+            if len(partizioni) == 1:
+                partition_val = list(partizioni.keys())[0]
+            else:
+                self.warnings.append(
+                    f"lookup_multi({tbl_name}): partizione non determinata. "
+                    f"Chiave: '{part_key_name}', disponibili: {list(partizioni.keys())}"
+                )
+                return {}
+
+        if range_val is None:
+            self.warnings.append(f"lookup_multi({tbl_name}): nessun campo numerico (match:lte)")
+            return {}
+
+        return self._range_lookup(tbl, range_val, None, prefix, ctx,
+                                   forced_partition=partition_val)
+
+    def _fuzzy_match_partition(self, value: str, partizioni: Dict) -> Optional[str]:
+        """
+        Tenta di matchare un valore contro le chiavi delle partizioni.
+        Strategie (in ordine):
+        1. Match esatto
+        2. Case-insensitive
+        3. Il valore inizia con la chiave partizione (es. "50 Hz (400V)" → "50")
+        4. La chiave è contenuta nel valore
+        5. Estrai prefisso numerico dal valore
+        """
+        vs = value.strip()
+        vsl = vs.lower()
+
+        # 1. Esatto
+        if vs in partizioni:
+            return vs
+
+        # 2. Case-insensitive
+        for pk in partizioni:
+            if str(pk).lower() == vsl:
+                return str(pk)
+
+        # 3. Valore inizia con chiave partizione
+        for pk in partizioni:
+            pks = str(pk)
+            if vs.startswith(pks + " ") or vs.startswith(pks + "(") or vs.startswith(pks + "_"):
+                return pks
+
+        # 4. Chiave contenuta nel valore (solo se la chiave è abbastanza lunga o numerica)
+        for pk in partizioni:
+            pks = str(pk)
+            if len(pks) >= 2 and pks in vs:
+                return pks
+
+        # 5. Estrai primo numero dal valore
+        nums = re.match(r'(\d+)', vs)
+        if nums:
+            n = nums.group(1)
+            if n in partizioni:
+                return n
+
         return None
 
-    # ========================================================================
-    # 5. PLACEHOLDER E PARAMETRI
-    # ========================================================================
-    def _replace_placeholders(self, text_val: str, context: Dict[str, Any]) -> str:
+    def _lookup_multi_flat(self, tbl, input_fields, prefix, ctx) -> Dict:
+        """Lookup su records piatti. Supporta materiali embedded nei record."""
+        records = tbl.get("records", [])
+        if not records:
+            self.warnings.append("lookup_multi flat: nessun record")
+            return {}
+
+        inputs = []
+        has_lte = False
+        lte_col = ""
+        for inf in input_fields:
+            val = self._resolve_input_field(inf, ctx)
+            if val is None:
+                fld = inf.get("field", "") or str(inf.get("fields", []))
+                self.warnings.append(f"lookup_multi flat: campo '{fld}' non nel context")
+                return {}
+            inputs.append((inf, val))
+            if inf.get("match") == "lte":
+                has_lte = True
+                lte_col = inf.get("colonna_tabella", "")
+
+        # Ordina per colonna lte (ascendente) per garantire match "ceiling" corretto
+        if has_lte and lte_col:
+            try:
+                records = sorted(records, key=lambda r: float(r.get(lte_col, 0) or 0))
+            except (ValueError, TypeError):
+                pass
+
+        for rec in records:
+            if self._record_matches(rec, inputs):
+                written = self._write_record(rec, prefix, ctx)
+                # Salva materiali embedded nel record per processing successivo
+                if rec.get("materiali"):
+                    pending_key = f"_pending_materials"
+                    existing = ctx.get(pending_key, [])
+                    ctx[pending_key] = existing + rec["materiali"]
+                    print(f"[LOOKUP_MULTI] Found {len(rec['materiali'])} embedded materiali in matched record")
+                return written
+
+        self.warnings.append("lookup_multi flat: nessun match")
+        return {}
+
+    def _resolve_input_field(self, inf, ctx):
+        if inf.get("type") == "composite":
+            parts = []
+            for f in inf.get("fields", []):
+                v = self._resolve(f, ctx)
+                if v is None:
+                    return None
+                parts.append(str(v))
+            return inf.get("separator", "_").join(parts)
+        return self._resolve(inf.get("field", ""), ctx)
+
+    def _record_matches(self, rec, inputs):
+        for inf, val in inputs:
+            col = inf.get("colonna_tabella", "")
+            match_type = inf.get("match", "exact")
+            rv = rec.get(col)
+            if rv is None:
+                return False
+            try:
+                if match_type == "exact":
+                    if str(rv).lower() != str(val).lower():
+                        return False
+                elif match_type == "lte":
+                    if float(val) > float(rv):
+                        return False
+            except (ValueError, TypeError):
+                return False
+        return True
+
+    def _write_record(self, rec, prefix, ctx):
+        written = {}
+        for section in ("output", "articoli"):
+            for k, v in rec.get(section, {}).items():
+                key = f"{prefix}{k}"
+                ctx[key] = v
+                written[key] = v
+        # campi diretti (non-meta)
+        skip = {"output", "articoli", "materiali", "da", "a", "_meta"}
+        for k, v in rec.items():
+            if k not in skip and not k.startswith("_"):
+                key = f"{prefix}{k}"
+                if key not in ctx:
+                    ctx[key] = v
+                    written[key] = v
+        return written
+
+    # ====================================================================
+    # RANGE LOOKUP (shared logic)
+    # ====================================================================
+    def _range_lookup(self, tbl, input_val, partition_field, prefix, ctx,
+                       forced_partition=None) -> Dict:
+        try:
+            num = float(input_val)
+        except (ValueError, TypeError):
+            self.warnings.append(f"range_lookup: '{input_val}' non numerico")
+            return {}
+
+        partizioni = tbl.get("partizioni", {})
+        if not partizioni:
+            self.warnings.append("range_lookup: nessuna partizione")
+            return {}
+
+        # Scegli partizione
+        if forced_partition:
+            pk = forced_partition
+        elif partition_field:
+            pv = self._resolve(partition_field, ctx)
+            if pv is None:
+                self.warnings.append(f"range_lookup: '{partition_field}' non nel context")
+                return {}
+            pvs = str(pv).strip()
+            pk_match = self._fuzzy_match_partition(pvs, partizioni)
+            if pk_match:
+                pk = pk_match
+            else:
+                # Ultimo tentativo: estrai numeri
+                nums = ''.join(c for c in pvs if c.isdigit())
+                if nums and nums in partizioni:
+                    pk = nums
+                else:
+                    pk = pvs  # lascia fallire sotto
+        elif len(partizioni) == 1:
+            pk = list(partizioni.keys())[0]
+        else:
+            self.warnings.append(f"range_lookup: {len(partizioni)} partizioni, nessun campo specificato")
+            return {}
+
+        # Case-insensitive match
+        ranges = partizioni.get(pk)
+        if ranges is None:
+            for k, v in partizioni.items():
+                if str(k).lower() == pk.lower():
+                    ranges = v
+                    break
+        if ranges is None:
+            self.warnings.append(f"range_lookup: partizione '{pk}' non trovata ({list(partizioni.keys())})")
+            return {}
+
+        # Trova range [da, a)
+        matched = None
+        for entry in ranges:
+            da = entry.get("da")
+            a = entry.get("a")
+            if (da is None or num >= float(da)) and (a is None or num < float(a)):
+                matched = entry
+                break
+
+        # Fallback "ceiling": se il valore è sotto il minimo della tabella,
+        # prendi la prima riga (il range più piccolo che copre valori superiori)
+        if not matched and ranges:
+            # Ordina per 'da' crescente e prendi il primo
+            sorted_ranges = sorted(ranges, key=lambda e: float(e.get("da", 0) or 0))
+            first_da = float(sorted_ranges[0].get("da", 0) or 0)
+            if num < first_da:
+                matched = sorted_ranges[0]
+                self.warnings.append(
+                    f"range_lookup: {num} sotto il minimo ({first_da}) in partizione '{pk}' "
+                    f"→ usato primo range (ceiling)"
+                )
+
+        if not matched:
+            self.warnings.append(f"range_lookup: nessun range per {num} in partizione '{pk}'")
+            return {}
+
+        # Scrivi output + articoli
+        written = {}
+        for section in ("output", "articoli"):
+            for k, v in matched.get(section, {}).items():
+                key = f"{prefix}{k}"
+                ctx[key] = v
+                written[key] = v
+
+        return written
+
+    # ====================================================================
+    # CONSTANTS LOOKUP
+    # ====================================================================
+    def _constants_lookup(self, tbl, input_val, prefix, ctx) -> Dict:
+        valori = tbl.get("valori", {})
+        key = str(input_val).strip()
+        entry = valori.get(key)
+        if entry is None:
+            for k, v in valori.items():
+                if str(k).lower() == key.lower():
+                    entry = v
+                    break
+        if entry is None:
+            self.warnings.append(f"constants: '{key}' non trovata")
+            return {}
+
+        written = {}
+        if isinstance(entry, dict):
+            for k, v in entry.items():
+                ck = f"{prefix}{k}"
+                ctx[ck] = v
+                written[ck] = v
+        else:
+            ck = f"{prefix}value"
+            ctx[ck] = entry
+            written[ck] = entry
+        return written
+
+    # ====================================================================
+    # CATALOG_MATCH
+    # ====================================================================
+    def _exec_catalog_match(self, action: Dict, ctx: Dict) -> Dict:
+        tbl_name = action.get("tabella", "")
+        criteri = action.get("criteri_fissi", [])
+        ordinamento = action.get("ordinamento", {})
+        output_map = action.get("output", {})
+
+        tbl = self._load_data(tbl_name)
+        if not tbl or tbl.get("tipo") != "catalog":
+            self.warnings.append(f"catalog_match: '{tbl_name}' non catalog")
+            return {}
+
+        records = list(tbl.get("records", []))
+        if ordinamento:
+            col = ordinamento.get("colonna", "")
+            desc = ordinamento.get("direzione", "ASC").upper() == "DESC"
+            try:
+                records.sort(key=lambda r: (r.get(col) is None, r.get(col, "")), reverse=desc)
+            except Exception:
+                pass
+
+        matched = None
+        for rec in records:
+            if all(self._criterio_ok(rec, c, ctx) for c in criteri):
+                matched = rec
+                break
+
+        if not matched:
+            self.warnings.append(f"catalog_match: nessun match in '{tbl_name}'")
+            return {}
+
+        written = {}
+        if output_map:
+            for ck, col in output_map.items():
+                v = matched.get(col)
+                if v is not None:
+                    ctx[ck] = v
+                    written[ck] = v
+        else:
+            prefix = f"_calc.{tbl_name}."
+            for k, v in matched.items():
+                ck = f"{prefix}{k}"
+                ctx[ck] = v
+                written[ck] = v
+        return written
+
+    def _criterio_ok(self, rec, c, ctx):
+        col = c.get("colonna", "")
+        op = c.get("operatore", "==")
+        campo = c.get("campo")
+        val_spec = c.get("valore")
+        val = self._resolve(campo, ctx) if campo else val_spec
+        rv = rec.get(col)
+        if rv is None or val is None:
+            return False
+        try:
+            if op in ("==", "=", "equals"):   return str(rv).lower() == str(val).lower()
+            if op in (">=", "gte"):            return float(rv) >= float(val)
+            if op in ("<=", "lte"):            return float(rv) <= float(val)
+            if op in (">", "gt"):              return float(rv) > float(val)
+            if op in ("<", "lt"):              return float(rv) < float(val)
+        except (ValueError, TypeError):
+            return False
+        return False
+
+    # ====================================================================
+    # MATERIALS
+    # ====================================================================
+    def _add_material(self, preventivo, mat_data, rule_id, ctx) -> bool:
+        """Aggiunge materiale via SQL diretto (bypassa problemi ORM)."""
+        codice = ""
+        try:
+            codice = self._replace_ph(mat_data.get("codice", ""), ctx)
+            desc = self._replace_ph(mat_data.get("descrizione", ""), ctx)
+
+            if "{{" in codice or not codice.strip():
+                self.warnings.append(f"Skip materiale: codice '{codice}' non risolto (regola {rule_id})")
+                return False
+
+            # Check duplicato
+            existing = self.db.execute(text(
+                "SELECT id FROM materiali WHERE preventivo_id=:pid AND codice=:cod AND regola_id=:rid"
+            ), {"pid": preventivo.id, "cod": codice, "rid": rule_id}).fetchone()
+            if existing:
+                return False
+
+            q = float(mat_data.get("quantita", 1))
+            pu = float(mat_data.get("prezzo_unitario", 0))
+            if pu == 0 and codice:
+                pu = self._lookup_prezzo(codice)
+
+            self.db.execute(text("""
+                INSERT INTO materiali 
+                    (preventivo_id, codice, descrizione, categoria, quantita, 
+                     prezzo_unitario, prezzo_totale, aggiunto_da_regola, regola_id, note)
+                VALUES 
+                    (:pid, :cod, :desc, :cat, :qty, :pu, :pt, 1, :rid, :note)
+            """), {
+                "pid": preventivo.id, "cod": codice, "desc": desc,
+                "cat": mat_data.get("categoria", "Materiale Automatico"),
+                "qty": q, "pu": pu, "pt": q * pu,
+                "rid": rule_id, "note": mat_data.get("note"),
+            })
+            return True
+        except Exception as e:
+            self.errors.append(f"Errore materiale '{codice}': {e}")
+            print(f"[ADD_MAT] EXCEPTION: '{codice}' → {type(e).__name__}: {e}")
+            return False
+
+    def _lookup_prezzo(self, codice):
+        try:
+            r = self.db.execute(text(
+                "SELECT prezzo_vendita FROM articoli_bom WHERE codice=:c"
+            ), {"c": codice}).fetchone()
+            return float(r[0]) if r and r[0] else 0.0
+        except Exception:
+            return 0.0
+
+    def _replace_ph(self, text_val, ctx):
+        if not text_val or "{{" not in text_val:
+            return text_val or ""
+        def repl(m):
+            fn = m.group(1)
+            v = self._resolve(fn, ctx)
+            return str(v) if v is not None else m.group(0)
+        return re.sub(r'\{\{([\w.]+)\}\}', repl, text_val)
+
+    def _apply_actions(self, rule, preventivo, ctx) -> int:
+        """Processa TUTTE le azioni di una regola: set_field, add_material, legacy materials."""
+        added = 0
+        rid = rule.get("id", "unknown")
+
+        # 1. Legacy materials
+        for mat in rule.get("materials", []):
+            if self._add_material(preventivo, mat, rid, ctx):
+                added += 1
+
+        # 2. Actions
+        for action in rule.get("actions", []):
+            at = action.get("action", "")
+
+            # Skip_if check
+            skip_expr = action.get("skip_if")
+            if skip_expr and self._eval_skip_if(skip_expr, ctx):
+                continue
+
+            if at == "add_material":
+                if self._add_material(preventivo, action.get("material", {}), rid, ctx):
+                    added += 1
+            elif at == "set_field":
+                self._exec_set_field(action, ctx)
+            # lookup_table/lookup_multi/catalog_match sono già eseguiti nel Pass 1
+            # quindi qui non li rieseguiamo
+
+        return added
+
+    def _add_materials_from_value_mappings(self, rule, preventivo, ctx) -> int:
         """
-        Sostituisce placeholder nel testo con valori dal context.
-        Supporta: {FIELD}, [FIELD], {{sezione.campo}}
+        Dopo un lookup, scansiona tutti i valori _calc.* e per ognuno che
+        ha un mapping in _value_mappings con tipo='articolo', aggiunge il materiale.
         """
-        if not text_val:
-            return text_val
+        vm = rule.get("_value_mappings", {})
+        if not vm:
+            print(f"[VM] No _value_mappings in rule")
+            return 0
 
-        # Pattern: {FIELD} o [FIELD] o {{sezione.campo}}
-        pattern = r'\{\{([\w.]+)\}\}|\{(\w+)\}|\[(\w+)\]'
+        rid = rule.get("id", "unknown")
+        added = 0
 
-        def replacer(match):
-            # {{sezione.campo}} → lookup diretto
-            field_name = match.group(1) or match.group(2) or match.group(3)
-            field_lower = field_name.lower()
-            
-            # Prova lookup diretto
-            value = context.get(field_lower)
-            if value is None:
-                value = context.get(field_name)
-            # Prova con ricerca parziale
-            if value is None and "." not in field_lower:
-                for key, val in context.items():
-                    if key.endswith(f".{field_lower}"):
-                        value = val
-                        break
-            
-            if value is not None:
-                return str(value)
-            return match.group(0)  # Mantieni placeholder se non trovato
-
-        return re.sub(pattern, replacer, text_val)
-
-    def _extract_parameters(self, codice: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Estrae parametri da codice parametrico es. TRAVERSO-[LUNG]."""
-        parametri = {}
-        pattern = r'\[(\w+)\]'
-        matches = re.findall(pattern, codice)
-
-        for param_name in matches:
-            param_lower = param_name.lower()
-            value = context.get(param_lower)
-            if value is None:
-                # Cerca con prefisso sezione
-                for key, val in context.items():
-                    if key.endswith(f".{param_lower}"):
-                        value = val
-                        break
-            if value is not None:
-                parametri[param_name.upper()] = value
-
-        return parametri
-
-    # ========================================================================
-    # 6. ORCHESTRAZIONE PRINCIPALE
-    # ========================================================================
-    def evaluate_rules(self, preventivo) -> Dict[str, Any]:
-        """
-        Entry point principale. Valuta tutte le regole per un preventivo.
+        # Raccogli tutti i valori scritti dal lookup
+        calc_keys = {k: v for k, v in ctx.items() if k.startswith("_calc.")}
+        print(f"[VM] {rid}: {len(calc_keys)} _calc keys, {len(vm)} value_mappings")
+        print(f"[VM]   VM keys: {list(vm.keys())}")
         
-        Flusso:
-        1. Costruisce context da tutte le fonti
-        2. Carica regole (DB + file)
-        3. PASS 1: Valuta condizioni → determina regole attive
-        4. PASS 1.5: Esegue pipeline_steps delle regole pipeline (arricchisce context)
-        5. PASS 2: Aggiunge materiali da regole attive + pipeline
-        6. Rimuove materiali orfani
-        7. Commit e aggiorna totale
-        
-        Returns:
-            Dict con risultati: active_rules, materials_added, materials_removed, ecc.
+        for ctx_key, ctx_val in calc_keys.items():
+            val_str = str(ctx_val).strip()
+            mapping = vm.get(val_str)
+            if mapping and mapping.get("tipo") == "articolo":
+                print(f"[VM]   MATCH: {ctx_key}={val_str} → {len(mapping.get('articoli', []))} articoli")
+                # Multi-articolo
+                articoli_list = mapping.get("articoli", [])
+                if articoli_list:
+                    for art in articoli_list:
+                        mat_data = {
+                            "codice": art.get("codice_articolo", art.get("codice", "")),
+                            "descrizione": art.get("descrizione_articolo", art.get("descrizione", "")),
+                            "quantita": art.get("quantita", 1),
+                            "categoria": "Materiale Automatico (lookup)",
+                        }
+                        ok = self._add_material(preventivo, mat_data, rid, ctx)
+                        print(f"[VM]     add {mat_data['codice']}: {'OK' if ok else 'SKIP/FAIL'}")
+                        if ok:
+                            added += 1
+                else:
+                    codice = mapping.get("codice_articolo", mapping.get("codice", ""))
+                    if codice:
+                        mat_data = {
+                            "codice": codice,
+                            "descrizione": mapping.get("descrizione_articolo", mapping.get("descrizione", "")),
+                            "quantita": 1,
+                            "categoria": "Materiale Automatico (lookup)",
+                        }
+                        ok = self._add_material(preventivo, mat_data, rid, ctx)
+                        print(f"[VM]     add {codice}: {'OK' if ok else 'SKIP/FAIL'}")
+                        if ok:
+                            added += 1
+
+        return added
+
+    def _add_materials_from_matched_records(self, rule, preventivo, ctx) -> int:
         """
-        from models import Materiale
-        
+        Processa i materiali embedded nei record della data table matchata.
+        Questi vengono salvati in ctx['_pending_materials'] da _lookup_multi_flat.
+        """
+        pending = ctx.get("_pending_materials", [])
+        if not pending:
+            return 0
+
+        rid = rule.get("id", "unknown")
+        added = 0
+        print(f"[RECORD_MAT] {rid}: {len(pending)} materiali pending da record")
+
+        for mat_data in pending:
+            # I materiali da record hanno già codice, descrizione, quantita, categoria
+            ok = self._add_material(preventivo, mat_data, rid, ctx)
+            print(f"[RECORD_MAT]   add {mat_data.get('codice', '?')}: {'OK' if ok else 'SKIP/FAIL'}")
+            if ok:
+                added += 1
+
+        # Pulisci pending per evitare re-processing
+        ctx.pop("_pending_materials", None)
+        return added
+
+    def _simulate_value_mapping_materials(self, rule, ctx) -> list:
+        """Test-mode: simula quali materiali verrebbero aggiunti da _value_mappings."""
+        vm = rule.get("_value_mappings", {})
+        if not vm:
+            return []
+
+        would_add = []
+        for ctx_key, ctx_val in ctx.items():
+            if not ctx_key.startswith("_calc."):
+                continue
+            val_str = str(ctx_val).strip()
+            mapping = vm.get(val_str)
+            if not mapping or mapping.get("tipo") != "articolo":
+                continue
+
+            articoli_list = mapping.get("articoli", [])
+            if articoli_list:
+                for art in articoli_list:
+                    would_add.append({
+                        "source": "value_mapping",
+                        "ctx_key": ctx_key,
+                        "ctx_value": val_str,
+                        "codice": art.get("codice_articolo", art.get("codice", "")),
+                        "descrizione": art.get("descrizione_articolo", art.get("descrizione", "")),
+                        "quantita": art.get("quantita", 1),
+                    })
+            else:
+                would_add.append({
+                    "source": "value_mapping",
+                    "ctx_key": ctx_key,
+                    "ctx_value": val_str,
+                    "codice": mapping.get("codice_articolo", mapping.get("codice", "")),
+                    "descrizione": mapping.get("descrizione_articolo", mapping.get("descrizione", "")),
+                    "quantita": 1,
+                })
+
+        return would_add
+
+    def _simulate_matched_record_materials(self, ctx) -> list:
+        """Test-mode: simula materiali embedded nei record matchati dalla data table."""
+        pending = ctx.get("_pending_materials", [])
+        if not pending:
+            return []
+        return [{
+            "source": "record_materiali",
+            "codice": m.get("codice", ""),
+            "descrizione": m.get("descrizione", ""),
+            "quantita": m.get("quantita", 1),
+            "categoria": m.get("categoria", ""),
+        } for m in pending]
+
+    # ====================================================================
+    # RULE CLASSIFICATION
+    # ====================================================================
+    def _is_pipeline(self, rule) -> bool:
+        return bool(rule.get("pipeline_steps"))
+
+    def _is_lookup(self, rule) -> bool:
+        if self._is_pipeline(rule):
+            return False
+        for a in rule.get("actions", []):
+            if a.get("action") in ("lookup_table", "lookup_multi", "catalog_match"):
+                return True
+        return False
+
+    def _has_materials(self, rule) -> bool:
+        """Verifica se una regola ha materiali (legacy o add_material actions)."""
+        if rule.get("materials"):
+            return True
+        for a in rule.get("actions", []):
+            if a.get("action") == "add_material":
+                return True
+        return False
+
+    # ====================================================================
+    # PIPELINE — HELPERS
+    # ====================================================================
+
+    def _match_pattern(self, pattern: str, ctx: Dict) -> Dict[str, Any]:
+        """Match wildcard pattern like '_calc.util.*.watt' → {wildcard: value}."""
+        if "*" not in pattern:
+            return {}
+        parts = pattern.split("*")
+        if len(parts) != 2:
+            return {}
+        prefix, suffix = parts
+        results = {}
+        for k, v in ctx.items():
+            if k.startswith(prefix) and k.endswith(suffix):
+                wildcard = k[len(prefix):]
+                if suffix:
+                    wildcard = wildcard[:-len(suffix)]
+                wildcard = wildcard.strip(".")
+                if wildcard:
+                    results[wildcard] = v
+        return results
+
+    def _resolve_pipeline_ref(self, ref: str, ctx: Dict) -> Any:
+        """Resolve a pipeline reference — could be _calc path or context field."""
+        if not ref:
+            return None
+        v = ctx.get(ref)
+        if v is not None:
+            return v
+        return self._resolve(ref, ctx)
+
+    def _round_value(self, val: float, round_type: str) -> float:
+        import math
+        if not round_type:
+            return val
+        rt = round_type.lower().strip()
+        if rt == "ceil":     return float(math.ceil(val))
+        if rt == "floor":    return float(math.floor(val))
+        if rt == "round":    return float(round(val))
+        if rt == "round_2":  return round(val, 2)
+        if rt == "up_10":    return float(math.ceil(val / 10) * 10)
+        if rt == "up_50":    return float(math.ceil(val / 50) * 50)
+        if rt == "up_100":   return float(math.ceil(val / 100) * 100)
+        return val
+
+    # ====================================================================
+    # PIPELINE — STEP EXECUTORS
+    # ====================================================================
+
+    def _pipeline_lookup_each(self, step: Dict, ctx: Dict) -> Dict:
+        """Per ogni checkbox attiva nella sezione, cerca nella data table."""
+        sezione = step.get("sezione", "")
+        tabella = step.get("tabella", "")
+        campo_lookup = step.get("campo_lookup", "componente")
+        output_prefix = step.get("output_prefix", "_calc.util.")
+
+        if not sezione or not tabella:
+            raise ValueError("lookup_each: 'sezione' e 'tabella' obbligatori")
+
+        tbl = self._load_data(tabella)
+        if not tbl:
+            raise ValueError(f"Tabella '{tabella}' non trovata")
+
+        records = tbl.get("records", [])
+        sez_prefix = f"{sezione}."
+
+        # Trova checkbox attive nella sezione
+        active_components = []
+        for k, v in ctx.items():
+            if k.startswith(sez_prefix):
+                campo = k[len(sez_prefix):]
+                if v and str(v).lower() not in ("false", "0", "no", "off", ""):
+                    active_components.append(campo)
+
+        written = {}
+        for comp in active_components:
+            matched = None
+            comp_low = comp.lower()
+            for rec in records:
+                if str(rec.get(campo_lookup, "")).lower() == comp_low:
+                    matched = rec
+                    break
+
+            if not matched:
+                self.warnings.append(f"lookup_each: '{comp}' non trovato in '{tabella}'")
+                continue
+
+            # Scrivi tutti i campi del record
+            for rk, rv in matched.items():
+                if rk in ("output", "materiali", "articoli"):
+                    continue
+                ck = f"{output_prefix}{comp}.{rk}"
+                ctx[ck] = rv
+                written[ck] = rv
+
+            # Scrivi campi output
+            for rk, rv in matched.get("output", {}).items():
+                ck = f"{output_prefix}{comp}.{rk}"
+                ctx[ck] = rv
+                written[ck] = rv
+
+        return written
+
+    def _pipeline_collect_sum(self, step: Dict, ctx: Dict) -> Dict:
+        """Somma valori da più fonti: calc patterns, context, DB materiali."""
+        sources = step.get("sources", [])
+        output = step.get("output", "_calc.pipeline.sum_result")
+        total = 0.0
+
+        for src in sources:
+            src_type = src.get("type", "")
+
+            if src_type == "calc":
+                pattern = src.get("pattern", "")
+                matches = self._match_pattern(pattern, ctx)
+                for _wc, val in matches.items():
+                    try:
+                        total += float(val)
+                    except (ValueError, TypeError):
+                        pass
+
+            elif src_type == "context":
+                field = src.get("field", "")
+                val = self._resolve_pipeline_ref(field, ctx)
+                if val is not None:
+                    try:
+                        total += float(val)
+                    except (ValueError, TypeError):
+                        pass
+
+            elif src_type == "materials":
+                field = src.get("field", "")
+                filt = src.get("filter", {})
+                if field and hasattr(self, "db"):
+                    try:
+                        q = "SELECT * FROM materiali WHERE preventivo_id=:pid"
+                        params: Dict[str, Any] = {"pid": ctx.get("_preventivo_id", 0)}
+                        for fk, fv in filt.items():
+                            q += f" AND {fk}=:{fk}"
+                            params[fk] = fv
+                        rows = self.db.execute(text(q), params).fetchall()
+                        for row in rows:
+                            rd = dict(row._mapping) if hasattr(row, "_mapping") else {}
+                            v = rd.get(field, 0)
+                            try:
+                                total += float(v)
+                            except (ValueError, TypeError):
+                                pass
+                    except Exception as e:
+                        self.warnings.append(f"collect_sum DB: {e}")
+
+        ctx[output] = total
+        return {output: total}
+
+    def _pipeline_group_sum(self, step: Dict, ctx: Dict) -> Dict:
+        """Raggruppa valori per una chiave e somma — opzionalmente applica power factor."""
+        pattern_value = step.get("pattern_value", "")
+        pattern_group = step.get("pattern_group", "")
+        output_prefix = step.get("output_prefix", "_calc.grouped.")
+        pf_field = step.get("power_factor", "")
+
+        values = self._match_pattern(pattern_value, ctx)
+        groups_map = self._match_pattern(pattern_group, ctx)
+
+        # Raggruppa per chiave di gruppo (entrambi i pattern condividono il *)
+        grouped: Dict[str, float] = {}
+        for wildcard, watt_val in values.items():
+            group_key = groups_map.get(wildcard)
+            if group_key is None:
+                self.warnings.append(f"group_sum: nessun gruppo per wildcard '{wildcard}'")
+                continue
+            gk = str(group_key)
+            try:
+                grouped[gk] = grouped.get(gk, 0.0) + float(watt_val)
+            except (ValueError, TypeError):
+                pass
+
+        # Power factor
+        pf = 1.0
+        if pf_field:
+            pf_val = self._resolve_pipeline_ref(pf_field, ctx)
+            if pf_val:
+                try:
+                    pf = float(pf_val)
+                    if pf <= 0:
+                        pf = 1.0
+                except (ValueError, TypeError):
+                    pf = 1.0
+
+        written = {}
+        for gk, total_w in grouped.items():
+            va = total_w / pf if pf != 1.0 else total_w
+            ck = f"{output_prefix}{gk}"
+            ctx[ck] = va
+            written[ck] = va
+
+        return written
+
+    def _pipeline_math_expr(self, step: Dict, ctx: Dict) -> Dict:
+        """Valuta un'espressione matematica con riferimenti _calc."""
+        import re as _re
+        expression = step.get("expression", "")
+        output = step.get("output", "_calc.pipeline.expr_result")
+        round_type = step.get("round", "")
+
+        if not expression:
+            raise ValueError("math_expr: expression vuota")
+
+        # Sostituisci tutti i riferimenti _calc.xxx e sezione.campo
+        tokens = _re.findall(r'[a-zA-Z_][a-zA-Z0-9_.]*', expression)
+        # Ordina per lunghezza decrescente per evitare sostituzioni parziali
+        tokens = sorted(set(tokens), key=len, reverse=True)
+
+        eval_expr = expression
+        for token in tokens:
+            # Salta keyword math built-in
+            if token in ("ceil", "floor", "round", "abs", "min", "max", "pow"):
+                continue
+            val = self._resolve_pipeline_ref(token, ctx)
+            if val is not None:
+                try:
+                    eval_expr = eval_expr.replace(token, str(float(val)))
+                except (ValueError, TypeError):
+                    raise ValueError(f"math_expr: '{token}' = '{val}' non numerico")
+
+        # Validazione sicurezza: solo numeri, operatori, parentesi, spazi, punto
+        allowed = set("0123456789.+-*/() eE")
+        for c in eval_expr:
+            if c not in allowed:
+                raise ValueError(f"math_expr: carattere non consentito '{c}' in '{eval_expr}'")
+
+        result = float(eval(eval_expr))
+        if round_type:
+            result = self._round_value(result, round_type)
+
+        ctx[output] = result
+        return {output: result}
+
+    def _pipeline_catalog_select(self, step: Dict, ctx: Dict) -> Dict:
+        """Seleziona il primo record di un catalogo che soddisfa il criterio."""
+        tabella = step.get("tabella", "")
+        criterio = step.get("criterio", {})
+        filtri = step.get("filtri", [])
+        ordinamento = step.get("ordinamento", {})
+        limit = step.get("limit", 1)
+        output_prefix = step.get("output_prefix", f"_calc.{tabella}.")
+
+        tbl = self._load_data(tabella)
+        if not tbl:
+            raise ValueError(f"Tabella '{tabella}' non trovata")
+
+        records = list(tbl.get("records", []))
+
+        # Ordinamento
+        if ordinamento and ordinamento.get("colonna"):
+            col = ordinamento["colonna"]
+            desc = ordinamento.get("direzione", "ASC").upper() == "DESC"
+            def _sort_key(r):
+                v = r.get(col)
+                if v is None:
+                    return (1, 0)
+                try:
+                    return (0, float(v))
+                except (ValueError, TypeError):
+                    return (0, str(v))
+            try:
+                records.sort(key=_sort_key, reverse=desc)
+            except Exception:
+                pass
+
+        # Criteri: principale + filtri aggiuntivi
+        all_criteria = []
+        if criterio and criterio.get("colonna"):
+            all_criteria.append(criterio)
+        all_criteria.extend(filtri or [])
+
+        matched = []
+        for rec in records:
+            ok = True
+            for crit in all_criteria:
+                col_name = crit.get("colonna", "")
+                op = crit.get("operatore", ">=")
+                val_ref = crit.get("valore", "")
+
+                # Risolvi riferimento
+                if isinstance(val_ref, str) and (val_ref.startswith("_calc.") or "." in val_ref):
+                    compare_val = self._resolve_pipeline_ref(val_ref, ctx)
+                else:
+                    compare_val = val_ref
+
+                rec_val = rec.get(col_name)
+                if rec_val is None or compare_val is None:
+                    ok = False
+                    break
+
+                try:
+                    rv = float(rec_val)
+                    cv = float(compare_val)
+                    if   op == ">="  and not (rv >= cv): ok = False
+                    elif op == ">"   and not (rv > cv):  ok = False
+                    elif op == "<="  and not (rv <= cv): ok = False
+                    elif op == "<"   and not (rv < cv):  ok = False
+                    elif op in ("==", "=") and not (str(rec_val).lower() == str(compare_val).lower()): ok = False
+                except (ValueError, TypeError):
+                    if op in ("==", "="):
+                        if str(rec_val).lower() != str(compare_val).lower():
+                            ok = False
+                    else:
+                        ok = False
+
+                if not ok:
+                    break
+
+            if ok:
+                matched.append(rec)
+                if len(matched) >= limit:
+                    break
+
+        if not matched:
+            self.warnings.append(f"catalog_select: nessun match in '{tabella}'")
+            return {}
+
+        written = {}
+        rec = matched[0]
+        for k, v in rec.items():
+            if isinstance(v, dict):
+                # Campi nested (es. "output": {...}) → flatten
+                for nk, nv in v.items():
+                    ck = f"{output_prefix}{nk}"
+                    ctx[ck] = nv
+                    written[ck] = nv
+            else:
+                ck = f"{output_prefix}{k}"
+                ctx[ck] = v
+                written[ck] = v
+
+        return written
+
+    def _pipeline_multi_match(self, step: Dict, ctx: Dict) -> Dict:
+        """Trova l'articolo più piccolo che copre TUTTI i requisiti per tensione/VA."""
+        tabella = step.get("tabella", "")
+        requisiti_prefix = step.get("requisiti_prefix", "_calc.grouped.")
+        colonna_codice = step.get("colonna_codice", "codice_trasf")
+        colonna_tensione = step.get("colonna_tensione", "tensione_uscita")
+        colonna_va = step.get("colonna_va", "va_disponibili")
+        colonna_ordinamento = step.get("colonna_ordinamento", "potenza_totale_va")
+        output_prefix = step.get("output_prefix", "_calc.trasformatore.")
+
+        # Raccogli requisiti: _calc.va_per_tensione.24 = 43.75
+        requisiti: Dict[str, float] = {}
+        for k, v in ctx.items():
+            if k.startswith(requisiti_prefix):
+                tensione = k[len(requisiti_prefix):]
+                try:
+                    requisiti[str(tensione)] = float(v)
+                except (ValueError, TypeError):
+                    pass
+
+        if not requisiti:
+            self.warnings.append(f"multi_match: nessun requisito con prefix '{requisiti_prefix}'")
+            return {}
+
+        tbl = self._load_data(tabella)
+        if not tbl:
+            raise ValueError(f"Tabella '{tabella}' non trovata")
+
+        records = tbl.get("records", [])
+
+        # Raggruppa record per codice — ogni codice è un potenziale trasformatore
+        from collections import defaultdict
+        catalogo: Dict[str, list] = defaultdict(list)
+        for rec in records:
+            code = rec.get(colonna_codice)
+            if code:
+                catalogo[str(code)].append(rec)
+
+        # Per ogni trasformatore, verifica se copre TUTTI i requisiti
+        candidates = []
+        for code, recs in catalogo.items():
+            uscite: Dict[str, float] = {}
+            potenza_totale = 0.0
+            for rec in recs:
+                tens = str(rec.get(colonna_tensione, ""))
+                try:
+                    va = float(rec.get(colonna_va, 0))
+                except (ValueError, TypeError):
+                    va = 0.0
+                uscite[tens] = uscite.get(tens, 0.0) + va
+                try:
+                    potenza_totale = max(potenza_totale, float(rec.get(colonna_ordinamento, 0)))
+                except (ValueError, TypeError):
+                    pass
+
+            covers_all = True
+            for req_tens, req_va in requisiti.items():
+                if uscite.get(req_tens, 0) < req_va:
+                    covers_all = False
+                    break
+
+            if covers_all:
+                candidates.append({
+                    "codice": code, "uscite": uscite,
+                    "potenza_totale": potenza_totale, "records": recs,
+                })
+
+        if not candidates:
+            self.warnings.append(
+                f"multi_match: nessun articolo in '{tabella}' copre tutti i requisiti {requisiti}"
+            )
+            return {}
+
+        # Ordina per potenza crescente → prendi il più piccolo
+        candidates.sort(key=lambda c: c["potenza_totale"])
+        best = candidates[0]
+
+        written = {}
+        ck = f"{output_prefix}{colonna_codice}"
+        ctx[ck] = best["codice"]
+        written[ck] = best["codice"]
+
+        ck = f"{output_prefix}{colonna_ordinamento}"
+        ctx[ck] = best["potenza_totale"]
+        written[ck] = best["potenza_totale"]
+
+        for tens, va in best["uscite"].items():
+            ck = f"{output_prefix}uscita_{tens}_va"
+            ctx[ck] = va
+            written[ck] = va
+
+        # Tutti i campi dal primo record
+        for k, v in best["records"][0].items():
+            if isinstance(v, dict):
+                for nk, nv in v.items():
+                    ck = f"{output_prefix}{nk}"
+                    if ck not in written:
+                        ctx[ck] = nv
+                        written[ck] = nv
+            else:
+                ck = f"{output_prefix}{k}"
+                if ck not in written:
+                    ctx[ck] = v
+                    written[ck] = v
+
+        return written
+
+    def _pipeline_add_material(self, step: Dict, ctx: Dict,
+                               preventivo=None, dry_run=False) -> Dict:
+        """Aggiunge un materiale, risolvendo riferimenti _calc."""
+        mat = step.get("material", {})
+
+        codice_ref = mat.get("codice", "")
+        desc_ref = mat.get("descrizione", "")
+        quantita_ref = mat.get("quantita", 1)
+        categoria = mat.get("categoria", "Materiale Automatico")
+
+        # Risolvi codice (può essere _calc.trasformatore.codice_trasf)
+        if isinstance(codice_ref, str) and codice_ref.startswith("_calc."):
+            codice = str(ctx.get(codice_ref, codice_ref))
+        else:
+            codice = str(codice_ref)
+        codice = self._replace_ph(codice, ctx)
+
+        # Risolvi descrizione
+        if isinstance(desc_ref, str) and desc_ref.startswith("_calc."):
+            desc = str(ctx.get(desc_ref, desc_ref))
+        else:
+            desc = str(desc_ref)
+        desc = self._replace_ph(desc, ctx)
+
+        # Risolvi quantità
+        try:
+            if isinstance(quantita_ref, str) and quantita_ref.startswith("_calc."):
+                quantita = float(ctx.get(quantita_ref, 1))
+            else:
+                quantita = float(quantita_ref)
+        except (ValueError, TypeError):
+            quantita = 1.0
+
+        result = {
+            "codice": codice, "descrizione": desc,
+            "quantita": quantita, "categoria": categoria,
+        }
+
+        if dry_run or preventivo is None:
+            result["mode"] = "dry_run"
+            return result
+
+        added = self._add_material(preventivo, {
+            "codice": codice, "descrizione": desc,
+            "quantita": quantita, "categoria": categoria,
+        }, "pipeline", ctx)
+        result["added"] = added
+        return result
+
+    # ====================================================================
+    # PIPELINE — ORCHESTRATOR
+    # ====================================================================
+
+    def _exec_pipeline_step(self, step: Dict, ctx: Dict,
+                            preventivo=None, dry_run=False) -> Dict:
+        """Esegue un singolo step di pipeline. Ritorna {status, output, error}."""
+        action = step.get("action", "")
+        result: Dict[str, Any] = {"step_action": action, "status": "ok", "output": {}, "error": None}
+
+        try:
+            if action == "lookup_each":
+                result["output"] = self._pipeline_lookup_each(step, ctx)
+            elif action == "collect_sum":
+                result["output"] = self._pipeline_collect_sum(step, ctx)
+            elif action == "group_sum":
+                result["output"] = self._pipeline_group_sum(step, ctx)
+            elif action == "math_expr":
+                result["output"] = self._pipeline_math_expr(step, ctx)
+            elif action == "catalog_select":
+                result["output"] = self._pipeline_catalog_select(step, ctx)
+            elif action == "multi_match":
+                result["output"] = self._pipeline_multi_match(step, ctx)
+            elif action == "add_material":
+                result["output"] = self._pipeline_add_material(
+                    step, ctx, preventivo, dry_run)
+            else:
+                result["status"] = "error"
+                result["error"] = f"Azione sconosciuta: {action}"
+        except Exception as e:
+            result["status"] = "error"
+            result["error"] = str(e)
+            import traceback; traceback.print_exc()
+
+        return result
+
+    def execute_pipeline(self, rule: Dict, preventivo, ctx: Dict) -> int:
+        """Esegue una pipeline rule e ritorna il numero di materiali aggiunti."""
+        steps = rule.get("pipeline_steps", [])
+        if not steps:
+            return 0
+
+        rid = rule.get("id", "pipeline")
+        added = 0
+        for i, step in enumerate(steps):
+            print(f"[PIPELINE] {rid} step {i}: {step.get('action')}")
+            result = self._exec_pipeline_step(step, ctx, preventivo, dry_run=False)
+            if result["status"] == "error":
+                self.errors.append(
+                    f"Pipeline {rid} step {i} ({step.get('action')}): {result['error']}")
+                break
+            out = result.get("output", {})
+            if out:
+                print(f"[PIPELINE]   → {len(out)} output keys")
+            if step.get("action") == "add_material" and out.get("added"):
+                added += 1
+
+        return added
+
+    def simulate_pipeline(self, pipeline_rule: Dict, preventivo) -> Dict:
+        """Simula una pipeline senza modificare il DB. Usato dal frontend."""
         self.warnings = []
         self.errors = []
+        self._data_cache = {}
 
-        # 1. Costruisci context
-        context = self.build_config_context(preventivo)
-        
-        # 2. Carica regole
+        ctx = self.build_config_context(preventivo)
+
+        # Esegui prima le lookup rules normali per popolare _calc context
         all_rules = self.load_all_rules()
-        if not all_rules:
-            self.warnings.append("Nessuna regola trovata (né DB né file)")
-            return self._build_result(set(), 0, 0, preventivo)
-
-        # 3. Valuta condizioni → determina regole attive
-        active_rules: Set[str] = set()
-        rules_to_apply: List[Dict[str, Any]] = []
-        pipeline_rules: List[Dict[str, Any]] = []
-
         for rule in all_rules:
-            rule_id = rule.get("id", "unknown")
-            enabled = rule.get("enabled", True)
-            
-            if not enabled:
+            if not rule.get("enabled", True):
                 continue
-            
-            try:
-                if self.should_apply_rule(rule, context):
-                    active_rules.add(rule_id)
-                    
-                    # Separa pipeline rules dalle material rules
-                    if rule.get("pipeline_steps"):
-                        pipeline_rules.append(rule)
-                    else:
-                        rules_to_apply.append(rule)
-            except Exception as e:
-                self.errors.append(f"Errore valutazione regola {rule_id}: {e}")
+            if self._is_pipeline(rule):
+                continue
+            if not self._is_lookup(rule):
+                continue
+            if not self.should_apply(rule, ctx):
+                continue
+            for action in rule.get("actions", []):
+                at = action.get("action")
+                skip_expr = action.get("skip_if")
+                if skip_expr and self._eval_skip_if(skip_expr, ctx):
+                    continue
+                if at == "lookup_table":
+                    self._exec_lookup_table(action, ctx)
+                elif at == "lookup_multi":
+                    self._exec_lookup_multi(action, ctx)
+                elif at == "catalog_match":
+                    self._exec_catalog_match(action, ctx)
+                elif at == "set_field":
+                    self._exec_set_field(action, ctx)
 
-        # 4. PASS 1.5: Esegui pipeline steps (arricchiscono il context)
-        pipeline_materials = 0
+        # Esegui gli step della pipeline in dry_run
+        steps = pipeline_rule.get("pipeline_steps", [])
+        step_results = []
+
+        for i, step in enumerate(steps):
+            result = self._exec_pipeline_step(step, ctx, preventivo=None, dry_run=True)
+            step_results.append({
+                "step": i,
+                "action": step.get("action", ""),
+                "status": result["status"],
+                "output": result.get("output", {}),
+                "error": result.get("error"),
+            })
+            if result["status"] == "error":
+                break
+
+        return {
+            "steps": step_results,
+            "final_context_calc": {k: v for k, v in ctx.items() if k.startswith("_calc.")},
+            "warnings": self.warnings,
+            "errors": self.errors,
+        }
+
+    # ====================================================================
+    # MAIN EVALUATE — TWO-PASS
+    # ====================================================================
+    def evaluate_rules(self, preventivo) -> Dict:
+        self.warnings = []
+        self.errors = []
+        self._data_cache = {}
+
+        ctx = self.build_config_context(preventivo)
+        ctx["_preventivo_id"] = preventivo.id
+        all_rules = self.load_all_rules()
+
+        if not all_rules:
+            self.warnings.append("Nessuna regola trovata")
+            return self._make_result(set(), 0, 0, preventivo)
+
+        # Classifica regole in 3 categorie
+        lookup_rules = [r for r in all_rules if self._is_lookup(r)]
+        pipeline_rules = [r for r in all_rules if self._is_pipeline(r)]
+        mat_rules = [r for r in all_rules
+                     if not self._is_lookup(r) and not self._is_pipeline(r)]
+        active: Set[str] = set()
+
+        # ── PASS 1: Lookup → arricchisci context con _calc.* ──
+        for rule in lookup_rules:
+            rid = rule.get("id", "unknown")
+            if not rule.get("enabled", True):
+                continue
+            try:
+                cond_ok = self.should_apply(rule, ctx)
+                print(f"[EVAL] Lookup {rid}: conditions={'PASS' if cond_ok else 'FAIL'}")
+                if cond_ok:
+                    active.add(rid)
+                    for action in rule.get("actions", []):
+                        at = action.get("action")
+
+                        # Skip_if check
+                        skip_expr = action.get("skip_if")
+                        if skip_expr and self._eval_skip_if(skip_expr, ctx):
+                            continue
+
+                        if at == "lookup_table":
+                            self._exec_lookup_table(action, ctx)
+                        elif at == "lookup_multi":
+                            written = self._exec_lookup_multi(action, ctx)
+                            print(f"[EVAL]   lookup_multi wrote: {written}")
+                        elif at == "catalog_match":
+                            self._exec_catalog_match(action, ctx)
+                        elif at == "set_field":
+                            self._exec_set_field(action, ctx)
+                        # add_material verrà gestito dopo nel loop materiali
+            except Exception as e:
+                self.errors.append(f"Errore lookup {rid}: {e}")
+                import traceback; traceback.print_exc()
+
+        # ── PASS 1.5: Pipeline rules (vedono _calc.* delle lookup) ──
         for rule in pipeline_rules:
+            rid = rule.get("id", "unknown")
+            if not rule.get("enabled", True):
+                continue
             try:
-                added = self._exec_pipeline_steps(rule, context, preventivo)
-                pipeline_materials += added
+                if self.should_apply(rule, ctx):
+                    active.add(rid)
+                    print(f"[EVAL] Pipeline {rid}: executing {len(rule.get('pipeline_steps', []))} steps")
+                    # L'esecuzione vera dei materiali avviene dopo il DELETE
             except Exception as e:
-                self.errors.append(
-                    f"Errore pipeline {rule.get('id')}: {e}"
-                )
+                self.errors.append(f"Errore pipeline conditions {rid}: {e}")
 
-        # 5. Rimuovi materiali orfani (regole non più attive)
-        existing_auto_materials = self.db.query(Materiale).filter(
-            Materiale.preventivo_id == preventivo.id,
-            Materiale.aggiunto_da_regola == True
-        ).all()
-
-        removed_count = 0
-        for mat in existing_auto_materials:
-            if mat.regola_id not in active_rules:
-                self.db.delete(mat)
-                removed_count += 1
-
-        # 6. Aggiungi materiali nuovi (regole non-pipeline)
-        added_count = 0
-        for rule in rules_to_apply:
+        # ── PASS 2: Material rules (ora vedono _calc.*) ──
+        for rule in mat_rules:
+            rid = rule.get("id", "unknown")
+            if not rule.get("enabled", True):
+                continue
             try:
-                added = self.apply_rule_actions(rule, preventivo, context)
-                added_count += added
+                if self.should_apply(rule, ctx):
+                    active.add(rid)
+                    # Esegui eventuali set_field prima dei materiali
+                    for action in rule.get("actions", []):
+                        if action.get("action") == "set_field":
+                            skip_expr = action.get("skip_if")
+                            if skip_expr and self._eval_skip_if(skip_expr, ctx):
+                                continue
+                            self._exec_set_field(action, ctx)
             except Exception as e:
-                self.errors.append(
-                    f"Errore applicazione regola {rule.get('id')}: {e}"
-                )
+                self.errors.append(f"Errore regola {rid}: {e}")
 
-        added_count += pipeline_materials
+        print(f"[EVAL] Active rules: {active}")
+        print(f"[EVAL] _calc keys in ctx: {[k for k in ctx if k.startswith('_calc.')]}")
 
-        # 7. Commit e aggiorna totale
+        # Rimuovi TUTTI i materiali automatici (verranno ri-aggiunti dalle regole attive)
+        removed_result = self.db.execute(text(
+            "SELECT COUNT(*) FROM materiali WHERE preventivo_id=:pid AND aggiunto_da_regola=1"
+        ), {"pid": preventivo.id}).fetchone()
+        removed = removed_result[0] if removed_result else 0
+        self.db.execute(text(
+            "DELETE FROM materiali WHERE preventivo_id=:pid AND aggiunto_da_regola=1"
+        ), {"pid": preventivo.id})
+
+        # ── Aggiungi materiali da TUTTE le regole attive ──
+        added = 0
+
+        # Mat rules: add_material + legacy materials
+        for rule in mat_rules:
+            rid = rule.get("id", "unknown")
+            if rid in active:
+                try:
+                    n = self._apply_actions(rule, preventivo, ctx)
+                    if n > 0:
+                        print(f"[EVAL] mat_rule {rid}: added {n} materials")
+                    added += n
+                except Exception as e:
+                    self.errors.append(f"Errore applicazione {rid}: {e}")
+
+        # Lookup rules che hanno ANCHE add_material o legacy materials
+        for rule in lookup_rules:
+            rid = rule.get("id", "unknown")
+            if rid in active:
+                # Aggiungi materiali da add_material actions e legacy materials
+                if self._has_materials(rule):
+                    try:
+                        n = self._apply_actions(rule, preventivo, ctx)
+                        if n > 0:
+                            print(f"[EVAL] lookup_rule {rid}: added {n} materials (add_material/legacy)")
+                        added += n
+                    except Exception as e:
+                        self.errors.append(f"Errore materiali lookup {rid}: {e}")
+
+                # Aggiungi materiali da _value_mappings
+                has_vm = bool(rule.get("_value_mappings"))
+                print(f"[EVAL] value_mappings for {rid}: has_vm={has_vm}")
+                try:
+                    n = self._add_materials_from_value_mappings(rule, preventivo, ctx)
+                    print(f"[EVAL]   → added {n} from value_mappings")
+                    added += n
+                except Exception as e:
+                    self.errors.append(f"Errore value_mappings {rid}: {e}")
+                    import traceback; traceback.print_exc()
+
+                # Aggiungi materiali embedded nei record della data table
+                try:
+                    n = self._add_materials_from_matched_records(rule, preventivo, ctx)
+                    if n > 0:
+                        print(f"[EVAL]   → added {n} from matched record materiali")
+                    added += n
+                except Exception as e:
+                    self.errors.append(f"Errore record materials {rid}: {e}")
+
+        # Pipeline rules: esecuzione completa (calcoli + materiali)
+        for rule in pipeline_rules:
+            rid = rule.get("id", "unknown")
+            if rid in active:
+                try:
+                    n = self.execute_pipeline(rule, preventivo, ctx)
+                    if n > 0:
+                        print(f"[EVAL] pipeline {rid}: added {n} materials")
+                    added += n
+                except Exception as e:
+                    self.errors.append(f"Errore pipeline {rid}: {e}")
+                    import traceback; traceback.print_exc()
+
         try:
             self.db.commit()
         except Exception as e:
             self.errors.append(f"Errore commit: {e}")
             self.db.rollback()
-            return self._build_result(active_rules, 0, 0, preventivo)
+            return self._make_result(active, 0, 0, preventivo)
 
         self._update_totale(preventivo)
+        res = self._make_result(active, added, removed, preventivo)
+        res["context_calc"] = {k: v for k, v in ctx.items() if k.startswith("_calc.")}
+        return res
 
-        return self._build_result(active_rules, added_count, removed_count, preventivo)
-
-    def _update_totale(self, preventivo):
-        """Ricalcola il totale del preventivo sommando tutti i materiali."""
-        from models import Materiale
-        
-        try:
-            all_materials = self.db.query(Materiale).filter(
-                Materiale.preventivo_id == preventivo.id
-            ).all()
-            
-            totale = sum(m.prezzo_totale or 0 for m in all_materials)
-            
-            # Aggiorna il campo totale (supporta entrambi i nomi)
-            if hasattr(preventivo, "total_price"):
-                preventivo.total_price = totale
-            if hasattr(preventivo, "totale_materiali"):
-                preventivo.totale_materiali = totale
-            
-            self.db.commit()
-        except Exception as e:
-            self.errors.append(f"Errore aggiornamento totale: {e}")
-
-    def _build_result(self, active_rules: Set[str], added: int, removed: int,
-                      preventivo) -> Dict[str, Any]:
-        """Costruisce il dizionario risultato."""
-        from models import Materiale
-        
-        total_materials = self.db.query(Materiale).filter(
-            Materiale.preventivo_id == preventivo.id
-        ).count()
-        
-        total_price = 0.0
-        if hasattr(preventivo, "total_price"):
-            total_price = preventivo.total_price or 0.0
-        elif hasattr(preventivo, "totale_materiali"):
-            total_price = preventivo.totale_materiali or 0.0
-
-        return {
-            "active_rules": sorted(active_rules),
-            "materials_added": added,
-            "materials_removed": removed,
-            "total_materials": total_materials,
-            "total_price": total_price,
-            "warnings": self.warnings,
-            "errors": self.errors,
-        }
-
-    def _add_material(self, preventivo, material_data: Dict[str, Any], 
-                      rule_id: str, context: Dict[str, Any]) -> bool:
-        """Aggiunge materiale al preventivo con supporto placeholder e parametri."""
-        from models import Materiale
-        
-        try:
-            # Sostituisci placeholder nel codice e descrizione
-            codice = self._replace_placeholders(material_data.get("codice", ""), context)
-            descrizione = self._replace_placeholders(
-                material_data.get("descrizione", ""), context
-            )
-
-            # Se il codice è un riferimento a _calc, risolvilo
-            if codice.startswith("_calc."):
-                resolved = self._resolve_value(codice, context)
-                if resolved:
-                    codice = str(resolved)
-
-            if not codice:
-                self.warnings.append(f"add_material: codice vuoto per regola {rule_id}")
-                return False
-
-            # Verifica duplicato (stesso codice + stessa regola)
-            existing = self.db.query(Materiale).filter(
-                Materiale.preventivo_id == preventivo.id,
-                Materiale.codice == codice,
-                Materiale.regola_id == rule_id
-            ).first()
-
-            if existing:
-                return False
-
-            # Quantità e prezzo (possono essere riferimenti _calc)
-            quantita = self._resolve_numeric(material_data.get("quantita", 1.0), context)
-            prezzo_unitario = self._resolve_numeric(
-                material_data.get("prezzo_unitario", 0.0), context
-            )
-
-            # Estrai parametri da placeholder nel codice
-            parametri = self._extract_parameters(codice, context)
-
-            # Crea materiale
-            materiale = Materiale(
-                preventivo_id=preventivo.id,
-                codice=codice,
-                descrizione=descrizione,
-                categoria=material_data.get("categoria", "Materiale Automatico"),
-                quantita=quantita,
-                unita_misura=material_data.get("unita_misura", 
-                             material_data.get("unita", "pz")),
-                prezzo_unitario=prezzo_unitario,
-                prezzo_totale=quantita * prezzo_unitario,
-                aggiunto_da_regola=True,
-                regola_id=rule_id,
-                lato=material_data.get("lato"),
-                note=material_data.get("note"),
-                ordine=material_data.get("ordine", 0),
-            )
-
-            # Assegna parametri (fino a 5 slot)
-            if parametri:
-                for i, (nome, valore) in enumerate(parametri.items(), 1):
-                    if i <= 5:
-                        setattr(materiale, f"parametro{i}_nome", nome)
-                        setattr(materiale, f"parametro{i}_valore", str(valore))
-
-            self.db.add(materiale)
-            return True
-
-        except Exception as e:
-            self.errors.append(
-                f"Errore aggiunta materiale {material_data.get('codice')}: {e}"
-            )
-            return False
-
-    def _resolve_numeric(self, value: Any, context: Dict[str, Any]) -> float:
-        """Risolve un valore numerico, che può essere diretto o un riferimento _calc."""
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            if value.startswith("_calc."):
-                resolved = self._resolve_value(value, context)
-                if resolved is not None:
-                    try:
-                        return float(resolved)
-                    except (ValueError, TypeError):
-                        pass
-            try:
-                return float(value)
-            except (ValueError, TypeError):
-                pass
-        return 0.0
-
-    def _set_field(self, preventivo, action: Dict[str, Any], context: Dict[str, Any]):
-        """Imposta un campo nel preventivo o nelle sue sezioni (futuro)."""
-        # TODO: implementare set_field per modificare configurazione
-        field = action.get("field", "")
-        value = action.get("value")
-        self.warnings.append(f"set_field non ancora implementato: {field}={value}")
-
-    # ========================================================================
-    # UTILITY: debug context
-    # ========================================================================
-    def get_context_debug(self, preventivo) -> Dict[str, Any]:
-        """
-        Restituisce il context completo per debug/diagnostica.
-        Utile per capire cosa "vede" il rule engine.
-        """
-        context = self.build_config_context(preventivo)
-        return {
-            "preventivo_id": preventivo.id,
-            "total_keys": len(context),
-            "context": context,
-            "sezioni_dedicate_trovate": [
-                sez for sez, rel in SEZIONI_DEDICATE.items()
-                if getattr(preventivo, rel, None) is not None
-            ],
-        }
-
-    def simulate_pipeline(self, pipeline_rule: Dict[str, Any], 
-                          preventivo) -> Dict[str, Any]:
-        """
-        Simula l'esecuzione di una pipeline senza modificare il DB.
-        Utile per il preview nel frontend.
-        """
+    # ====================================================================
+    # TEST_RULES — SIMULAZIONE SENZA SIDE-EFFECTS
+    # ====================================================================
+    def test_rules(self, preventivo, override_context=None) -> Dict:
         self.warnings = []
         self.errors = []
-        
-        context = self.build_config_context(preventivo)
-        
-        step_results = []
-        steps = pipeline_rule.get("pipeline_steps", [])
-        
-        for i, step in enumerate(steps):
-            action = step.get("action", "")
-            before_keys = set(context.keys())
-            
-            try:
-                if action == "collect_sum":
-                    self._exec_collect_sum(step, context, preventivo)
-                elif action == "math_expr":
-                    self._exec_math_expr(step, context)
-                elif action == "catalog_select":
-                    self._exec_catalog_select(step, context)
-                elif action == "lookup_each":
-                    self._exec_lookup_each(step, context)
-                elif action == "group_sum":
-                    self._exec_group_sum(step, context)
-                elif action == "multi_match":
-                    self._exec_multi_match(step, context)
-                elif action == "add_material":
-                    pass  # Non eseguiamo in simulazione
-                
-                # Trova le chiavi nuove aggiunte
-                new_keys = set(context.keys()) - before_keys
-                new_values = {k: context[k] for k in new_keys}
-                
-                step_results.append({
-                    "step": i,
-                    "action": action,
-                    "status": "ok",
-                    "output": new_values,
-                })
-            except Exception as e:
-                step_results.append({
-                    "step": i,
-                    "action": action,
-                    "status": "error",
-                    "error": str(e),
-                })
+        self._data_cache = {}
 
-        return {
-            "steps": step_results,
-            "final_context_calc": {
-                k: v for k, v in context.items() if k.startswith("_calc.")
-            },
+        ctx = self.build_config_context(preventivo)
+        if override_context and isinstance(override_context, dict):
+            for k, v in override_context.items():
+                ctx[k] = _conv(v)
+
+        report: Dict[str, Any] = {
+            "preventivo_id": preventivo.id,
+            "context_initial": dict(sorted(
+                ((k, v) for k, v in ctx.items() if not k.startswith("_")),
+                key=lambda x: x[0]
+            )),
+            "context_after_lookups": {},
+            "lookup_results": [],
+            "pipeline_results": [],
+            "material_results": [],
+            "rules_loaded": [],
+            "summary": {},
+        }
+
+        all_rules = self.load_all_rules()
+        report["rules_loaded"] = [
+            {"id": r.get("id"), "enabled": r.get("enabled", True),
+             "priority": r.get("priority", r.get("priorita")),
+             "type": "pipeline" if self._is_pipeline(r) else ("lookup" if self._is_lookup(r) else "material"),
+             "has_add_material": self._has_materials(r) or self._is_pipeline(r),
+             "source": r.get("source", "?")}
+            for r in all_rules
+        ]
+
+        lookup_rules = [r for r in all_rules if self._is_lookup(r)]
+        pipeline_rules_list = [r for r in all_rules if self._is_pipeline(r)]
+        mat_rules = [r for r in all_rules
+                     if not self._is_lookup(r) and not self._is_pipeline(r)]
+
+        # PASS 1: Lookup test
+        for rule in lookup_rules:
+            rid = rule.get("id", "unknown")
+            rr: Dict[str, Any] = {
+                "rule_id": rid, "enabled": rule.get("enabled", True),
+                "conditions_detail": [], "conditions_result": False,
+                "actions_result": []
+            }
+
+            if not rr["enabled"]:
+                rr["skip_reason"] = "disabled"
+                report["lookup_results"].append(rr)
+                continue
+
+            # Valuta condizioni
+            conds = rule.get("conditions", [])
+            if isinstance(conds, list) and len(conds) > 0:
+                all_ok = True
+                for c in conds:
+                    actual = self._resolve(c.get("field", ""), ctx)
+                    res = self._eval_cond(c, ctx)
+                    rr["conditions_detail"].append({
+                        "field": c.get("field"), "operator": c.get("operator"),
+                        "expected": c.get("value"), "actual": actual, "result": res
+                    })
+                    if not res:
+                        all_ok = False
+                rr["conditions_result"] = all_ok
+            else:
+                rr["conditions_result"] = True  # nessuna condizione = sempre attiva
+
+            if rr["conditions_result"]:
+                for action in rule.get("actions", []):
+                    at = action.get("action", "")
+
+                    # Check skip_if in test mode
+                    skip_expr = action.get("skip_if")
+                    skipped = self._eval_skip_if(skip_expr, ctx) if skip_expr else False
+
+                    ar: Dict[str, Any] = {"action": at, "tabella": action.get("tabella"), "skipped": skipped}
+
+                    if skipped:
+                        ar["skip_reason"] = f"skip_if: {skip_expr}"
+                        rr["actions_result"].append(ar)
+                        continue
+
+                    if at == "lookup_table":
+                        ar["input_field"] = action.get("input_field")
+                        ar["input_value"] = self._resolve(action.get("input_field", ""), ctx)
+                        pf = action.get("partition_field")
+                        if pf:
+                            ar["partition_field"] = pf
+                            ar["partition_value"] = self._resolve(pf, ctx)
+                        ar["values_written"] = self._exec_lookup_table(action, ctx)
+                    elif at == "lookup_multi":
+                        inputs_debug = []
+                        for inf in action.get("input_fields", []):
+                            inputs_debug.append({
+                                "field": inf.get("field") or inf.get("fields"),
+                                "type": inf.get("type", "single"),
+                                "match": inf.get("match"),
+                                "resolved": self._resolve_input_field(inf, ctx),
+                            })
+                        ar["inputs"] = inputs_debug
+                        # Cattura warnings prima/dopo per diagnostica
+                        warnings_before = len(self.warnings)
+                        errors_before = len(self.errors)
+                        ar["values_written"] = self._exec_lookup_multi(action, ctx)
+                        # Mostra nuovi warnings/errors generati
+                        ar["debug_warnings"] = self.warnings[warnings_before:]
+                        ar["debug_errors"] = self.errors[errors_before:]
+                        # Mostra info data table
+                        tbl = self._load_data(action.get("tabella", ""))
+                        if tbl:
+                            ar["debug_table_tipo"] = tbl.get("tipo")
+                            ar["debug_table_partizioni"] = list(tbl.get("partizioni", {}).keys()) if "partizioni" in tbl else "N/A"
+                        else:
+                            ar["debug_table_found"] = False
+                    elif at == "catalog_match":
+                        ar["values_written"] = self._exec_catalog_match(action, ctx)
+                    elif at == "set_field":
+                        self._exec_set_field(action, ctx)
+                        ar["field"] = action.get("field")
+                        ar["result_value"] = self._resolve(action.get("field", ""), ctx)
+                    elif at == "add_material":
+                        mat = action.get("material", {})
+                        code_raw = mat.get("codice", "")
+                        code_res = self._replace_ph(code_raw, ctx)
+                        desc_res = self._replace_ph(mat.get("descrizione", ""), ctx)
+                        ar["material"] = {
+                            "codice_template": code_raw,
+                            "codice_resolved": code_res,
+                            "descrizione": desc_res,
+                            "quantita": mat.get("quantita", 1),
+                            "unresolved": "{{" in code_res,
+                        }
+                    rr["actions_result"].append(ar)
+
+            # Materiali da _value_mappings
+            if rr["conditions_result"]:
+                rr["value_mapping_materials"] = self._simulate_value_mapping_materials(rule, ctx)
+                rr["record_materials"] = self._simulate_matched_record_materials(ctx)
+                # Pulisci pending dopo simulazione
+                ctx.pop("_pending_materials", None)
+
+            report["lookup_results"].append(rr)
+
+        report["context_after_lookups"] = {
+            k: v for k, v in ctx.items() if k.startswith("_calc.")
+        }
+
+        # PASS 1.5: Pipeline test
+        for rule in pipeline_rules_list:
+            rid = rule.get("id", "unknown")
+            pr: Dict[str, Any] = {
+                "rule_id": rid, "enabled": rule.get("enabled", True),
+                "conditions_result": False, "step_results": [],
+                "materials_would_add": [],
+            }
+
+            if not pr["enabled"]:
+                pr["skip_reason"] = "disabled"
+                report["pipeline_results"].append(pr)
+                continue
+
+            conds = rule.get("conditions", [])
+            if isinstance(conds, list) and len(conds) > 0:
+                all_ok = True
+                for c in conds:
+                    if not self._eval_cond(c, ctx):
+                        all_ok = False
+                pr["conditions_result"] = all_ok
+            else:
+                pr["conditions_result"] = True
+
+            if pr["conditions_result"]:
+                steps = rule.get("pipeline_steps", [])
+                for i, step in enumerate(steps):
+                    result = self._exec_pipeline_step(
+                        step, ctx, preventivo=None, dry_run=True)
+                    sr = {
+                        "step": i,
+                        "action": step.get("action", ""),
+                        "status": result["status"],
+                        "output": result.get("output", {}),
+                        "error": result.get("error"),
+                    }
+                    pr["step_results"].append(sr)
+                    if step.get("action") == "add_material" and result["status"] == "ok":
+                        pr["materials_would_add"].append(result.get("output", {}))
+                    if result["status"] == "error":
+                        break
+
+            report["pipeline_results"].append(pr)
+
+        # Aggiorna context dopo pipelines
+        report["context_after_pipelines"] = {
+            k: v for k, v in ctx.items() if k.startswith("_calc.")
+        }
+
+        # PASS 2: Material test
+        for rule in mat_rules:
+            rid = rule.get("id", "unknown")
+            rr = {
+                "rule_id": rid, "enabled": rule.get("enabled", True),
+                "conditions_detail": [], "conditions_result": False,
+                "materials_would_add": []
+            }
+
+            if not rr["enabled"]:
+                rr["skip_reason"] = "disabled"
+                report["material_results"].append(rr)
+                continue
+
+            conds = rule.get("conditions", [])
+            if isinstance(conds, list) and len(conds) > 0:
+                all_ok = True
+                for c in conds:
+                    actual = self._resolve(c.get("field", ""), ctx)
+                    res = self._eval_cond(c, ctx)
+                    rr["conditions_detail"].append({
+                        "field": c.get("field"), "operator": c.get("operator"),
+                        "expected": c.get("value"), "actual": actual, "result": res
+                    })
+                    if not res:
+                        all_ok = False
+                rr["conditions_result"] = all_ok
+            else:
+                rr["conditions_result"] = self.should_apply(rule, ctx)
+
+            if rr["conditions_result"]:
+                # Esegui set_field per avere context aggiornato
+                for action in rule.get("actions", []):
+                    if action.get("action") == "set_field":
+                        skip_expr = action.get("skip_if")
+                        if skip_expr and self._eval_skip_if(skip_expr, ctx):
+                            continue
+                        self._exec_set_field(action, ctx)
+
+                # Simula add_material da actions
+                for action in rule.get("actions", []):
+                    if action.get("action") == "add_material":
+                        skip_expr = action.get("skip_if")
+                        skipped = self._eval_skip_if(skip_expr, ctx) if skip_expr else False
+                        if skipped:
+                            continue
+                        mat = action.get("material", {})
+                        code_raw = mat.get("codice", "")
+                        code_res = self._replace_ph(code_raw, ctx)
+                        desc_res = self._replace_ph(mat.get("descrizione", ""), ctx)
+                        rr["materials_would_add"].append({
+                            "codice_template": code_raw,
+                            "codice_resolved": code_res,
+                            "descrizione": desc_res,
+                            "quantita": mat.get("quantita", 1),
+                            "unresolved": "{{" in code_res,
+                        })
+
+                # Legacy materials
+                for mat in rule.get("materials", []):
+                    code_raw = mat.get("codice", "")
+                    code_res = self._replace_ph(code_raw, ctx)
+                    desc_res = self._replace_ph(mat.get("descrizione", ""), ctx)
+                    rr["materials_would_add"].append({
+                        "codice_template": code_raw,
+                        "codice_resolved": code_res,
+                        "descrizione": desc_res,
+                        "quantita": mat.get("quantita", 1),
+                        "unresolved": "{{" in code_res,
+                    })
+
+            report["material_results"].append(rr)
+
+        # Summary
+        active_l = [r for r in report["lookup_results"] if r.get("conditions_result")]
+        active_p = [r for r in report["pipeline_results"] if r.get("conditions_result")]
+        active_m = [r for r in report["material_results"] if r.get("conditions_result")]
+        vm_materials = sum(len(r.get("value_mapping_materials", [])) for r in active_l)
+        record_materials = sum(len(r.get("record_materials", [])) for r in active_l)
+        # Conta anche add_material nelle lookup rules
+        lookup_add_mat = sum(
+            len([a for a in r.get("actions_result", []) if a.get("action") == "add_material" and not a.get("skipped")])
+            for r in active_l
+        )
+        pipeline_materials = sum(len(r.get("materials_would_add", [])) for r in active_p)
+        report["summary"] = {
+            "total_rules": len(all_rules),
+            "lookup_rules": len(lookup_rules),
+            "pipeline_rules": len(pipeline_rules_list),
+            "material_rules": len(mat_rules),
+            "active_lookups": len(active_l),
+            "active_pipelines": len(active_p),
+            "active_materials": len(active_m),
+            "materials_would_add": (
+                sum(len(r.get("materials_would_add", [])) for r in active_m)
+                + vm_materials
+                + record_materials
+                + lookup_add_mat
+                + pipeline_materials
+            ),
+            "vm_materials": vm_materials,
+            "record_materials": record_materials,
+            "lookup_add_materials": lookup_add_mat,
+            "pipeline_materials": pipeline_materials,
+            "calc_values": len(report.get("context_after_pipelines", report["context_after_lookups"])),
             "warnings": self.warnings,
             "errors": self.errors,
         }
+        return report
+
+    # ====================================================================
+    # DEBUG
+    # ====================================================================
+    def get_context_debug(self, preventivo):
+        ctx = self.build_config_context(preventivo)
+        return {
+            "preventivo_id": preventivo.id,
+            "total_keys": len(ctx),
+            "context": dict(sorted(ctx.items())),
+            "sezioni_trovate": [t for t in TABELLE_DEDICATE if self._table_columns(t)],
+        }
+
+    # ====================================================================
+    # UTILITY
+    # ====================================================================
+    def _update_totale(self, preventivo):
+        try:
+            row = self.db.execute(text(
+                "SELECT COALESCE(SUM(prezzo_totale), 0) FROM materiali WHERE preventivo_id=:pid"
+            ), {"pid": preventivo.id}).fetchone()
+            tot = float(row[0]) if row else 0
+            if hasattr(preventivo, "totale_materiali"):
+                preventivo.totale_materiali = tot
+            self.db.commit()
+        except Exception:
+            pass
+
+    def _make_result(self, active, added, removed, preventivo):
+        row = self.db.execute(text(
+            "SELECT COUNT(*) FROM materiali WHERE preventivo_id=:pid"
+        ), {"pid": preventivo.id}).fetchone()
+        tc = row[0] if row else 0
+        tp = getattr(preventivo, "totale_materiali", 0) or 0
+        return {
+            "active_rules": sorted(active), "materials_added": added,
+            "materials_removed": removed, "total_materials": tc,
+            "total_price": tp, "warnings": self.warnings, "errors": self.errors
+        }
+
+
+# ====================================================================
+# MODULO-LEVEL UTILITY
+# ====================================================================
+def _conv(v):
+    if v is None:
+        return None
+    if isinstance(v, (int, float, bool)):
+        return v
+    s = str(v).strip()
+    if not s:
+        return s
+    try:
+        return int(s)
+    except ValueError:
+        pass
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    return s

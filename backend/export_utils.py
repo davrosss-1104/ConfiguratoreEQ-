@@ -1147,3 +1147,381 @@ def genera_xlsx_ordine(ordine_data, materiali, esplosi=None, lista_acquisti=None
     wb.save(buf)
     buf.seek(0)
     return buf
+
+
+# ═══════════════════════════════════════════════════════
+# DOCX: CONFERMA D'ORDINE
+# ═══════════════════════════════════════════════════════
+# DA APPENDERE IN FONDO A export_utils.py
+
+def genera_docx_conferma_ordine(ordine_data, cliente_data, materiali,
+                                 config_azienda=None, preventivo_info=None):
+    """
+    Genera un documento DOCX "Conferma d'Ordine" professionale.
+    Include: intestazione azienda, dati ordine, anagrafica cliente,
+    elenco materiali con prezzi, condizioni, spazio firme.
+    """
+    from docx import Document
+    from docx.shared import Pt, Cm, RGBColor, Inches, Emu
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.oxml.ns import qn
+
+    doc = Document()
+
+    # ── Stile base ──
+    style = doc.styles['Normal']
+    style.font.name = 'Arial'
+    style.font.size = Pt(10)
+    style.paragraph_format.space_after = Pt(2)
+    style.paragraph_format.space_before = Pt(2)
+
+    # Margini pagina
+    for section in doc.sections:
+        section.top_margin = Cm(2)
+        section.bottom_margin = Cm(2)
+        section.left_margin = Cm(2.5)
+        section.right_margin = Cm(2)
+
+    config = config_azienda or {}
+    nome_azienda = config.get('azienda_ragione_sociale', 'AZIENDA')
+    indirizzo_azienda = config.get('azienda_indirizzo', '')
+    citta_azienda = config.get('azienda_citta', '')
+    piva_azienda = config.get('azienda_partita_iva', '')
+    tel_azienda = config.get('azienda_telefono', '')
+    email_azienda = config.get('azienda_email', '')
+    pec_azienda = config.get('azienda_pec', '')
+
+    # ══════════════════════════════════════════
+    # INTESTAZIONE AZIENDA
+    # ══════════════════════════════════════════
+    h = doc.add_heading(nome_azienda, level=1)
+    h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    for run in h.runs:
+        run.font.color.rgb = RGBColor(0x1A, 0x3C, 0x6E)
+        run.font.size = Pt(18)
+
+    if indirizzo_azienda or citta_azienda:
+        p_addr = doc.add_paragraph()
+        p_addr.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run_addr = p_addr.add_run(f"{indirizzo_azienda}")
+        if citta_azienda:
+            run_addr = p_addr.add_run(f" - {citta_azienda}")
+        run_addr.font.size = Pt(8)
+        run_addr.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+
+    if piva_azienda:
+        p_piva = doc.add_paragraph()
+        p_piva.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r = p_piva.add_run(f"P.IVA: {piva_azienda}")
+        r.font.size = Pt(8)
+        r.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+        if tel_azienda:
+            r2 = p_piva.add_run(f"  |  Tel: {tel_azienda}")
+            r2.font.size = Pt(8)
+            r2.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+        if email_azienda:
+            r3 = p_piva.add_run(f"  |  {email_azienda}")
+            r3.font.size = Pt(8)
+            r3.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+
+    # ── Linea separatrice ──
+    doc.add_paragraph('_' * 80).runs[0].font.color.rgb = RGBColor(0xCC, 0xCC, 0xCC)
+
+    # ══════════════════════════════════════════
+    # TITOLO DOCUMENTO
+    # ══════════════════════════════════════════
+    h2 = doc.add_heading('CONFERMA D\'ORDINE', level=1)
+    h2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    for run in h2.runs:
+        run.font.color.rgb = RGBColor(0x1A, 0x3C, 0x6E)
+        run.font.size = Pt(16)
+
+    numero_ordine = ordine_data.get('numero_ordine', '')
+    p_num = doc.add_paragraph()
+    p_num.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r_num = p_num.add_run(f"N° {numero_ordine}")
+    r_num.font.size = Pt(14)
+    r_num.font.bold = True
+
+    data_doc = datetime.now().strftime("%d/%m/%Y")
+    p_data = doc.add_paragraph()
+    p_data.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r_data = p_data.add_run(f"Data: {data_doc}")
+    r_data.font.size = Pt(10)
+    r_data.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+
+    doc.add_paragraph()  # spaziatura
+
+    # ══════════════════════════════════════════
+    # DATI CLIENTE (DESTINATARIO)
+    # ══════════════════════════════════════════
+    doc.add_heading('Dati Cliente', level=2)
+
+    t_cl = doc.add_table(rows=6, cols=2)
+    t_cl.style = 'Table Grid'
+    t_cl.alignment = WD_TABLE_ALIGNMENT.LEFT
+
+    rag_soc = cliente_data.get('ragione_sociale', ordine_data.get('cliente', ''))
+    indirizzo = cliente_data.get('indirizzo', '')
+    citta = cliente_data.get('citta', '')
+    prov = cliente_data.get('provincia', '')
+    cap = cliente_data.get('cap', '')
+    piva = cliente_data.get('partita_iva', '')
+    cf = cliente_data.get('codice_fiscale', '')
+    tel = cliente_data.get('telefono', '')
+    email = cliente_data.get('email', '')
+    pec = cliente_data.get('pec', '')
+
+    luogo = f"{cap} {citta}".strip()
+    if prov:
+        luogo += f" ({prov})"
+
+    righe_cliente = [
+        ('Ragione Sociale', safe_str(rag_soc)),
+        ('Indirizzo', safe_str(indirizzo)),
+        ('Città', luogo),
+        ('P.IVA', safe_str(piva)),
+        ('C.F.', safe_str(cf)),
+        ('Contatti', f"Tel: {safe_str(tel)}  |  Email: {safe_str(email)}"),
+    ]
+
+    for i, (label, value) in enumerate(righe_cliente):
+        cell_l = t_cl.cell(i, 0)
+        cell_v = t_cl.cell(i, 1)
+        cell_l.text = label
+        cell_v.text = value
+        for run in cell_l.paragraphs[0].runs:
+            run.font.bold = True
+            run.font.size = Pt(9)
+        for run in cell_v.paragraphs[0].runs:
+            run.font.size = Pt(9)
+
+    # ══════════════════════════════════════════
+    # DATI ORDINE
+    # ══════════════════════════════════════════
+    doc.add_paragraph()
+    doc.add_heading('Dati Ordine', level=2)
+
+    t_ord = doc.add_table(rows=5, cols=4)
+    t_ord.style = 'Table Grid'
+
+    rif_cliente = ordine_data.get('riferimento_cliente', '')
+    tipo_imp = ordine_data.get('tipo_impianto', '')
+    totale_mat = ordine_data.get('totale_materiali', 0) or 0
+    totale_netto = ordine_data.get('totale_netto', 0) or totale_mat
+    lead_time = ordine_data.get('lead_time_giorni', 15) or 15
+    data_consegna = ordine_data.get('data_consegna_prevista', '')
+    if data_consegna and len(data_consegna) >= 10:
+        try:
+            data_consegna = datetime.fromisoformat(data_consegna[:19]).strftime("%d/%m/%Y")
+        except Exception:
+            data_consegna = data_consegna[:10]
+    data_creazione = ordine_data.get('created_at', '')
+    if data_creazione and len(data_creazione) >= 10:
+        try:
+            data_creazione = datetime.fromisoformat(data_creazione[:19]).strftime("%d/%m/%Y")
+        except Exception:
+            data_creazione = data_creazione[:10]
+
+    # Riferimento preventivo
+    rif_prev = ''
+    if preventivo_info:
+        rif_prev = f"PREV-{preventivo_info.get('id', '')}"
+        if preventivo_info.get('revisione_corrente'):
+            rif_prev += f" (REV.{preventivo_info['revisione_corrente']})"
+
+    info_ordine = [
+        ('N° Ordine', safe_str(numero_ordine), 'Data', safe_str(data_creazione)),
+        ('Rif. Preventivo', safe_str(rif_prev), 'Rif. Cliente', safe_str(rif_cliente)),
+        ('Tipo Impianto', safe_str(tipo_imp), 'Lead Time', f"{lead_time} giorni lavorativi"),
+        ('Consegna Prevista', safe_str(data_consegna), '', ''),
+        ('Totale Ordine', fmt_euro(totale_netto), '', ''),
+    ]
+
+    for i, (l1, v1, l2, v2) in enumerate(info_ordine):
+        t_ord.cell(i, 0).text = l1
+        t_ord.cell(i, 1).text = v1
+        t_ord.cell(i, 2).text = l2
+        t_ord.cell(i, 3).text = v2
+        for j in [0, 2]:
+            for run in t_ord.cell(i, j).paragraphs[0].runs:
+                run.font.bold = True
+                run.font.size = Pt(9)
+        for j in [1, 3]:
+            for run in t_ord.cell(i, j).paragraphs[0].runs:
+                run.font.size = Pt(9)
+
+    # Riga totale in grassetto
+    for run in t_ord.cell(4, 1).paragraphs[0].runs:
+        run.font.bold = True
+        run.font.size = Pt(11)
+        run.font.color.rgb = RGBColor(0x1A, 0x3C, 0x6E)
+
+    # ══════════════════════════════════════════
+    # ELENCO MATERIALI
+    # ══════════════════════════════════════════
+    if materiali:
+        doc.add_paragraph()
+        doc.add_heading('Elenco Materiali', level=2)
+
+        t_mat = doc.add_table(rows=1, cols=5)
+        t_mat.style = 'Table Grid'
+
+        headers = ['Codice', 'Descrizione', 'Qtà', 'Prezzo Unit.', 'Totale']
+        for i, h_text in enumerate(headers):
+            cell = t_mat.rows[0].cells[i]
+            cell.text = h_text
+            for run in cell.paragraphs[0].runs:
+                run.font.bold = True
+                run.font.size = Pt(9)
+            # Sfondo intestazione
+            shading = cell._element.get_or_add_tcPr()
+            shading_el = shading.makeelement(qn('w:shd'), {
+                qn('w:fill'): '1A3C6E',
+                qn('w:color'): 'auto',
+                qn('w:val'): 'clear',
+            })
+            shading.append(shading_el)
+            for run in cell.paragraphs[0].runs:
+                run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+
+        _set_repeat_header_row(t_mat)
+
+        subtotale = 0
+        for m in materiali:
+            row = t_mat.add_row().cells
+            codice = getattr(m, 'codice', '') or ''
+            descrizione = getattr(m, 'descrizione', '') or ''
+            quantita = getattr(m, 'quantita', 1) or 1
+            prezzo_unit = getattr(m, 'prezzo_unitario', 0) or 0
+            prezzo_tot = getattr(m, 'prezzo_totale', 0) or 0
+            subtotale += prezzo_tot
+
+            row[0].text = safe_str(codice)
+            row[1].text = safe_str(descrizione)
+            row[2].text = str(quantita)
+            row[3].text = fmt_euro(prezzo_unit)
+            row[4].text = fmt_euro(prezzo_tot)
+
+            for cell in row:
+                for run in cell.paragraphs[0].runs:
+                    run.font.size = Pt(9)
+
+        # Riga totale
+        row_tot = t_mat.add_row().cells
+        row_tot[0].text = ''
+        row_tot[1].text = ''
+        row_tot[2].text = ''
+        row_tot[3].text = 'SUBTOTALE'
+        row_tot[4].text = fmt_euro(subtotale)
+        for run in row_tot[3].paragraphs[0].runs:
+            run.font.bold = True
+            run.font.size = Pt(10)
+        for run in row_tot[4].paragraphs[0].runs:
+            run.font.bold = True
+            run.font.size = Pt(10)
+            run.font.color.rgb = RGBColor(0x1A, 0x3C, 0x6E)
+
+    # ══════════════════════════════════════════
+    # CONDIZIONI
+    # ══════════════════════════════════════════
+    doc.add_paragraph()
+    doc.add_heading('Condizioni', level=2)
+
+    cond_pagamento = ordine_data.get('condizioni_pagamento', '')
+    cond_consegna = ordine_data.get('condizioni_consegna', '')
+
+    if cond_pagamento:
+        p = doc.add_paragraph()
+        r = p.add_run('Pagamento: ')
+        r.font.bold = True
+        r.font.size = Pt(10)
+        r2 = p.add_run(cond_pagamento)
+        r2.font.size = Pt(10)
+    else:
+        p = doc.add_paragraph()
+        r = p.add_run('Pagamento: ')
+        r.font.bold = True
+        r.font.size = Pt(10)
+        r2 = p.add_run('Come da accordi')
+        r2.font.size = Pt(10)
+
+    if cond_consegna:
+        p = doc.add_paragraph()
+        r = p.add_run('Consegna: ')
+        r.font.bold = True
+        r.font.size = Pt(10)
+        r2 = p.add_run(cond_consegna)
+        r2.font.size = Pt(10)
+    else:
+        p = doc.add_paragraph()
+        r = p.add_run('Consegna: ')
+        r.font.bold = True
+        r.font.size = Pt(10)
+        r2 = p.add_run(f"Entro {lead_time} giorni lavorativi dalla data del presente ordine")
+        r2.font.size = Pt(10)
+
+    p = doc.add_paragraph()
+    r = p.add_run('Validità: ')
+    r.font.bold = True
+    r.font.size = Pt(10)
+    r2 = p.add_run('30 giorni dalla data del presente documento')
+    r2.font.size = Pt(10)
+
+    # Note
+    note = ordine_data.get('note', '')
+    if note:
+        doc.add_paragraph()
+        doc.add_heading('Note', level=2)
+        p = doc.add_paragraph(note)
+        p.runs[0].font.size = Pt(10)
+
+    # ══════════════════════════════════════════
+    # FIRME
+    # ══════════════════════════════════════════
+    doc.add_paragraph()
+    doc.add_paragraph()
+    doc.add_paragraph('_' * 80).runs[0].font.color.rgb = RGBColor(0xCC, 0xCC, 0xCC)
+
+    t_firme = doc.add_table(rows=4, cols=2)
+    t_firme.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+    t_firme.cell(0, 0).text = 'Per accettazione del Committente'
+    t_firme.cell(0, 1).text = f'Per {nome_azienda}'
+    for j in range(2):
+        for run in t_firme.cell(0, j).paragraphs[0].runs:
+            run.font.bold = True
+            run.font.size = Pt(10)
+        t_firme.cell(0, j).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Spazio firma
+    t_firme.cell(1, 0).text = ''
+    t_firme.cell(1, 1).text = ''
+
+    t_firme.cell(2, 0).text = '________________________________'
+    t_firme.cell(2, 1).text = '________________________________'
+    for j in range(2):
+        t_firme.cell(2, j).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    t_firme.cell(3, 0).text = 'Firma e timbro'
+    t_firme.cell(3, 1).text = 'Firma e timbro'
+    for j in range(2):
+        for run in t_firme.cell(3, j).paragraphs[0].runs:
+            run.font.size = Pt(8)
+            run.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
+        t_firme.cell(3, j).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # ── FOOTER ──
+    doc.add_paragraph()
+    footer = doc.add_paragraph()
+    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r = footer.add_run(f'Documento generato il {datetime.now().strftime("%d/%m/%Y %H:%M")}')
+    r.font.size = Pt(7)
+    r.font.color.rgb = RGBColor(0xAA, 0xAA, 0xAA)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf
+
