@@ -1,94 +1,99 @@
 """
 migrate_ordini_stati.py
-Aggiunge la tabella ordini_storico_stato e le colonne mancanti alla tabella ordini
-per supportare la macchina a stati e la timeline.
+========================
+Migrazione per la macchina a stati degli ordini.
+
+Aggiunge:
+  - Tabella ordini_storico_stato (timeline transizioni)
+  - Colonna ordini.stato_precedente (per resume da sospeso)
+
+Eseguire: python migrate_ordini_stati.py [db_path]
+Sicuro da eseguire più volte (skip se già presente).
 """
+
 import sqlite3
 import sys
-import os
-import shutil
 from datetime import datetime
 
 
-def migrate(db_path: str):
-    if not os.path.exists(db_path):
-        print(f"[ERRORE] DB non trovato: {db_path}")
-        sys.exit(1)
+def column_exists(cursor, table_name, column_name):
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    return column_name in [row[1] for row in cursor.fetchall()]
 
-    # Backup
-    backup = f"{db_path}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    shutil.copy2(db_path, backup)
-    print(f"[OK] Backup: {backup}")
 
+def table_exists(cursor, table_name):
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+    return cursor.fetchone() is not None
+
+
+def migrate(db_path="configuratore.db"):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
+    now = datetime.now().isoformat()
 
-    # ── 1. Tabella storico stati ordine ──
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ordini_storico_stato (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ordine_id INTEGER NOT NULL,
-            stato_precedente TEXT,
-            stato_nuovo TEXT NOT NULL,
-            motivo TEXT,
-            utente TEXT,
-            created_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (ordine_id) REFERENCES ordini(id)
-        )
-    """)
-    print("[OK] Tabella ordini_storico_stato creata/verificata")
+    print("=" * 50)
+    print("MIGRAZIONE MACCHINA STATI ORDINI")
+    print("=" * 50)
 
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_storico_stato_ordine
-        ON ordini_storico_stato(ordine_id)
-    """)
-    print("[OK] Indice idx_storico_stato_ordine creato/verificato")
-
-    # ── 2. Aggiungi colonne mancanti a ordini ──
-    colonne_nuove = [
-        ("note", "TEXT"),
-        ("note_interne", "TEXT"),
-        ("condizioni_pagamento", "TEXT"),
-        ("condizioni_consegna", "TEXT"),
-        ("riferimento_cliente", "TEXT"),
-        ("data_cambio_stato", "TEXT"),
-        ("stato_precedente", "TEXT"),
-    ]
-
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ordini'")
-    if cursor.fetchone():
-        for col_name, col_type in colonne_nuove:
-            try:
-                cursor.execute(f"SELECT {col_name} FROM ordini LIMIT 1")
-            except sqlite3.OperationalError:
-                cursor.execute(f"ALTER TABLE ordini ADD COLUMN {col_name} {col_type}")
-                print(f"[OK] Colonna ordini.{col_name} aggiunta")
+    # ============================================================
+    # 1. Tabella ordini_storico_stato
+    # ============================================================
+    if not table_exists(cursor, "ordini_storico_stato"):
+        cursor.execute("""
+            CREATE TABLE ordini_storico_stato (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ordine_id INTEGER NOT NULL,
+                stato_da TEXT NOT NULL,
+                stato_a TEXT NOT NULL,
+                note TEXT,
+                created_by TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (ordine_id) REFERENCES ordini(id) ON DELETE CASCADE
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_storico_stato_ordine
+            ON ordini_storico_stato(ordine_id, created_at DESC)
+        """)
+        print("  ✅ Tabella ordini_storico_stato creata")
     else:
-        print("[WARN] Tabella ordini non esiste ancora, le colonne verranno aggiunte alla creazione")
+        print("  ⏭️  Tabella ordini_storico_stato già esiste")
 
-    # ── 3. Popola storico per ordini esistenti (se mancano record) ──
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ordini'")
-    if cursor.fetchone():
+    # ============================================================
+    # 2. Colonna ordini.stato_precedente (per resume da sospeso)
+    # ============================================================
+    if table_exists(cursor, "ordini"):
+        if not column_exists(cursor, "ordini", "stato_precedente"):
+            cursor.execute("ALTER TABLE ordini ADD COLUMN stato_precedente TEXT")
+            print("  ✅ Colonna ordini.stato_precedente aggiunta")
+        else:
+            print("  ⏭️  Colonna ordini.stato_precedente già esiste")
+
+        # ============================================================
+        # 3. Popola storico per ordini esistenti (entry iniziale)
+        # ============================================================
         cursor.execute("""
             SELECT o.id, o.stato, o.created_at
             FROM ordini o
             LEFT JOIN ordini_storico_stato s ON s.ordine_id = o.id
             WHERE s.id IS NULL
         """)
-        orfani = cursor.fetchall()
-        for oid, stato, created_at in orfani:
+        ordini_senza_storico = cursor.fetchall()
+        for oid, stato, created_at in ordini_senza_storico:
             cursor.execute("""
-                INSERT INTO ordini_storico_stato
-                (ordine_id, stato_precedente, stato_nuovo, motivo, utente, created_at)
-                VALUES (?, NULL, ?, 'Migrazione - stato iniziale', 'sistema', ?)
-            """, (oid, stato or 'confermato', created_at or datetime.now().isoformat()))
-            print(f"[OK] Storico iniziale per ordine #{oid} ({stato})")
+                INSERT INTO ordini_storico_stato (ordine_id, stato_da, stato_a, note, created_by, created_at)
+                VALUES (?, 'nuovo', ?, 'Stato iniziale (migrazione)', 'sistema', ?)
+            """, (oid, stato or 'confermato', created_at or now))
+            print(f"  ✅ Storico iniziale per ordine #{oid} ({stato})")
+
+    else:
+        print("  ⚠️  Tabella ordini non trovata - skip colonne aggiuntive")
 
     conn.commit()
     conn.close()
-    print("\n[DONE] Migrazione completata con successo!")
+    print("\n✅ Migrazione macchina stati completata")
 
 
 if __name__ == "__main__":
-    db_path = sys.argv[1] if len(sys.argv) > 1 else "configuratore.db"
-    migrate(db_path)
+    db = sys.argv[1] if len(sys.argv) > 1 else "configuratore.db"
+    migrate(db)

@@ -53,6 +53,7 @@ from api_permessi import router as permessi_router
 
 from moduli_attivabili import router as moduli_router, richiedi_modulo
 from fatturazione_api import router as fatturazione_router
+from ordini_stato import router as ordini_stato_router
 from starlette.responses import StreamingResponse
     
 
@@ -118,6 +119,7 @@ app.include_router(permessi_router)
 app.include_router(moduli_router)
 fatturazione_router.dependencies = [Depends(richiedi_modulo("fatturazione"))]
 app.include_router(fatturazione_router)
+app.include_router(ordini_stato_router)
 
 # ==========================================
 # DEPENDENCY
@@ -5702,161 +5704,6 @@ def api_get_ordine(ordine_id: int, db: Session = Depends(get_db)):
     return dict(zip(cols, r))
 
 # --- START BLOCCO A ---
-
-STATI_ORDINE = {
-    'confermato': {
-        'label': 'Confermato',
-        'color': 'green',
-        'transizioni': ['in_produzione', 'annullato'],
-    },
-    'in_produzione': {
-        'label': 'In Produzione',
-        'color': 'amber',
-        'transizioni': ['completato', 'annullato'],
-    },
-    'completato': {
-        'label': 'Completato',
-        'color': 'blue',
-        'transizioni': ['fatturato'],
-    },
-    'fatturato': {
-        'label': 'Fatturato',
-        'color': 'purple',
-        'transizioni': [],
-    },
-    'annullato': {
-        'label': 'Annullato',
-        'color': 'red',
-        'transizioni': [],
-    },
-}
-
-
-@app.get("/ordini/stati-config")
-def api_stati_config():
-    """Restituisce la configurazione degli stati ordine (per il frontend)"""
-    return STATI_ORDINE
-
-
-@app.put("/ordini/{ordine_id}/stato")
-def api_cambio_stato_ordine(ordine_id: int, body: dict, db: Session = Depends(get_db)):
-    """
-    Cambia lo stato di un ordine con validazione della macchina a stati.
-    Body: { stato: "in_produzione", motivo?: "...", utente?: "..." }
-    """
-    nuovo_stato = body.get("stato", "").strip()
-    motivo = body.get("motivo", "")
-    utente = body.get("utente", "sistema")
-
-    if not nuovo_stato:
-        raise HTTPException(400, "Campo 'stato' obbligatorio")
-
-    if nuovo_stato not in STATI_ORDINE:
-        raise HTTPException(400, f"Stato '{nuovo_stato}' non valido. Stati: {list(STATI_ORDINE.keys())}")
-
-    conn = db.get_bind().raw_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT id, stato, numero_ordine FROM ordini WHERE id = ?", (ordine_id,))
-    ordine = cursor.fetchone()
-    if not ordine:
-        raise HTTPException(404, "Ordine non trovato")
-
-    stato_attuale = ordine[1] or 'confermato'
-    numero_ordine = ordine[2]
-
-    # Validazione transizione
-    config_stato = STATI_ORDINE.get(stato_attuale)
-    if not config_stato:
-        raise HTTPException(400, f"Stato attuale '{stato_attuale}' non riconosciuto")
-
-    if nuovo_stato not in config_stato['transizioni']:
-        transizioni_valide = config_stato['transizioni'] or ['nessuna']
-        raise HTTPException(
-            400,
-            f"Transizione '{stato_attuale}' → '{nuovo_stato}' non consentita. "
-            f"Transizioni valide da '{stato_attuale}': {transizioni_valide}"
-        )
-
-    # Ensure storico table exists
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ordini_storico_stato (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ordine_id INTEGER NOT NULL,
-            stato_precedente TEXT,
-            stato_nuovo TEXT NOT NULL,
-            motivo TEXT,
-            utente TEXT,
-            created_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (ordine_id) REFERENCES ordini(id)
-        )
-    """)
-
-    # Aggiorna stato
-    # Aggiorna stato (senza colonne opzionali che potrebbero mancare)
-    try:
-        cursor.execute(
-            "UPDATE ordini SET stato = ?, stato_precedente = ?, data_cambio_stato = datetime('now'), updated_at = datetime('now') WHERE id = ?",
-            (nuovo_stato, stato_attuale, ordine_id)
-        )
-    except Exception:
-        cursor.execute(
-            "UPDATE ordini SET stato = ?, updated_at = datetime('now') WHERE id = ?",
-            (nuovo_stato, ordine_id)
-        )
-
-    # Inserisci record storico
-    cursor.execute(
-        "INSERT INTO ordini_storico_stato (ordine_id, stato_precedente, stato_nuovo, motivo, utente) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (ordine_id, stato_attuale, nuovo_stato, motivo, utente)
-    )
-
-    conn.commit()
-
-    return {
-        "ordine_id": ordine_id,
-        "numero_ordine": numero_ordine,
-        "stato_precedente": stato_attuale,
-        "stato_nuovo": nuovo_stato,
-        "transizioni_disponibili": STATI_ORDINE[nuovo_stato]['transizioni'],
-    }
-
-
-@app.get("/ordini/{ordine_id}/storico-stati")
-def api_storico_stati_ordine(ordine_id: int, db: Session = Depends(get_db)):
-    """Restituisce la timeline dei cambi stato di un ordine"""
-    conn = db.get_bind().raw_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT id FROM ordini WHERE id = ?", (ordine_id,))
-    if not cursor.fetchone():
-        raise HTTPException(404, "Ordine non trovato")
-
-    # Ensure table exists
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ordini_storico_stato (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ordine_id INTEGER NOT NULL,
-            stato_precedente TEXT,
-            stato_nuovo TEXT NOT NULL,
-            motivo TEXT,
-            utente TEXT,
-            created_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (ordine_id) REFERENCES ordini(id)
-        )
-    """)
-
-    cursor.execute(
-        "SELECT id, stato_precedente, stato_nuovo, motivo, utente, created_at "
-        "FROM ordini_storico_stato WHERE ordine_id = ? ORDER BY created_at ASC, id ASC",
-        (ordine_id,)
-    )
-    cols = [d[0] for d in cursor.description]
-    rows = [dict(zip(cols, r)) for r in cursor.fetchall()]
-
-    return {"ordine_id": ordine_id, "storico": rows}
-
 
 @app.put("/ordini/{ordine_id}")
 def api_update_ordine(ordine_id: int, body: dict, db: Session = Depends(get_db)):

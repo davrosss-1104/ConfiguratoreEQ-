@@ -753,7 +753,7 @@ function DocumentiTab() {
 
   const handleDownload = async (filename: string) => {
     try {
-      const res = await fetch(`${API_BASE}/examples/${filename}`);
+      const res = await fetch(`${API_BASE}/import-excel/esempio/${filename}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);

@@ -45,11 +45,13 @@ interface OrdineResult {
 
 const STATO_OPTIONS = [
   { value: '', label: 'Tutti gli stati' },
-  { value: 'confermato', label: 'Confermato' },
-  { value: 'in_produzione', label: 'In Produzione' },
-  { value: 'completato', label: 'Completato' },
-  { value: 'fatturato', label: 'Fatturato' },
-  { value: 'annullato', label: 'Annullato' },
+{ value: 'confermato', label: 'Confermato' },
+{ value: 'in_produzione', label: 'In Produzione' },
+{ value: 'completato', label: 'Completato' },
+{ value: 'spedito', label: 'Spedito' },
+{ value: 'fatturato', label: 'Fatturato' },
+{ value: 'sospeso', label: 'Sospeso' },
+{ value: 'annullato', label: 'Annullato' },
 ];
 
 const STATO_BADGE: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {

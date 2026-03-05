@@ -347,9 +347,9 @@ const HELP = {
   group_output_ex:
     'Prefix: _calc.va_per_tensione.\n\n→ _calc.va_per_tensione.24 = 43.75\n→ _calc.va_per_tensione.12 = 5.00\n(con power factor 0.8)',
   group_power:
-    'Campo del configuratore che contiene il fattore di potenza. Se compilato, i watt vengono divisi per questo valore per ottenere i VA.',
+    'Campo del configuratore da usare come divisore. Se compilato, il valore sommato viene diviso per questo numero (es. power factor, coefficiente di sicurezza, rendimento, ecc.).',
   group_power_ex:
-    'selezione_trasformatore.power_factor\n→ Valore: 0.8\n→ 35 watt / 0.8 = 43.75 VA',
+    'selezione_trasformatore.power_factor\n→ Valore: 0.8\n→ 35 / 0.8 = 43.75\n\nOppure qualsiasi altro campo: coefficiente_sicurezza, rendimento, ecc.',
 
   // MULTI_MATCH
   multi_tabella:
@@ -1187,13 +1187,13 @@ export default function PipelineBuilderPage() {
                     />
                   )}
                   {renderField(
-                    'Fattore di potenza (opzionale)',
+                    'Divisore / coefficiente (opzionale)',
                     HELP.group_power,
                     HELP.group_power_ex,
                     <Input
                       value={(step as any).power_factor || ''}
                       onChange={e => updateStep(step.id, { power_factor: e.target.value } as any)}
-                      placeholder="selezione_trasformatore.power_factor"
+                      placeholder="sezione.nome_campo  (es. power_factor, coefficiente...)"
                       className="h-7 text-xs font-mono mt-1"
                     />
                   )}
