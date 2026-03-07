@@ -5,7 +5,7 @@
  * 
  * v2 – UX migliorata: tooltip informativi, dropdown colonne, anteprima tabella
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -286,6 +286,136 @@ function ColumnSelect({
           placeholder="Valore personalizzato"
           className="h-7 text-xs font-mono mt-1"
         />
+      )}
+    </div>
+  );
+}
+
+// ======================================================
+// CALC REF PICKER — Input + bottone ⚡ per scegliere riferimenti _calc
+// ======================================================
+function CalcRefPicker({
+  value,
+  onChange,
+  placeholder,
+  className,
+  pipeline,
+  stepIndex,
+  tableColumns,
+  appendMode = false,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  className?: string;
+  pipeline: PipelineRule | null;
+  stepIndex: number;
+  tableColumns: Record<string, string[]>;
+  appendMode?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const refs = useMemo(() => {
+    if (!pipeline) return [];
+    const result: { label: string; refValue: string; group: string }[] = [];
+    const prevSteps = pipeline.pipeline_steps.slice(0, stepIndex);
+
+    for (const s of prevSteps) {
+      if (s.action === 'lookup_each') {
+        const prefix = (s as any).output_prefix || '_calc.util.';
+        const tabella = s.tabella;
+        const cols = tabella ? (tableColumns[tabella] || []) : [];
+        const p = prefix.endsWith('.') ? prefix.slice(0, -1) : prefix;
+        for (const col of cols) {
+          result.push({ group: `Lookup: ${tabella}`, label: `*.${col}`, refValue: `${p}.*.${col}` });
+        }
+      } else if (s.action === 'group_sum') {
+        const prefix = (s as any).output_prefix || '_calc.grouped.';
+        const p = prefix.endsWith('.') ? prefix.slice(0, -1) : prefix;
+        result.push({ group: 'Raggruppa (totali)', label: `${p}.[chiave]`, refValue: prefix });
+      } else if (s.action === 'collect_sum') {
+        const out = s.output || '';
+        if (out) result.push({ group: 'Somma', label: out, refValue: out });
+      } else if (s.action === 'math_expr') {
+        const out = s.output || '';
+        if (out) result.push({ group: 'Calcolo', label: out, refValue: out });
+      } else if (s.action === 'catalog_select' || s.action === 'multi_match') {
+        const prefix = s.output_prefix || '';
+        const tabella = s.tabella;
+        const cols = tabella ? (tableColumns[tabella] || []) : [];
+        const p = prefix.endsWith('.') ? prefix.slice(0, -1) : prefix;
+        for (const col of cols) {
+          result.push({ group: `Catalogo: ${tabella}`, label: col, refValue: `${p}.${col}` });
+        }
+      }
+    }
+    return result;
+  }, [pipeline, stepIndex, tableColumns]);
+
+  const grouped = useMemo(() =>
+    refs.reduce((acc, r) => {
+      if (!acc[r.group]) acc[r.group] = [];
+      acc[r.group].push(r);
+      return acc;
+    }, {} as Record<string, typeof refs>),
+    [refs]
+  );
+
+  const handlePick = (refValue: string) => {
+    if (appendMode) {
+      onChange(value ? `${value} ${refValue}` : refValue);
+    } else {
+      onChange(refValue);
+    }
+    setOpen(false);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  };
+
+  return (
+    <div className="relative mt-1">
+      <div className="flex gap-1">
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={`h-7 text-xs font-mono border rounded px-2 flex-1 bg-white ${className || ''}`}
+        />
+        {refs.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setOpen(o => !o)}
+            title="Scegli riferimento dai dati disponibili"
+            className="h-7 px-1.5 text-sm border rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border-indigo-200 shrink-0"
+          >
+            ⚡
+          </button>
+        )}
+      </div>
+      {open && refs.length > 0 && (
+        <div
+          className="absolute z-50 left-0 right-0 top-8 bg-white border rounded shadow-lg max-h-52 overflow-auto"
+          onMouseLeave={() => setOpen(false)}
+        >
+          {Object.entries(grouped).map(([group, items]) => (
+            <div key={group}>
+              <div className="px-2 py-1 bg-gray-50 text-gray-400 font-medium text-[10px] uppercase tracking-wide border-b">
+                {group}
+              </div>
+              {items.map((item, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => handlePick(item.refValue)}
+                  className="w-full text-left px-3 py-1.5 hover:bg-indigo-50 font-mono text-xs text-indigo-700 border-b border-gray-50"
+                >
+                  {item.refValue}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -1157,22 +1287,26 @@ export default function PipelineBuilderPage() {
                   'Valore da sommare (per ogni componente)',
                   HELP.group_pattern_value,
                   HELP.group_pattern_value_ex,
-                  <Input
+                  <CalcRefPicker
                     value={(step as any).pattern_value || ''}
-                    onChange={e => updateStep(step.id, { pattern_value: e.target.value } as any)}
+                    onChange={v => updateStep(step.id, { pattern_value: v } as any)}
                     placeholder="_calc.util.*.watt"
-                    className="h-7 text-xs font-mono mt-1"
+                    pipeline={pipeline}
+                    stepIndex={index}
+                    tableColumns={tableColumns}
                   />
                 )}
                 {renderField(
                   'Raggruppa per (campo di ogni componente)',
                   HELP.group_pattern_group,
                   HELP.group_pattern_group_ex,
-                  <Input
+                  <CalcRefPicker
                     value={(step as any).pattern_group || ''}
-                    onChange={e => updateStep(step.id, { pattern_group: e.target.value } as any)}
+                    onChange={v => updateStep(step.id, { pattern_group: v } as any)}
                     placeholder="_calc.util.*.tensione_uscita"
-                    className="h-7 text-xs font-mono mt-1"
+                    pipeline={pipeline}
+                    stepIndex={index}
+                    tableColumns={tableColumns}
                   />
                 )}
                 <div className="grid grid-cols-2 gap-2">
@@ -1190,11 +1324,13 @@ export default function PipelineBuilderPage() {
                     'Divisore / coefficiente (opzionale)',
                     HELP.group_power,
                     HELP.group_power_ex,
-                    <Input
+                    <CalcRefPicker
                       value={(step as any).power_factor || ''}
-                      onChange={e => updateStep(step.id, { power_factor: e.target.value } as any)}
+                      onChange={v => updateStep(step.id, { power_factor: v } as any)}
                       placeholder="sezione.nome_campo  (es. power_factor, coefficiente...)"
-                      className="h-7 text-xs font-mono mt-1"
+                      pipeline={pipeline}
+                      stepIndex={index}
+                      tableColumns={tableColumns}
                     />
                   )}
                 </div>
@@ -1293,11 +1429,13 @@ export default function PipelineBuilderPage() {
                   'Salva somma come →',
                   HELP.collect_output,
                   undefined,
-                  <Input
+                  <CalcRefPicker
                     value={step.output || ''}
-                    onChange={e => updateStep(step.id, { output: e.target.value })}
+                    onChange={v => updateStep(step.id, { output: v })}
                     placeholder="_calc.pipeline.totale_va_raw"
-                    className="h-7 text-xs font-mono mt-1"
+                    pipeline={pipeline}
+                    stepIndex={index}
+                    tableColumns={tableColumns}
                   />
                 )}
               </>
@@ -1311,11 +1449,14 @@ export default function PipelineBuilderPage() {
                   HELP.math_expression,
                   HELP.math_expression_ex,
                   <>
-                    <Input
+                    <CalcRefPicker
                       value={step.expression || ''}
-                      onChange={e => updateStep(step.id, { expression: e.target.value })}
+                      onChange={v => updateStep(step.id, { expression: v })}
                       placeholder="_calc.pipeline.totale_va_raw * 1.3"
-                      className="h-7 text-xs font-mono mt-1"
+                      pipeline={pipeline}
+                      stepIndex={index}
+                      tableColumns={tableColumns}
+                      appendMode={true}
                     />
                     <p className="text-[10px] text-gray-400 mt-0.5">
                       Operatori: +, -, *, /  — Riferimenti: _calc.xxx.yyy
@@ -1340,11 +1481,13 @@ export default function PipelineBuilderPage() {
                       'Salva risultato come →',
                       HELP.math_output,
                       undefined,
-                      <Input
+                      <CalcRefPicker
                         value={step.output || ''}
-                        onChange={e => updateStep(step.id, { output: e.target.value })}
+                        onChange={v => updateStep(step.id, { output: v })}
                         placeholder="_calc.pipeline.result"
-                        className="h-7 text-xs font-mono mt-1"
+                        pipeline={pipeline}
+                        stepIndex={index}
+                        tableColumns={tableColumns}
                       />
                     )}
                   </div>
@@ -1397,15 +1540,17 @@ export default function PipelineBuilderPage() {
                           <option value="<">{'<'} (minore)</option>
                           <option value="==">= (uguale)</option>
                         </select>
-                        <Input
+                        <CalcRefPicker
                           value={step.criterio?.valore || ''}
-                          onChange={e =>
+                          onChange={v =>
                             updateStep(step.id, {
-                              criterio: { ...step.criterio!, valore: e.target.value },
+                              criterio: { ...step.criterio!, valore: v },
                             })
                           }
                           placeholder="_calc.pipeline.xxx"
-                          className="h-7 text-xs font-mono"
+                          pipeline={pipeline}
+                          stepIndex={index}
+                          tableColumns={tableColumns}
                         />
                       </div>
                     </div>
@@ -1473,15 +1618,17 @@ export default function PipelineBuilderPage() {
                   'Codice articolo',
                   HELP.mat_codice,
                   HELP.mat_codice_ex,
-                  <Input
+                  <CalcRefPicker
                     value={step.material?.codice || ''}
-                    onChange={e =>
+                    onChange={v =>
                       updateStep(step.id, {
-                        material: { ...step.material!, codice: e.target.value },
+                        material: { ...step.material!, codice: v },
                       })
                     }
                     placeholder="_calc.trasformatore.codice_trasf"
-                    className="h-7 text-xs font-mono mt-1"
+                    pipeline={pipeline}
+                    stepIndex={index}
+                    tableColumns={tableColumns}
                   />
                 )}
                 {renderField(
@@ -1503,15 +1650,17 @@ export default function PipelineBuilderPage() {
                   'Quantità',
                   HELP.mat_qty,
                   undefined,
-                  <Input
+                  <CalcRefPicker
                     value={step.material?.quantita || ''}
-                    onChange={e =>
+                    onChange={v =>
                       updateStep(step.id, {
-                        material: { ...step.material!, quantita: e.target.value },
+                        material: { ...step.material!, quantita: v },
                       })
                     }
                     placeholder="1"
-                    className="h-7 text-xs font-mono mt-1"
+                    pipeline={pipeline}
+                    stepIndex={index}
+                    tableColumns={tableColumns}
                   />
                 )}
                 {renderField(

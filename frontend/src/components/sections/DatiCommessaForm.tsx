@@ -7,6 +7,10 @@ import { useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Calendar, Loader2, Clock, CheckCircle2 } from "lucide-react";
 import { ClienteSelector } from "../ClienteSelector";
+
+
+
+
 const API_BASE = 'http://localhost:8000';
 
 const datiCommessaSchema = z.object({
@@ -26,6 +30,27 @@ type DatiCommessaFormValues = z.infer<typeof datiCommessaSchema>;
 
 const inputClass = "w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors";
 const labelClass = "block text-sm font-medium text-gray-700 mb-1";
+
+
+function isoToIt(iso: string): string {
+  if (!iso) return '';
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(iso)) {
+    // già in formato gg/mm/aaaa → converti in YYYY-MM-DD per il browser
+    const [d, m, y] = iso.split('/');
+    return `${y}-${m}-${d}`;
+  }
+  return iso; // già ISO o formato sconosciuto
+}
+
+function itToIso(browserVal: string): string {
+  if (!browserVal) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(browserVal)) {
+    // formato YYYY-MM-DD → converti in gg/mm/aaaa
+    const [y, m, d] = browserVal.split('-');
+    return `${d}/${m}/${y}`;
+  }
+  return browserVal;
+}
 
 // Normalizza valori per confronto: null/undefined/"" â†’ "", numeri â†’ numeri
 function normalize(values: any): string {
@@ -86,7 +111,10 @@ export function DatiCommessaForm() {
       const res = await fetch(`${API_BASE}/preventivi/${preventivoId}/dati-commessa`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+        ...data,
+        data_offerta: itToIso(data.data_offerta || ""),
+      }),
       });
       if (!res.ok) throw new Error(`Errore salvataggio: ${res.status}`);
       return res.json();
@@ -109,7 +137,7 @@ export function DatiCommessaForm() {
 
     const formData: DatiCommessaFormValues = {
       numero_offerta: datiCommessa.numero_offerta || preventivo?.numero_preventivo || "",
-      data_offerta: datiCommessa.data_offerta || "",
+      data_offerta: isoToIt(datiCommessa.data_offerta || ""),
       riferimento_cliente: datiCommessa.riferimento_cliente || "",
       quantita: datiCommessa.quantita || null,
       data_consegna_richiesta: datiCommessa.data_consegna_richiesta || datiCommessa.consegna_richiesta || "",

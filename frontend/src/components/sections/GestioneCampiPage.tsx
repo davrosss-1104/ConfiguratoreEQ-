@@ -10,7 +10,7 @@ import {
   Plus, Trash2, Save, X, ChevronDown, ChevronRight,
   Settings, Edit2, Check, AlertCircle, Database, FileJson,
   Download, Copy, Search, ArrowRightLeft, Layers, Filter,
-  CheckSquare, Square, ExternalLink, List
+  CheckSquare, Square, ExternalLink, List, Zap, Calendar, Link2
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -65,6 +65,211 @@ interface ProductTemplate {
   nome_display: string;
 }
 
+// ==========================================
+// DEFAULT VALUE EXPRESSION ENGINE
+// ==========================================
+
+const GLOBALI_VAR = [
+  { id: 'TODAY', label: 'Data odierna (gg/mm/aaaa)', tipi: ['data', 'testo'] },
+  { id: 'YEAR',  label: 'Anno corrente',              tipi: ['numero', 'testo'] },
+  { id: 'MONTH', label: 'Mese corrente (numero)',     tipi: ['numero', 'testo'] },
+];
+
+type DefaultMode = 'fisso' | 'globale' | 'campo';
+
+function parseDefaultMode(v: string): DefaultMode {
+  if (!v) return 'fisso';
+  if (/^\{\{(TODAY|YEAR|MONTH)/.test(v)) return 'globale';
+  if (v.startsWith('{{campo:')) return 'campo';
+  return 'fisso';
+}
+function parseDefaultFallback(v: string): string {
+  const m = v.match(/\{\{[^|]+\|([^}]*)\}\}/);
+  return m ? m[1] : '';
+}
+function parseDefaultGlobale(v: string): string {
+  const m = v.match(/\{\{(TODAY|YEAR|MONTH)/);
+  return m ? m[1] : 'TODAY';
+}
+function parseDefaultCampoRef(v: string): string {
+  const m = v.match(/\{\{campo:([^|}\s]+)/);
+  return m ? m[1] : '';
+}
+function parseDefaultFixed(v: string): string {
+  return (!v || v.startsWith('{{')) ? '' : v;
+}
+function buildDefaultValue(mode: DefaultMode, fixed: string, globale: string, campoRef: string, fallback: string): string {
+  if (mode === 'fisso') return fixed;
+  const fb = fallback ? `|${fallback}` : '';
+  if (mode === 'globale') return `{{${globale}${fb}}}`;
+  if (mode === 'campo') return campoRef ? `{{campo:${campoRef}${fb}}}` : '';
+  return fixed;
+}
+function globaliCompatibili(tipo: string) {
+  return GLOBALI_VAR.filter(g => tipo === 'testo' || g.tipi.includes(tipo));
+}
+function campiCompatibili(lista: Campo[], tipo: string): Campo[] {
+  if (tipo === 'testo' || tipo === 'dropdown') return lista;
+  return lista.filter(c => c.tipo === tipo);
+}
+function labelDefaultValue(raw: string): string {
+  if (!raw || !raw.startsWith('{{')) return raw || '—';
+  const m = raw.match(/\{\{(TODAY|YEAR|MONTH)/);
+  if (m) return { TODAY: '📅 Data odierna', YEAR: '📅 Anno', MONTH: '📅 Mese' }[m[1]] || raw;
+  const c = raw.match(/\{\{campo:([^|}\s]+)/);
+  if (c) return `🔗 ${c[1]}`;
+  return raw;
+}
+
+interface DefaultValueEditorProps {
+  value: string;
+  onChange: (v: string) => void;
+  campoTipo: string;
+  allCampi: Campo[];
+  onRequestLoadCampi?: () => void;
+}
+
+function DefaultValueEditor({ value, onChange, campoTipo, allCampi, onRequestLoadCampi }: DefaultValueEditorProps) {
+  const [mode, setMode] = React.useState<DefaultMode>(() => parseDefaultMode(value));
+  const [fixed, setFixed] = React.useState(() => parseDefaultFixed(value));
+  const [globale, setGlobale] = React.useState(() => parseDefaultGlobale(value));
+  const [campoRef, setCampoRef] = React.useState(() => parseDefaultCampoRef(value));
+  const [fallback, setFallback] = React.useState(() => parseDefaultFallback(value));
+  const [search, setSearch] = React.useState('');
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+
+  const emit = (m: DefaultMode, f: string, g: string, r: string, fb: string) => {
+    onChange(buildDefaultValue(m, f, g, r, fb));
+  };
+
+  const setModeAndEmit = (m: DefaultMode) => {
+    setMode(m);
+    setPickerOpen(false);
+    if (m === 'campo' && allCampi.length === 0) onRequestLoadCampi?.();
+    emit(m, fixed, globale, campoRef, fallback);
+  };
+
+  const globVars = globaliCompatibili(campoTipo);
+  const campiList = campiCompatibili(allCampi, campoTipo);
+  const campiFiltered = search
+    ? campiList.filter(c =>
+        c.codice.toLowerCase().includes(search.toLowerCase()) ||
+        (c.etichetta || '').toLowerCase().includes(search.toLowerCase())
+      )
+    : campiList;
+
+  const btnClass = (active: boolean) =>
+    `flex items-center gap-1 px-2 py-1 rounded text-xs border transition-colors ${
+      active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+    }`;
+
+  return (
+    <div className="space-y-2 mt-1">
+      <div className="flex gap-1">
+        <button type="button" className={btnClass(mode === 'fisso')} onClick={() => setModeAndEmit('fisso')}>
+          <Edit2 className="h-3 w-3" /> Fisso
+        </button>
+        {globVars.length > 0 && (
+          <button type="button" className={btnClass(mode === 'globale')} onClick={() => setModeAndEmit('globale')}>
+            <Calendar className="h-3 w-3" /> Variabile
+          </button>
+        )}
+        <button type="button" className={btnClass(mode === 'campo')} onClick={() => setModeAndEmit('campo')}>
+          <Link2 className="h-3 w-3" /> Campo
+        </button>
+      </div>
+
+      {mode === 'fisso' && (
+        <input
+          className="w-full h-7 px-2 text-xs rounded border border-gray-300 focus:outline-none focus:border-blue-400"
+          value={fixed}
+          onChange={e => { setFixed(e.target.value); emit('fisso', e.target.value, globale, campoRef, fallback); }}
+          placeholder="valore di default..."
+        />
+      )}
+
+      {mode === 'globale' && (
+        <div className="space-y-1.5">
+          <select
+            className="w-full h-7 px-2 text-xs rounded border border-gray-300 bg-white"
+            value={globale}
+            onChange={e => { setGlobale(e.target.value); emit('globale', fixed, e.target.value, campoRef, fallback); }}
+          >
+            {globVars.map(g => <option key={g.id} value={g.id}>{g.label}</option>)}
+          </select>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-gray-400 shrink-0">Fallback se non disponibile:</span>
+            <input
+              className="flex-1 h-6 px-2 text-xs rounded border border-gray-200 focus:outline-none focus:border-blue-400"
+              value={fallback}
+              onChange={e => { setFallback(e.target.value); emit('globale', fixed, globale, campoRef, e.target.value); }}
+              placeholder="(vuoto)"
+            />
+          </div>
+        </div>
+      )}
+
+      {mode === 'campo' && (
+        <div className="space-y-1.5">
+          <div
+            className="flex items-center gap-1.5 h-7 px-2 rounded border border-gray-300 cursor-pointer hover:border-blue-400 bg-white"
+            onClick={() => { setPickerOpen(p => !p); if (!pickerOpen && allCampi.length === 0) onRequestLoadCampi?.(); }}
+          >
+            {campoRef
+              ? <><Link2 className="h-3 w-3 text-blue-500 shrink-0" /><span className="text-xs font-mono text-blue-700 flex-1 truncate">{campoRef}</span></>
+              : <span className="text-xs text-gray-400 flex-1">Seleziona un campo...</span>}
+            <ChevronDown className="h-3 w-3 text-gray-400 shrink-0" />
+          </div>
+
+          {pickerOpen && (
+            <div className="border border-gray-200 rounded-lg bg-white shadow-lg overflow-hidden">
+              <div className="p-1.5 border-b border-gray-100">
+                <input
+                  autoFocus
+                  className="w-full h-6 px-2 text-xs rounded border border-gray-200 focus:outline-none focus:border-blue-400"
+                  placeholder="Cerca codice o etichetta..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+              </div>
+              <div className="max-h-40 overflow-y-auto">
+                {allCampi.length === 0 && (
+                  <div className="text-xs text-gray-400 text-center py-3 italic">Caricamento campi...</div>
+                )}
+                {campiFiltered.length === 0 && allCampi.length > 0 && (
+                  <div className="text-xs text-gray-400 text-center py-3 italic">Nessun campo compatibile con tipo "{campoTipo}"</div>
+                )}
+                {campiFiltered.map(c => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={`w-full text-left px-2 py-1.5 text-xs hover:bg-blue-50 flex items-center gap-2 ${campoRef === c.codice ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
+                    onClick={() => { setCampoRef(c.codice); setPickerOpen(false); setSearch(''); emit('campo', fixed, globale, c.codice, fallback); }}
+                  >
+                    <span className="font-mono text-[10px] text-gray-400 shrink-0 w-32 truncate">{c.codice}</span>
+                    <span className="flex-1 truncate">{c.etichetta}</span>
+                    <span className="text-[10px] px-1 py-0 rounded bg-gray-100 text-gray-500 shrink-0">{c.tipo}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-gray-400 shrink-0">Fallback se non disponibile:</span>
+            <input
+              className="flex-1 h-6 px-2 text-xs rounded border border-gray-200 focus:outline-none focus:border-blue-400"
+              value={fallback}
+              onChange={e => { setFallback(e.target.value); emit('campo', fixed, globale, campoRef, e.target.value); }}
+              placeholder="(vuoto)"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const TIPI_CAMPO = [
   { value: 'testo', label: 'Testo' },
   { value: 'numero', label: 'Numero' },
@@ -111,6 +316,9 @@ export default function GestioneCampiPage() {
   const [inlineOpzioni, setInlineOpzioni] = useState<OpzioneDD[]>([]);
   const [inlineLoading, setInlineLoading] = useState(false);
   const [quickAdd, setQuickAdd] = useState({ valore: '', etichetta: '' });
+  // ── Default value picker ──
+  const [pickerCampi, setPickerCampi] = useState<Campo[]>([]);
+  const [pickerCampiLoaded, setPickerCampiLoaded] = useState(false);
 
   // ── New gruppo inline ──
   const [showNewGruppo, setShowNewGruppo] = useState(false);
@@ -169,6 +377,39 @@ export default function GestioneCampiPage() {
         const data = await res.json();
         setProductTemplates(data);
       }
+    } catch { /* silent */ }
+  };
+
+  const loadPickerCampi = async () => {
+    if (pickerCampiLoaded) return;
+    try {
+      const all: Campo[] = [];
+      const sezRes = await fetch(`${API_BASE}/campi-configuratore/sezioni`);
+      const sezList = sezRes.ok ? await sezRes.json() : sezioni;
+      for (const s of sezList) {
+        const r = await fetch(`${API_BASE}/campi-configuratore/${s.codice}?solo_attivi=true`);
+        if (r.ok) {
+          const data = await r.json();
+          all.push(...data.map((c: Campo) => ({ ...c, etichetta: c.etichetta || c.label || c.codice })));
+        }
+      }
+      // Campi ORM hardcoded (non in campi_configuratore ma disponibili come sorgente)
+      const ORM_VIRTUAL: Campo[] = [
+        { id: -1,  codice: 'dati_commessa.numero_offerta',    etichetta: 'Numero Offerta',       tipo: 'testo',  sezione: 'dati_commessa', obbligatorio: false, ordine: 0, attivo: true, visibile_form: true, usabile_regole: true },
+        { id: -2,  codice: 'dati_commessa.data_offerta',      etichetta: 'Data Offerta',         tipo: 'data',   sezione: 'dati_commessa', obbligatorio: false, ordine: 1, attivo: true, visibile_form: true, usabile_regole: true },
+        { id: -3,  codice: 'dati_commessa.riferimento_cliente', etichetta: 'Riferimento Cliente', tipo: 'testo',  sezione: 'dati_commessa', obbligatorio: false, ordine: 2, attivo: true, visibile_form: true, usabile_regole: true },
+        { id: -4,  codice: 'dati_commessa.quantita',          etichetta: 'Quantità',             tipo: 'numero', sezione: 'dati_commessa', obbligatorio: false, ordine: 3, attivo: true, visibile_form: true, usabile_regole: true },
+        { id: -5,  codice: 'dati_commessa.consegna_richiesta', etichetta: 'Consegna Richiesta',  tipo: 'testo',  sezione: 'dati_commessa', obbligatorio: false, ordine: 4, attivo: true, visibile_form: true, usabile_regole: true },
+        { id: -6,  codice: 'dati_commessa.prezzo_unitario',   etichetta: 'Prezzo Unitario',      tipo: 'numero', sezione: 'dati_commessa', obbligatorio: false, ordine: 5, attivo: true, visibile_form: true, usabile_regole: true },
+        { id: -7,  codice: 'dati_commessa.pagamento',         etichetta: 'Pagamento',            tipo: 'testo',  sezione: 'dati_commessa', obbligatorio: false, ordine: 6, attivo: true, visibile_form: true, usabile_regole: true },
+        { id: -8,  codice: 'dati_commessa.trasporto',         etichetta: 'Trasporto',            tipo: 'testo',  sezione: 'dati_commessa', obbligatorio: false, ordine: 7, attivo: true, visibile_form: true, usabile_regole: true },
+        { id: -9,  codice: 'dati_commessa.destinazione',      etichetta: 'Destinazione',         tipo: 'testo',  sezione: 'dati_commessa', obbligatorio: false, ordine: 8, attivo: true, visibile_form: true, usabile_regole: true },
+        { id: -10, codice: 'disposizione_vano.altezza_vano',  etichetta: 'Altezza Vano',         tipo: 'numero', sezione: 'disposizione_vano', obbligatorio: false, ordine: 0, attivo: true, visibile_form: true, usabile_regole: true },
+        { id: -11, codice: 'disposizione_vano.piano_piu_alto', etichetta: 'Piano più Alto',      tipo: 'testo',  sezione: 'disposizione_vano', obbligatorio: false, ordine: 1, attivo: true, visibile_form: true, usabile_regole: true },
+        { id: -12, codice: 'disposizione_vano.piano_piu_basso', etichetta: 'Piano più Basso',    tipo: 'testo',  sezione: 'disposizione_vano', obbligatorio: false, ordine: 2, attivo: true, visibile_form: true, usabile_regole: true },
+      ];
+      setPickerCampi([...all, ...ORM_VIRTUAL]);
+      setPickerCampiLoaded(true);
     } catch { /* silent */ }
   };
 
@@ -690,6 +931,20 @@ export default function GestioneCampiPage() {
                             </div>
                           </>
                         )}
+
+                        <div className="col-span-2 md:col-span-4">
+                          <Label className="text-xs flex items-center gap-1 mb-0.5">
+                            <Zap className="h-3 w-3 text-amber-500" /> Valore Default
+                          </Label>
+                          <DefaultValueEditor
+                            value={newCampo.valore_default || ''}
+                            onChange={v => setNewCampo({ ...newCampo, valore_default: v })}
+                            campoTipo={newCampo.tipo || 'testo'}
+                            allCampi={pickerCampi}
+                            onRequestLoadCampi={loadPickerCampi}
+                          />
+                        </div>
+
                         <div className="col-span-2 flex items-end gap-2">
                           <Button size="sm" onClick={handleSaveNew} className="bg-green-600 hover:bg-green-700">
                             <Check className="h-4 w-4 mr-1" /> Salva
@@ -974,6 +1229,12 @@ export default function GestioneCampiPage() {
                       <div>
                         <div className="font-medium">{campo.etichetta}</div>
                         <div className="text-xs text-gray-400 font-mono">{campo.codice}</div>
+                        {campo.valore_default && (
+                          <div className="mt-0.5 flex items-center gap-1">
+                            <Zap className="h-2.5 w-2.5 text-amber-400 shrink-0" />
+                            <span className="text-[10px] text-amber-700 truncate max-w-xs">{labelDefaultValue(campo.valore_default)}</span>
+                          </div>
+                        )}
                         {campo.product_template_ids && campo.product_template_ids.length > 0 && (
                           <div className="flex flex-wrap gap-0.5 mt-0.5">
                             {campo.product_template_ids.map(ptId => {
@@ -1227,6 +1488,31 @@ export default function GestioneCampiPage() {
                             </div>
                           </>
                         )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {/* Default Value Editor sub-row */}
+                {isEditing && (
+                  <tr className="bg-purple-50/40">
+                    <td colSpan={showSezione ? 8 : 7} className="px-4 py-2">
+                      <div className="border border-purple-200 rounded-lg p-3 bg-white">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Zap className="h-3.5 w-3.5 text-purple-500" />
+                          <span className="text-xs font-medium text-purple-800">Valore Default</span>
+                          {editForm.valore_default && (
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 max-w-xs truncate">
+                              {editForm.valore_default}
+                            </span>
+                          )}
+                        </div>
+                        <DefaultValueEditor
+                          value={editForm.valore_default || campo.valore_default || ''}
+                          onChange={v => setEditForm({ ...editForm, valore_default: v })}
+                          campoTipo={editForm.tipo || campo.tipo || 'testo'}
+                          allCampi={pickerCampi}
+                          onRequestLoadCampi={loadPickerCampi}
+                        />
                       </div>
                     </td>
                   </tr>

@@ -90,6 +90,83 @@ def _orm_to_dict(obj):
         return row
     return obj
 
+# ─────────────────────────────────────────────────────────────────
+# DEFAULT VALUE EXPRESSION RESOLVER
+# Sintassi nel campo valore_default di campi_configuratore:
+#   {{TODAY}}                  → data odierna in formato gg/mm/aaaa
+#   {{YEAR}}                   → anno corrente (4 cifre)
+#   {{MONTH}}                  → mese corrente (2 cifre, es. 03)
+#   {{campo:codice.campo}}     → valore di un altro campo del preventivo
+# Variante con fallback:
+#   {{TODAY|01/01/2000}}       → data odierna, o 01/01/2000 se non disponibile
+#   {{campo:dati_commessa.numero_offerta|N/A}}
+# ─────────────────────────────────────────────────────────────────
+def _resolve_default_expr(expr: str, preventivo_id: int, db, context: dict = None) -> str:
+    if not expr or not expr.startswith('{{'):
+        return expr
+    inner = expr.strip()
+    if inner.startswith('{{') and inner.endswith('}}'):
+        inner = inner[2:-2]
+    else:
+        return expr
+    fallback = ''
+    if '|' in inner:
+        inner, fallback = inner.split('|', 1)
+    inner = inner.strip()
+    from datetime import date as _date
+    today = _date.today()
+    if inner == 'TODAY':
+        return today.strftime('%d/%m/%Y')
+    elif inner == 'YEAR':
+        return str(today.year)
+    elif inner == 'MONTH':
+        return today.strftime('%m')
+    elif inner.startswith('campo:'):
+        campo_codice = inner[6:].strip()
+        # Prima cerca nel contesto in-memoria (stessa sessione, non ancora committato)
+        if context and campo_codice in context:
+            val = context[campo_codice]
+            if val is not None and str(val).strip() != '':
+                return str(val)
+        try:
+            row = db.execute(
+                text("SELECT valore FROM valori_configurazione WHERE preventivo_id=:pid AND codice_campo=:cod LIMIT 1"),
+                {"pid": preventivo_id, "cod": campo_codice}
+            ).fetchone()
+            if row and row[0] is not None and str(row[0]).strip() != '':
+                return str(row[0])
+        except Exception:
+            pass
+        # Fallback: campi ORM hardcoded (dati_commessa, disposizione_vano)
+        ORM_TABLE_MAP = {
+            'dati_commessa': 'dati_commessa',
+            'disposizione_vano': 'disposizione_vano',
+        }
+        parts = campo_codice.split('.', 1)
+        if len(parts) == 2:
+            tabella, colonna = parts
+            if tabella in ORM_TABLE_MAP:
+                # Whitelist colonne per sicurezza
+                COLONNE_CONSENTITE = {
+                    'dati_commessa': {'numero_offerta', 'data_offerta', 'riferimento_cliente',
+                                      'quantita', 'consegna_richiesta', 'prezzo_unitario',
+                                      'pagamento', 'trasporto', 'destinazione'},
+                    'disposizione_vano': {'altezza_vano', 'piano_piu_alto', 'piano_piu_basso',
+                                          'posizione_quadro_lato', 'posizione_quadro_piano'},
+                }
+                if colonna in COLONNE_CONSENTITE.get(tabella, set()):
+                    try:
+                        orm_row = db.execute(
+                            text(f"SELECT {colonna} FROM {tabella} WHERE preventivo_id=:pid LIMIT 1"),
+                            {"pid": preventivo_id}
+                        ).fetchone()
+                        if orm_row and orm_row[0] is not None and str(orm_row[0]).strip() != '':
+                            return str(orm_row[0])
+                    except Exception:
+                        pass
+        return fallback
+    return fallback or expr
+
 # Crea tabelle
 Base.metadata.create_all(bind=engine)
 
@@ -1142,7 +1219,7 @@ def create_preventivo(
     
     # Crea record ORM vuoti per le sezioni dedicate (backward compat)
     db.add_all([
-        DatiCommessa(preventivo_id=preventivo.id),
+        DatiCommessa(preventivo_id=preventivo.id, data_offerta=datetime.now().strftime('%d/%m/%Y')),
         DatiPrincipali(preventivo_id=preventivo.id),
         Normative(preventivo_id=preventivo.id),
         DisposizioneVano(preventivo_id=preventivo.id),
@@ -1216,14 +1293,27 @@ def create_preventivo(
         """), {"pid": preventivo.id}).fetchall()
         existing_set = {r[0] for r in existing_campos}
 
-        for codice, sezione, valore_default in campi_default:
+        # Ordina per ordine così {{campo:X}} trova X già nel context
+        campi_default_ordinati = sorted(campi_default, key=lambda r: r[0])
+        try:
+            campi_ordine = {r[0]: r[1] for r in db.execute(text(
+                "SELECT codice, ordine FROM campi_configuratore WHERE attivo=1"
+            )).fetchall()}
+            campi_default_ordinati = sorted(campi_default, key=lambda r: campi_ordine.get(r[0], 9999))
+        except Exception:
+            pass
+
+        context_init: dict = {}
+        for codice, sezione, valore_default in campi_default_ordinati:
             if codice not in existing_set:
+                val = _resolve_default_expr(str(valore_default), preventivo.id, db, context=context_init)
                 db.execute(text("""
                     INSERT INTO valori_configurazione
                         (preventivo_id, sezione, codice_campo, valore, is_default)
                     VALUES (:pid, :sez, :campo, :val, 1)
                 """), {"pid": preventivo.id, "sez": sezione,
-                       "campo": codice, "val": str(valore_default)})
+                       "campo": codice, "val": val})
+                context_init[codice] = val
         db.commit()
 
         if data.template_id:
@@ -4937,6 +5027,7 @@ def get_valori_sezione(preventivo_id: int, sezione: str, db: Session = Depends(g
             SELECT codice, valore_default, tipo, product_template_ids
             FROM campi_configuratore
             WHERE sezione = :sez AND attivo = 1
+            ORDER BY ordine
         """), {"sez": sezione}).fetchall()
         
         # Filtra campi per prodotto
@@ -4955,7 +5046,7 @@ def get_valori_sezione(preventivo_id: int, sezione: str, db: Session = Depends(g
         nuovi = 0
         for codice, valore_default, tipo, _ in campi_filtrati:
             if codice not in valori and valore_default is not None and str(valore_default).strip() != "":
-                val = str(valore_default)
+                val = _resolve_default_expr(str(valore_default), preventivo_id, db, context=valori)
                 db.execute(text("""
                     INSERT INTO valori_configurazione
                         (preventivo_id, sezione, codice_campo, valore, is_default)
