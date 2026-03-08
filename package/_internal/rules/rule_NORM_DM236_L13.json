@@ -1,0 +1,32 @@
+{
+  "id": "NORM_DM236_L13",
+  "name": "DM 236 Legge 13",
+  "description": "Segnalazioni acustiche Legge 13 accessibilità",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "dm236_legge13",
+      "operator": "equals",
+      "value": "true",
+      "description": "DM 236 Legge 13 attiva"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "GONG-RALL-L13",
+      "descrizione": "Gong in rallentamento cabina (L.13)",
+      "quantita": 1,
+      "prezzo_unitario": 28.0,
+      "categoria": "Segnalazione"
+    },
+    {
+      "codice": "CAMP-PIANO-L13",
+      "descrizione": "Segnalazione campana al piano principale (L.13)",
+      "quantita": 1,
+      "prezzo_unitario": 22.0,
+      "categoria": "Segnalazione"
+    }
+  ]
+}

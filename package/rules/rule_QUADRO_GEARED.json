@@ -1,0 +1,32 @@
+{
+  "id": "QUADRO_GEARED",
+  "name": "Quadro manovra Geared",
+  "description": "Quadro completo per impianti Geared con locale macchina",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 10,
+  "conditions": [
+    {
+      "field": "tipo_trazione",
+      "operator": "equals",
+      "value": "Geared",
+      "description": "Trazione Geared"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "QUADRO_QM_GE_001",
+      "descrizione": "Quadro manovra Geared completo",
+      "quantita": 1,
+      "prezzo_unitario": 2400.0,
+      "categoria": "Quadri Elettrici"
+    },
+    {
+      "codice": "CONT-STELLA-TRI",
+      "descrizione": "Contattori avviamento stella-triangolo",
+      "quantita": 1,
+      "prezzo_unitario": 185.0,
+      "categoria": "Quadri Elettrici"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "SCALA_MOBILE_VVVF",
+  "name": "Scala mobile - Avviamento VVVF",
+  "description": "Quadro VVVF per scala mobile con avviamento inverter",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 15,
+  "conditions": [
+    {
+      "field": "tipo_impianto",
+      "operator": "equals",
+      "value": "scala_mobile",
+      "description": "Tipo impianto scala mobile"
+    },
+    {
+      "field": "avviamento",
+      "operator": "equals",
+      "value": "VVVF",
+      "description": "Avviamento VVVF"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "QDR-VVVF-SCALA",
+      "descrizione": "Quadro VVVF per scala mobile",
+      "quantita": 1,
+      "prezzo_unitario": 980.0,
+      "categoria": "Quadri Elettrici"
+    }
+  ]
+}

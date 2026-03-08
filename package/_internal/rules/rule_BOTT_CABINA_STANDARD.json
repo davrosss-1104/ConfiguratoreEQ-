@@ -1,0 +1,32 @@
+{
+  "id": "BOTT_CABINA_STANDARD",
+  "name": "Bottoniera cabina standard",
+  "description": "Bottoniera di cabina BAM/BFP con pulsanti e display",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 40,
+  "conditions": [
+    {
+      "field": "tipo_impianto",
+      "operator": "equals",
+      "value": "ascensore",
+      "description": "Tipo impianto ascensore"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "BOTT_CABINA_STD",
+      "descrizione": "Bottoniera cabina standard",
+      "quantita": 1,
+      "prezzo_unitario": 420.0,
+      "categoria": "Bottoniere"
+    },
+    {
+      "codice": "TARGA-DATI",
+      "descrizione": "Targa dati cabina (matricola, portata, anno)",
+      "quantita": 1,
+      "prezzo_unitario": 18.0,
+      "categoria": "Bottoniere"
+    }
+  ]
+}

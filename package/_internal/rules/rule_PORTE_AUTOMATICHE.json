@@ -1,0 +1,32 @@
+{
+  "id": "PORTE_AUTOMATICHE",
+  "name": "Porte automatiche",
+  "description": "Operatore porte automatiche con fotocellula/barriera",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 40,
+  "conditions": [
+    {
+      "field": "tipo_porte_cabina",
+      "operator": "equals",
+      "value": "Automatiche",
+      "description": "Porte cabina automatiche"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "OPER-PORTE-AUTO",
+      "descrizione": "Operatore porte automatiche cabina",
+      "quantita": 1,
+      "prezzo_unitario": 340.0,
+      "categoria": "Porte"
+    },
+    {
+      "codice": "BARR-FOTOCEL",
+      "descrizione": "Barriera fotocellula porte",
+      "quantita": 1,
+      "prezzo_unitario": 85.0,
+      "categoria": "Porte"
+    }
+  ]
+}

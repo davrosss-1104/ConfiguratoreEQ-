@@ -1,0 +1,67 @@
+{
+  "id": "SCALA_MOBILE_QFM",
+  "name": "Scala mobile - Quadro forza motrice",
+  "description": "Quadro forza motrice e cassette per scala mobile",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 10,
+  "conditions": [
+    {
+      "field": "tipo_impianto",
+      "operator": "equals",
+      "value": "scala_mobile",
+      "description": "Tipo impianto scala mobile"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "QFM-SCALA",
+      "descrizione": "Quadro forza motrice scala mobile",
+      "quantita": 1,
+      "prezzo_unitario": 1850.0,
+      "categoria": "Quadri Elettrici"
+    },
+    {
+      "codice": "CASS-DERIV-INF",
+      "descrizione": "Cassetta derivazione fossa inferiore",
+      "quantita": 1,
+      "prezzo_unitario": 120.0,
+      "categoria": "Cassette"
+    },
+    {
+      "codice": "CASS-DERIV-SUP",
+      "descrizione": "Cassetta derivazione fossa superiore",
+      "quantita": 1,
+      "prezzo_unitario": 120.0,
+      "categoria": "Cassette"
+    },
+    {
+      "codice": "BOTT-ISP-SCALA",
+      "descrizione": "Bottoniera ispezione con 5.5m cavo",
+      "quantita": 1,
+      "prezzo_unitario": 75.0,
+      "categoria": "Bottoniere"
+    },
+    {
+      "codice": "SENS-CORRIM-2X",
+      "descrizione": "Sensori controllo corrimano SX/DX",
+      "quantita": 2,
+      "prezzo_unitario": 45.0,
+      "categoria": "Sicurezza"
+    },
+    {
+      "codice": "SENS-GRAD-VEL",
+      "descrizione": "Sensori presenza gradini + direzione + velocità",
+      "quantita": 2,
+      "prezzo_unitario": 55.0,
+      "categoria": "Sicurezza"
+    },
+    {
+      "codice": "DISP-ERR-SCALA",
+      "descrizione": "Display segnalazione codici errori con 10m cavo",
+      "quantita": 1,
+      "prezzo_unitario": 85.0,
+      "categoria": "Segnalazione"
+    }
+  ]
+}

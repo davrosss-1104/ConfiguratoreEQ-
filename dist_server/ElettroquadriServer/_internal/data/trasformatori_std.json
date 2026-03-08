@@ -1,0 +1,237 @@
+{
+  "tipo": "catalog",
+  "colonna_id": "codice",
+  "colonne": [
+    "codice",
+    "tipo",
+    "potenza_va",
+    "primario_v",
+    "secondario_v",
+    "peso_kg",
+    "art_trasformatore"
+  ],
+  "records": [
+    {
+      "codice": "218",
+      "tipo": "Monofase",
+      "potenza_va": 200,
+      "primario_v": "230",
+      "secondario_v": "24",
+      "peso_kg": 3.5,
+      "art_trasformatore": "EQ-TRF-218"
+    },
+    {
+      "codice": "219",
+      "tipo": "Monofase",
+      "potenza_va": 315,
+      "primario_v": "230",
+      "secondario_v": "24",
+      "peso_kg": 5,
+      "art_trasformatore": "EQ-TRF-219"
+    },
+    {
+      "codice": "220",
+      "tipo": "Monofase",
+      "potenza_va": 400,
+      "primario_v": "230",
+      "secondario_v": "24",
+      "peso_kg": 6.2,
+      "art_trasformatore": "EQ-TRF-220"
+    },
+    {
+      "codice": "221",
+      "tipo": "Monofase",
+      "potenza_va": 500,
+      "primario_v": "230",
+      "secondario_v": "24",
+      "peso_kg": 7.8,
+      "art_trasformatore": "EQ-TRF-221"
+    },
+    {
+      "codice": "222",
+      "tipo": "Monofase",
+      "potenza_va": 630,
+      "primario_v": "230",
+      "secondario_v": "24",
+      "peso_kg": 9.5,
+      "art_trasformatore": "EQ-TRF-222"
+    },
+    {
+      "codice": "223",
+      "tipo": "Monofase",
+      "potenza_va": 800,
+      "primario_v": "230",
+      "secondario_v": "24",
+      "peso_kg": 12,
+      "art_trasformatore": "EQ-TRF-223"
+    },
+    {
+      "codice": "224",
+      "tipo": "Monofase",
+      "potenza_va": 1000,
+      "primario_v": "230",
+      "secondario_v": "24",
+      "peso_kg": 14.5,
+      "art_trasformatore": "EQ-TRF-224"
+    },
+    {
+      "codice": "301",
+      "tipo": "Trimono",
+      "potenza_va": 200,
+      "primario_v": "400",
+      "secondario_v": "24",
+      "peso_kg": 4,
+      "art_trasformatore": "EQ-TRF-301"
+    },
+    {
+      "codice": "302",
+      "tipo": "Trimono",
+      "potenza_va": 315,
+      "primario_v": "400",
+      "secondario_v": "24",
+      "peso_kg": 5.5,
+      "art_trasformatore": "EQ-TRF-302"
+    },
+    {
+      "codice": "303",
+      "tipo": "Trimono",
+      "potenza_va": 400,
+      "primario_v": "400",
+      "secondario_v": "24",
+      "peso_kg": 7,
+      "art_trasformatore": "EQ-TRF-303"
+    },
+    {
+      "codice": "304",
+      "tipo": "Trimono",
+      "potenza_va": 500,
+      "primario_v": "400",
+      "secondario_v": "24",
+      "peso_kg": 8.5,
+      "art_trasformatore": "EQ-TRF-304"
+    },
+    {
+      "codice": "305",
+      "tipo": "Trimono",
+      "potenza_va": 630,
+      "primario_v": "400",
+      "secondario_v": "24",
+      "peso_kg": 10.5,
+      "art_trasformatore": "EQ-TRF-305"
+    },
+    {
+      "codice": "306",
+      "tipo": "Trimono",
+      "potenza_va": 800,
+      "primario_v": "400",
+      "secondario_v": "24",
+      "peso_kg": 13,
+      "art_trasformatore": "EQ-TRF-306"
+    },
+    {
+      "codice": "307",
+      "tipo": "Trimono",
+      "potenza_va": 1000,
+      "primario_v": "400",
+      "secondario_v": "24",
+      "peso_kg": 16,
+      "art_trasformatore": "EQ-TRF-307"
+    },
+    {
+      "codice": "308",
+      "tipo": "Trimono",
+      "potenza_va": 1600,
+      "primario_v": "400",
+      "secondario_v": "24",
+      "peso_kg": 22,
+      "art_trasformatore": "EQ-TRF-308"
+    },
+    {
+      "codice": "401",
+      "tipo": "Trimono",
+      "potenza_va": 200,
+      "primario_v": "400",
+      "secondario_v": "48",
+      "peso_kg": 4.2,
+      "art_trasformatore": "EQ-TRF-401"
+    },
+    {
+      "codice": "402",
+      "tipo": "Trimono",
+      "potenza_va": 315,
+      "primario_v": "400",
+      "secondario_v": "48",
+      "peso_kg": 5.8,
+      "art_trasformatore": "EQ-TRF-402"
+    },
+    {
+      "codice": "403",
+      "tipo": "Trimono",
+      "potenza_va": 500,
+      "primario_v": "400",
+      "secondario_v": "48",
+      "peso_kg": 8.8,
+      "art_trasformatore": "EQ-TRF-403"
+    },
+    {
+      "codice": "404",
+      "tipo": "Trimono",
+      "potenza_va": 630,
+      "primario_v": "400",
+      "secondario_v": "48",
+      "peso_kg": 11,
+      "art_trasformatore": "EQ-TRF-404"
+    },
+    {
+      "codice": "405",
+      "tipo": "Trimono",
+      "potenza_va": 1000,
+      "primario_v": "400",
+      "secondario_v": "48",
+      "peso_kg": 16.5,
+      "art_trasformatore": "EQ-TRF-405"
+    },
+    {
+      "codice": "501",
+      "tipo": "Monofase",
+      "potenza_va": 200,
+      "primario_v": "230",
+      "secondario_v": "110",
+      "peso_kg": 3.8,
+      "art_trasformatore": "EQ-TRF-501"
+    },
+    {
+      "codice": "502",
+      "tipo": "Monofase",
+      "potenza_va": 315,
+      "primario_v": "230",
+      "secondario_v": "110",
+      "peso_kg": 5.3,
+      "art_trasformatore": "EQ-TRF-502"
+    },
+    {
+      "codice": "503",
+      "tipo": "Monofase",
+      "potenza_va": 500,
+      "primario_v": "230",
+      "secondario_v": "110",
+      "peso_kg": 8,
+      "art_trasformatore": "EQ-TRF-503"
+    }
+  ],
+  "_meta": {
+    "nome": "trasformatori_std",
+    "tipo": "catalogo",
+    "tipo_engine": "catalog",
+    "fogli_origine": [
+      "Trasformatori"
+    ],
+    "file_origine": "tmp59k3hdqo.xlsx",
+    "generato_il": "2026-02-26T15:47:56.064408",
+    "righe_totali": 23,
+    "colonna_chiave": "Codice",
+    "tipo_chiave": "testo",
+    "partizionato_per": "",
+    "valori_partizione": []
+  }
+}

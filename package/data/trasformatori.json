@@ -1,0 +1,4122 @@
+{
+  "tipo": "lookup_multi",
+  "chiavi": [
+    {
+      "colonna": "potenza_totale_va",
+      "colonna_originale": "potenza_totale_va",
+      "match": "lte"
+    },
+    {
+      "colonna": "tensione_uscita",
+      "colonna_originale": "tensione_uscita",
+      "match": "exact"
+    }
+  ],
+  "records": [
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 218.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 30.0,
+      "output": {
+        "codice_trasf": 218.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 218.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 218.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 218.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 202.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 150.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 230.0,
+      "output": {
+        "codice_trasf": 202.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 400.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 120.0,
+      "output": {
+        "codice_trasf": 202.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 300.0,
+        "nome_uscita": "uscita_2",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 125.0,
+      "output": {
+        "codice_trasf": 202.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 300.0,
+        "nome_uscita": "uscita_2",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 202.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 202.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 202.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 206.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 150.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 230.0,
+      "output": {
+        "codice_trasf": 206.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 400.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 120.0,
+      "output": {
+        "codice_trasf": 206.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 300.0,
+        "nome_uscita": "uscita_2",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 125.0,
+      "output": {
+        "codice_trasf": 206.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 300.0,
+        "nome_uscita": "uscita_2",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 206.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 206.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 206.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 300.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 207.0,
+        "forza_motrice": "0-230",
+        "va_disponibili": 200.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 300.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 207.0,
+        "forza_motrice": "0-230",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": 195.0,
+        "forza_motrice": "0-220-380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 230.0,
+      "output": {
+        "codice_trasf": 195.0,
+        "forza_motrice": "0-220-380",
+        "va_disponibili": 300.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 195.0,
+        "forza_motrice": "0-220-380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 199.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 30.0,
+      "output": {
+        "codice_trasf": 199.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 250.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 199.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 199.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 199.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 550.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": 213.0,
+        "forza_motrice": "0-220-380",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 550.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 213.0,
+        "forza_motrice": "0-220-380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 212.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": 212.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 350.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 212.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 212.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 212.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 200.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 240.0,
+      "output": {
+        "codice_trasf": 200.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 200.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 200.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 200.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 197.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 550.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 197.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 197.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 197.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 170.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 160.0,
+        "forza_motrice": "0-415",
+        "va_disponibili": 70.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 170.0,
+      "tensione_uscita": 9.0,
+      "output": {
+        "codice_trasf": 160.0,
+        "forza_motrice": "0-415",
+        "va_disponibili": 30.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 170.0,
+      "tensione_uscita": 48.0,
+      "output": {
+        "codice_trasf": 160.0,
+        "forza_motrice": "0-415",
+        "va_disponibili": 30.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 170.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 161.0,
+        "forza_motrice": "0-415",
+        "va_disponibili": 70.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 170.0,
+      "tensione_uscita": 9.0,
+      "output": {
+        "codice_trasf": 161.0,
+        "forza_motrice": "0-415",
+        "va_disponibili": 30.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 170.0,
+      "tensione_uscita": 48.0,
+      "output": {
+        "codice_trasf": 161.0,
+        "forza_motrice": "0-415",
+        "va_disponibili": 30.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "62A",
+        "forza_motrice": "0-400",
+        "va_disponibili": 200.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 100.0,
+      "output": {
+        "codice_trasf": "62A",
+        "forza_motrice": "0-400",
+        "va_disponibili": 200.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 105.0,
+      "output": {
+        "codice_trasf": "62A",
+        "forza_motrice": "0-400",
+        "va_disponibili": 200.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 230.0,
+      "output": {
+        "codice_trasf": "62A",
+        "forza_motrice": "0-400",
+        "va_disponibili": 300.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "62A",
+        "forza_motrice": "0-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "62A",
+        "forza_motrice": "0-400",
+        "va_disponibili": 150.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": 165.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 450.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 230.0,
+      "output": {
+        "codice_trasf": 165.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 400.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 165.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 165.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 1000.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 165.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 400.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": "70A",
+        "forza_motrice": "0-220",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 400.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "70A",
+        "forza_motrice": "0-220",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 400.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "70A",
+        "forza_motrice": "0-220",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 400.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "70A",
+        "forza_motrice": "0-220",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 140.0,
+        "forza_motrice": "0-415",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 140.0,
+        "forza_motrice": "0-415",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 140.0,
+        "forza_motrice": "0-415",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 24.0,
+      "output": {
+        "codice_trasf": 184.0,
+        "forza_motrice": "0-380",
+        "va_disponibili": 200.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 220.0,
+      "output": {
+        "codice_trasf": 184.0,
+        "forza_motrice": "0-380",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 184.0,
+        "forza_motrice": "0-380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": "133C",
+        "forza_motrice": "0-380",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 220.0,
+      "output": {
+        "codice_trasf": "133C",
+        "forza_motrice": "0-380",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "133C",
+        "forza_motrice": "0-380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "133C",
+        "forza_motrice": "0-380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "133C",
+        "forza_motrice": "0-380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "133D",
+        "forza_motrice": "0-500",
+        "va_disponibili": 450.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "133D",
+        "forza_motrice": "0-500",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "133D",
+        "forza_motrice": "0-500",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "133D",
+        "forza_motrice": "0-500",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": "133G",
+        "forza_motrice": "0-240-415",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 230.0,
+      "output": {
+        "codice_trasf": "133G",
+        "forza_motrice": "0-240-415",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "133G",
+        "forza_motrice": "0-240-415",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "133G",
+        "forza_motrice": "0-240-415",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "133G",
+        "forza_motrice": "0-240-415",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "52R",
+        "forza_motrice": "0-380",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 220.0,
+      "output": {
+        "codice_trasf": "52R",
+        "forza_motrice": "0-380",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "52R",
+        "forza_motrice": "0-380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "52R",
+        "forza_motrice": "0-380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "52R",
+        "forza_motrice": "0-380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "52H",
+        "forza_motrice": "0-380",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 220.0,
+      "output": {
+        "codice_trasf": "52H",
+        "forza_motrice": "0-380",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "52H",
+        "forza_motrice": "0-380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "52H",
+        "forza_motrice": "0-380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "52H",
+        "forza_motrice": "0-380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "52I",
+        "forza_motrice": "0-380",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 220.0,
+      "output": {
+        "codice_trasf": "52I",
+        "forza_motrice": "0-380",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "52I",
+        "forza_motrice": "0-380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "52I",
+        "forza_motrice": "0-380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "52I",
+        "forza_motrice": "0-380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "52L",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 115.0,
+      "output": {
+        "codice_trasf": "52L",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "52L",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "52L",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "52L",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "52N",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 350.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "52N",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "52N",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "52N",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "52N",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "52O",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 350.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "52O",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "52O",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "52O",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "52O",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": "132F",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 300.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "132F",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 300.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "132F",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 300.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "132F",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "132F",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "132F",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 169.0,
+        "forza_motrice": "0-415",
+        "va_disponibili": 150.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 230.0,
+      "output": {
+        "codice_trasf": 169.0,
+        "forza_motrice": "0-415",
+        "va_disponibili": 400.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 169.0,
+        "forza_motrice": "0-415",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 169.0,
+        "forza_motrice": "0-415",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 169.0,
+        "forza_motrice": "0-415",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 170.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 190.0,
+      "output": {
+        "codice_trasf": 170.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 300.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 170.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 170.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 170.0,
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "62B",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 220.0,
+      "output": {
+        "codice_trasf": "62B",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 500.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "62B",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "62B",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "62B",
+        "forza_motrice": "0-230-400",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "62O",
+        "forza_motrice": "0-380",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 220.0,
+      "output": {
+        "codice_trasf": "62O",
+        "forza_motrice": "0-380",
+        "va_disponibili": 500.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "62O",
+        "forza_motrice": "0-380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "62O",
+        "forza_motrice": "0-380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "62O",
+        "forza_motrice": "0-380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Monofase"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": 56.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 56.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 56.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 56.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 57.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 150.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": 57.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 57.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 57.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 57.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 60.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 150.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": 60.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 60.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 60.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 500.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 60.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": "52E",
+        "forza_motrice": "3X380",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "52E",
+        "forza_motrice": "3X380",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "52E",
+        "forza_motrice": "3X380",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "52E",
+        "forza_motrice": "3X380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "52E",
+        "forza_motrice": "3X380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "52E",
+        "forza_motrice": "3X380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 48.0,
+        "forza_motrice": "3X415",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 48.0,
+        "forza_motrice": "3X415",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 48.0,
+        "forza_motrice": "3X415",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 48.0,
+        "forza_motrice": "3X415",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 49.0,
+        "forza_motrice": "3X415",
+        "va_disponibili": 450.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 49.0,
+        "forza_motrice": "3X415",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 49.0,
+        "forza_motrice": "3X415",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 49.0,
+        "forza_motrice": "3X415",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "52B",
+        "va_disponibili": 100.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 45.0,
+      "output": {
+        "codice_trasf": "52B",
+        "va_disponibili": 350.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "52B",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "52B",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "52B",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "52C",
+        "va_disponibili": 100.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 45.0,
+      "output": {
+        "codice_trasf": "52C",
+        "va_disponibili": 350.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "52C",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "52C",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "52C",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "52D",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 115.0,
+      "output": {
+        "codice_trasf": "52D",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "52D",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "52D",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "52D",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "52G",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 220.0,
+      "output": {
+        "codice_trasf": "52G",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "52G",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "52G",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "52G",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "52 O",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 45.0,
+      "output": {
+        "codice_trasf": "52 O",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "52 O",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "52 O",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "52 O",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "52Q",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 230.0,
+      "output": {
+        "codice_trasf": "52Q",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "52Q",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "52Q",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "52Q",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": "52S",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "52S",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "52S",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 600.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "52S",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": 30.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 140.0,
+      "output": {
+        "codice_trasf": 30.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 30.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 30.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 30.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 34.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 34.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 34.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 34.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 35.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 35.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 35.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 35.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": "45A",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "45A",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "45A",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "45A",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "45A",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 42.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 125.0,
+      "output": {
+        "codice_trasf": 42.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 220.0,
+      "output": {
+        "codice_trasf": 42.0,
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_2",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 42.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 42.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 42.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "45B",
+        "va_disponibili": 100.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 140.0,
+      "output": {
+        "codice_trasf": "45B",
+        "va_disponibili": 300.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "45B",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "45B",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "45B",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 113.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 125.0,
+      "output": {
+        "codice_trasf": 113.0,
+        "va_disponibili": 300.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 113.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 113.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 113.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 122.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 110.0,
+      "output": {
+        "codice_trasf": 122.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 220.0,
+      "output": {
+        "codice_trasf": 122.0,
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_2",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 122.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 122.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 122.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "25E ?",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "25E ?",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "25E ?",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "25E ?",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "25F",
+        "va_disponibili": 300.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "25F",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "25F",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "25F",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "25G",
+        "va_disponibili": 300.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "25G",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "25G",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "25G",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "25H",
+        "va_disponibili": 300.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "25H",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "25H",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "25H",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "25I",
+        "va_disponibili": 300.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "25I",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "25I",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "25I",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": "25A",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "25A",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "25A",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "25A",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "25N",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "25N",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "25N",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "25N",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 123.0,
+        "va_disponibili": 200.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 123.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 123.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 123.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": 112.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 135.0,
+      "output": {
+        "codice_trasf": 112.0,
+        "va_disponibili": 300.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 112.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 112.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 112.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "25C",
+        "va_disponibili": 300.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "25C",
+        "va_disponibili": 250.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "25C",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "25C",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "25C",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "25D",
+        "forza_motrice": "3X380",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "25D",
+        "forza_motrice": "3X380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "25D",
+        "forza_motrice": "3X380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "25D",
+        "forza_motrice": "3X380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "25 P",
+        "va_disponibili": 100.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 30.0,
+      "output": {
+        "codice_trasf": "25 P",
+        "va_disponibili": 250.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "25 P",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "25 P",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "25 P",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "25Q",
+        "forza_motrice": "3x220 (300VA)",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "25Q",
+        "forza_motrice": "3x220 (300VA)",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "25Q",
+        "forza_motrice": "3x220 (300VA)",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "25Q",
+        "forza_motrice": "3x220 (300VA)",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "25R",
+        "forza_motrice": "3x220 (300VA)",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "25R",
+        "forza_motrice": "3x220 (300VA)",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "25R",
+        "forza_motrice": "3x220 (300VA)",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "25R",
+        "forza_motrice": "3x220 (300VA)",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": "25S",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "25S",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "25S",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "25S",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "25S",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "25T",
+        "va_disponibili": 150.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "25T",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "25T",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "25T",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "25T",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 179.0,
+        "va_disponibili": 350.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 179.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 179.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 179.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 180.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 180.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 180.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 180.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 181.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 181.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 181.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 700.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 181.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 18.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 140.0,
+      "output": {
+        "codice_trasf": 18.0,
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 18.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 18.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 18.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 9.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 105.0,
+      "output": {
+        "codice_trasf": 9.0,
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 9.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 9.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 9.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 10.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 105.0,
+      "output": {
+        "codice_trasf": 10.0,
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 10.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 10.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 10.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 20.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 120.0,
+      "output": {
+        "codice_trasf": 20.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 400.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 20.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 20.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 20.0,
+        "forza_motrice": "3X380",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "24F",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 30.0,
+      "output": {
+        "codice_trasf": "24F",
+        "va_disponibili": 400.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "24F",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "24F",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "24F",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "24U",
+        "va_disponibili": 450.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "24U",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "24U",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "24U",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 95.0,
+      "output": {
+        "codice_trasf": "24T",
+        "va_disponibili": 100.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 125.0,
+      "output": {
+        "codice_trasf": "24T",
+        "va_disponibili": 250.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "24T",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "24T",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "24T",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": "24V",
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 145.0,
+      "output": {
+        "codice_trasf": "24V",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "24V",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "24V",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": "24V",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 216.0,
+        "va_disponibili": 450.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 216.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 216.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 800.0,
+      "tensione_uscita": 19.0,
+      "output": {
+        "codice_trasf": 216.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 6.0,
+        "va_disponibili": 150.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 140.0,
+      "output": {
+        "codice_trasf": 6.0,
+        "va_disponibili": 150.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 125.0,
+      "output": {
+        "codice_trasf": 6.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "uscita_2",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 6.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 6.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 6.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": "6A",
+        "va_disponibili": 350.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 115.0,
+      "output": {
+        "codice_trasf": "6A",
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": "6A",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": "6A",
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": "6A",
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 1.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 125.0,
+      "output": {
+        "codice_trasf": 1.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 1.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 1.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 18.0,
+      "output": {
+        "codice_trasf": 1.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_scheda",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 75.0,
+      "output": {
+        "codice_trasf": 215.0,
+        "va_disponibili": 250.0,
+        "nome_uscita": "manovra",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 80.0,
+      "output": {
+        "codice_trasf": 215.0,
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 85.0,
+      "output": {
+        "codice_trasf": 215.0,
+        "va_disponibili": 200.0,
+        "nome_uscita": "uscita_1",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 55.0,
+      "output": {
+        "codice_trasf": 215.0,
+        "va_disponibili": 100.0,
+        "nome_uscita": "uscita_2",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 10.0,
+      "output": {
+        "codice_trasf": 215.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    },
+    {
+      "potenza_totale_va": 900.0,
+      "tensione_uscita": 20.0,
+      "output": {
+        "codice_trasf": 215.0,
+        "va_disponibili": 50.0,
+        "nome_uscita": "uscita_3",
+        "tipo": "Trimono"
+      }
+    }
+  ],
+  "_meta": {
+    "nome": "trasformatori",
+    "generato_il": "2026-02-24T23:45:38.720430",
+    "file_origine": "trasformatori_lookup_cliente (1).xlsx",
+    "foglio": "Catalogo_trasformatori",
+    "righe": 390,
+    "colonne_chiave": [
+      "potenza_totale_va",
+      "tensione_uscita"
+    ],
+    "colonne_output": [
+      "codice_trasf",
+      "forza_motrice",
+      "va_disponibili",
+      "nome_uscita",
+      "tipo"
+    ]
+  }
+}

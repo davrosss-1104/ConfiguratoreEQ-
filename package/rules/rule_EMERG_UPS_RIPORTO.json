@@ -1,0 +1,25 @@
+{
+  "id": "EMERG_UPS_RIPORTO",
+  "name": "Emergenza UPS riporto al piano",
+  "description": "UPS Buster per sblocco freno + riporto al piano + apertura porte",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 60,
+  "conditions": [
+    {
+      "field": "emergenza_ups",
+      "operator": "equals",
+      "value": "true",
+      "description": "Emergenza con UPS riporto al piano"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "UPS-BUSTER",
+      "descrizione": "UPS Buster riporto al piano con apertura porte",
+      "quantita": 1,
+      "prezzo_unitario": 520.0,
+      "categoria": "Emergenza"
+    }
+  ]
+}

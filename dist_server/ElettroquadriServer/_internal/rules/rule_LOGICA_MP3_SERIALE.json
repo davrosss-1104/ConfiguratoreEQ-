@@ -1,0 +1,33 @@
+{
+  "id": "LOGICA_MP3_SERIALE",
+  "name": "Logica scheda MP3 Seriale completo",
+  "description": "Scheda logica MP3 seriale cabina + piano con schede chiamata",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 20,
+  "conditions": [
+    {
+      "field": "logica_scheda",
+      "operator": "equals",
+      "value": "MP3 Seriale",
+      "description": "Logica scheda seriale MP3"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "PCB-MP3-SER",
+      "descrizione": "Scheda logica MP3 Seriale completo",
+      "quantita": 1,
+      "prezzo_unitario": 480.0,
+      "categoria": "Elettronica"
+    },
+    {
+      "codice": "PCB-CALL-SER",
+      "descrizione": "Scheda chiamata seriale per piano",
+      "quantita": 1,
+      "prezzo_unitario": 28.0,
+      "categoria": "Elettronica",
+      "note": "Quantità = numero fermate (da calcolare)"
+    }
+  ]
+}

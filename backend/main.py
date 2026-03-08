@@ -1645,7 +1645,17 @@ def update_argano(preventivo_id: int, data: dict, db: Session = Depends(get_db))
 # ==========================================
 @app.get("/preventivi/{preventivo_id}/materiali")
 def get_materiali(preventivo_id: int, db: Session = Depends(get_db)):
-    return _orm_to_dict(db.query(Materiale).filter(Materiale.preventivo_id == preventivo_id).all())
+    materiali = db.query(Materiale).filter(Materiale.preventivo_id == preventivo_id).all()
+    result = []
+    for m in materiali:
+        d = _orm_to_dict(m)
+        art = db.execute(
+            text("SELECT id FROM articoli WHERE codice=:codice"),
+            {"codice": m.codice}
+        ).fetchone()
+        d["articolo_non_trovato"] = art is None
+        result.append(d)
+    return result
 
 @app.post("/preventivi/{preventivo_id}/materiali")
 def create_materiale(preventivo_id: int, data: MaterialeCreate, db: Session = Depends(get_db)):
@@ -2574,11 +2584,15 @@ def simulate_pipeline_endpoint(data: dict, db: Session = Depends(get_db)):
     from rule_engine import RuleEngine
     
     pipeline_rule = data.get("pipeline_rule", {})
-    preventivo_id = data.get("preventivo_id", 1)
+    preventivo_id = data.get("preventivo_id")
     
-    preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
+    if preventivo_id:
+        preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
+    else:
+        preventivo = db.query(Preventivo).order_by(Preventivo.updated_at.desc()).first()
+    
     if not preventivo:
-        raise HTTPException(404, "Preventivo non trovato per simulazione")
+        raise HTTPException(404, "Nessun preventivo disponibile per la simulazione")
     
     engine = RuleEngine(db)
     result = engine.simulate_pipeline(pipeline_rule, preventivo)

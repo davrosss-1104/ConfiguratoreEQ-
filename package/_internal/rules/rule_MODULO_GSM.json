@@ -1,0 +1,32 @@
+{
+  "id": "MODULO_GSM",
+  "name": "Modulo GSM con antenna",
+  "description": "Modulo GSM per combinatore telefonico con prolunga antenna",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 65,
+  "conditions": [
+    {
+      "field": "modulo_gsm",
+      "operator": "equals",
+      "value": "true",
+      "description": "Modulo GSM richiesto"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "MOD-GSM-5M",
+      "descrizione": "Modulo GSM con cavo da 5m",
+      "quantita": 1,
+      "prezzo_unitario": 135.0,
+      "categoria": "Comunicazione"
+    },
+    {
+      "codice": "PROLUNGA-ANT-20M",
+      "descrizione": "Prolunga antenna GSM 20m",
+      "quantita": 1,
+      "prezzo_unitario": 45.0,
+      "categoria": "Comunicazione"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "MANOVRA_COLL_COMPLETA",
+  "name": "Manovra collettiva completa",
+  "description": "Manovra collettiva completa (salita + discesa)",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 25,
+  "conditions": [
+    {
+      "field": "tipo_manovra",
+      "operator": "equals",
+      "value": "Collettiva Completa",
+      "description": "Manovra collettiva completa"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "MOD-COLL-COMPL",
+      "descrizione": "Modulo manovra collettiva completa",
+      "quantita": 1,
+      "prezzo_unitario": 180.0,
+      "categoria": "Quadri Elettrici"
+    }
+  ]
+}

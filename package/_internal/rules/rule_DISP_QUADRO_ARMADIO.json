@@ -1,0 +1,25 @@
+{
+  "id": "DISP_QUADRO_ARMADIO",
+  "name": "Quadro disposizione nell'armadio",
+  "description": "Supporto armadio per installazione quadro nel vano",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 35,
+  "conditions": [
+    {
+      "field": "disposizione_quadro",
+      "operator": "equals",
+      "value": "Nell'armadio",
+      "description": "Quadro installato nell'armadio nel vano"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "SUPP-ARMADIO",
+      "descrizione": "Supporto armadio per quadro nel vano",
+      "quantita": 1,
+      "prezzo_unitario": 220.0,
+      "categoria": "Carpenteria"
+    }
+  ]
+}

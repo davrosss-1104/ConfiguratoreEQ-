@@ -1,0 +1,25 @@
+{
+  "id": "CPE_POSIZIONE",
+  "name": "CPE Posizione cabina in locale macchina",
+  "description": "Dispositivo CPE per indicazione posizione cabina nel locale macchina",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 60,
+  "conditions": [
+    {
+      "field": "con_locale_macchina",
+      "operator": "equals",
+      "value": "true",
+      "description": "Con locale macchina"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "CPE-LOC-MACCH",
+      "descrizione": "CPE posizione cabina in locale macchina",
+      "quantita": 1,
+      "prezzo_unitario": 95.0,
+      "categoria": "Segnalazione"
+    }
+  ]
+}

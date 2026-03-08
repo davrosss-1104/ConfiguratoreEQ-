@@ -1244,7 +1244,8 @@ class RuleEngine:
         for k, v in ctx.items():
             if k.startswith(sez_prefix):
                 campo = k[len(sez_prefix):]
-                if v and str(v).lower() not in ("false", "0", "no", "off", ""):
+                v_str = str(v).lower()
+                if v_str in ("true", "1", "yes", "on"):
                     active_components.append(campo)
 
         written = {}
@@ -1630,7 +1631,7 @@ class RuleEngine:
 
         # Risolvi codice (può essere _calc.trasformatore.codice_trasf)
         if isinstance(codice_ref, str) and codice_ref.startswith("_calc."):
-            codice = str(ctx.get(codice_ref, codice_ref))
+            codice = str(ctx.get(codice_ref, ""))
         else:
             codice = str(codice_ref)
         codice = self._replace_ph(codice, ctx)
@@ -1641,6 +1642,10 @@ class RuleEngine:
         else:
             desc = str(desc_ref)
         desc = self._replace_ph(desc, ctx)
+
+        # Se il codice è vuoto o non risolto → skip
+        if not codice or codice.startswith("_calc."):
+            return {"codice": codice, "skipped": True, "reason": "codice non risolto"}
 
         # Risolvi quantità
         try:
@@ -1719,8 +1724,13 @@ class RuleEngine:
                     f"Pipeline {rid} step {i} ({step.get('action')}): {result['error']}")
                 break
             out = result.get("output", {})
+            # Se lookup_each non trova nulla → interrompi pipeline
+            if step.get("action") == "lookup_each" and not out:
+                break
             if out:
-                print(f"[PIPELINE]   → {len(out)} output keys")
+                print(f"[PIPELINE]   → {len(out)} output keys: {list(out.keys())[:5]}")
+            else:
+                print(f"[PIPELINE]   → NESSUN output. ctx _calc.va_per_tensione.*: { {k:v for k,v in ctx.items() if '_va_per_tensione' in k or '_calc.va' in k} }")
             if step.get("action") == "add_material" and out.get("added"):
                 added += 1
 

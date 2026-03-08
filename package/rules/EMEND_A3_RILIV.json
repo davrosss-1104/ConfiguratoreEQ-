@@ -1,0 +1,40 @@
+{
+  "id": "EMEND_A3_RILIV",
+  "name": "Emendamento A3 con rilivellamento",
+  "description": "Dispositivo rilivellamento secondo Emendamento A3",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 55,
+  "conditions": [
+    {
+      "field": "emendamento_a3",
+      "operator": "equals",
+      "value": "Con rilivellamento",
+      "description": "Emendamento A3 con rilivellamento"
+    }
+  ],
+  "actions": [
+    {
+      "action": "add_material",
+      "material": {
+        "codice": "RILIV-A3",
+        "descrizione": "Dispositivo rilivellamento (Emendamento A3)",
+        "quantita": 1,
+        "prezzo_unitario": 195,
+        "categoria": "Sicurezza"
+      }
+    },
+    {
+      "action": "add_material",
+      "material": {
+        "codice": "CONT-FRENO-A3",
+        "descrizione": "Contatti freno per Emendamento A3",
+        "quantita": 1,
+        "prezzo_unitario": 65,
+        "categoria": "Sicurezza"
+      }
+    }
+  ],
+  "group": "Norme",
+  "materials": []
+}

@@ -1,0 +1,50 @@
+{
+  "id": "PIPELINE_1772119560079",
+  "name": "Selezione Trasformatore da utilizzatori",
+  "description": "Lookup componenti → raggruppa per tensione → match multi-criterio su catalogo",
+  "enabled": true,
+  "priority": 15,
+  "phase": 1.5,
+  "conditions": [],
+  "pipeline_steps": [
+    {
+      "id": "step_0_1772119560079",
+      "action": "lookup_each",
+      "sezione": "selezione_trasformatore",
+      "tabella": "utilizzatori_trasformatore",
+      "campo_lookup": "componente",
+      "output_prefix": "_calc.util."
+    },
+    {
+      "id": "step_1_1772119560079",
+      "action": "group_sum",
+      "pattern_value": "_calc.util.*.watt",
+      "pattern_group": "_calc.util.*.tensione_uscita",
+      "output_prefix": "_calc.va_per_tensione.",
+      "power_factor": "selezione_trasformatore.power_factor"
+    },
+    {
+      "id": "step_2_1772119560079",
+      "action": "multi_match",
+      "tabella": "catalogo_trasformatori_flat",
+      "requisiti_prefix": "_calc.va_per_tensione.",
+      "colonna_codice": "codice_trasf",
+      "colonna_tensione": "tensione_uscita",
+      "colonna_va": "va_disponibili",
+      "colonna_ordinamento": "potenza_totale_va",
+      "output_prefix": "_calc.trasformatore."
+    },
+    {
+      "id": "step_3_1772119560079",
+      "action": "add_material",
+      "material": {
+        "codice": "_calc.trasformatore.codice_trasf",
+        "descrizione": "Trasformatore auto-selezionato",
+        "quantita": 1,
+        "categoria": "Trasformatore"
+      }
+    }
+  ],
+  "materials": [],
+  "_source": "pipeline_builder"
+}

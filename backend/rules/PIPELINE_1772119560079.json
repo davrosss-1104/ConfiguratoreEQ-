@@ -19,9 +19,8 @@
       "id": "step_1_1772119560079",
       "action": "group_sum",
       "pattern_value": "_calc.util.*.watt",
-      "pattern_group": "_calc.util.*.tensione_uscita",
-      "output_prefix": "_calc.va_per_tensione.",
-      "power_factor": "selezione_trasformatore.power_factor"
+      "pattern_group": "_calc.util.*.tensione_uscita_trasf",
+      "output_prefix": "_calc.va_per_tensione."
     },
     {
       "id": "step_2_1772119560079",
@@ -46,5 +45,6 @@
     }
   ],
   "materials": [],
-  "_source": "pipeline_builder"
+  "_source": "pipeline_builder",
+  "actions": []
 }

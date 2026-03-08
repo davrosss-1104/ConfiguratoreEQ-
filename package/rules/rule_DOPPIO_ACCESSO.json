@@ -1,0 +1,39 @@
+{
+  "id": "DOPPIO_ACCESSO",
+  "name": "Doppio accesso in cabina",
+  "description": "Componenti aggiuntivi per cabina con 2 accessi",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 45,
+  "conditions": [
+    {
+      "field": "numero_accessi",
+      "operator": "equals",
+      "value": "2",
+      "description": "Cabina con 2 accessi"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "OPER-ACC-B",
+      "descrizione": "Operatore porte accesso B",
+      "quantita": 1,
+      "prezzo_unitario": 340.0,
+      "categoria": "Porte"
+    },
+    {
+      "codice": "BARR-ACC-B",
+      "descrizione": "Barriera fotocellula accesso B",
+      "quantita": 1,
+      "prezzo_unitario": 85.0,
+      "categoria": "Porte"
+    },
+    {
+      "codice": "CAVO-OPER-B",
+      "descrizione": "Cavo operatore porte accesso B (3.5m)",
+      "quantita": 1,
+      "prezzo_unitario": 18.0,
+      "categoria": "Precablaggio"
+    }
+  ]
+}

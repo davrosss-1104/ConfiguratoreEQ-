@@ -1,0 +1,331 @@
+{
+  "tipo": "catalog",
+  "colonna_id": "codice_trasf",
+  "colonne": [
+    "codice_trasf",
+    "tipo",
+    "potenza_totale_va",
+    "forza_motrice",
+    "tensione_uscita",
+    "va_disponibili",
+    "nome_uscita",
+    "art_trasformatore"
+  ],
+  "records": [
+    {
+      "codice_trasf": "T100",
+      "tipo": "Monofase",
+      "potenza_totale_va": 250,
+      "forza_motrice": "0-230-400",
+      "tensione_uscita": 24,
+      "va_disponibili": 100,
+      "nome_uscita": "manovra",
+      "art_trasformatore": "EQ-TRF-T100"
+    },
+    {
+      "codice_trasf": "T100",
+      "tipo": "Monofase",
+      "potenza_totale_va": 250,
+      "forza_motrice": "0-230-400",
+      "tensione_uscita": 75,
+      "va_disponibili": 150,
+      "nome_uscita": "operatore",
+      "art_trasformatore": "EQ-TRF-T100"
+    },
+    {
+      "codice_trasf": "T200",
+      "tipo": "Monofase",
+      "potenza_totale_va": 400,
+      "forza_motrice": "0-230-400",
+      "tensione_uscita": 24,
+      "va_disponibili": 150,
+      "nome_uscita": "manovra",
+      "art_trasformatore": "EQ-TRF-T200"
+    },
+    {
+      "codice_trasf": "T200",
+      "tipo": "Monofase",
+      "potenza_totale_va": 400,
+      "forza_motrice": "0-230-400",
+      "tensione_uscita": 75,
+      "va_disponibili": 200,
+      "nome_uscita": "operatore",
+      "art_trasformatore": "EQ-TRF-T200"
+    },
+    {
+      "codice_trasf": "T200",
+      "tipo": "Monofase",
+      "potenza_totale_va": 400,
+      "forza_motrice": "0-230-400",
+      "tensione_uscita": 5,
+      "va_disponibili": 50,
+      "nome_uscita": "display",
+      "art_trasformatore": "EQ-TRF-T200"
+    },
+    {
+      "codice_trasf": "T300",
+      "tipo": "Monofase",
+      "potenza_totale_va": 630,
+      "forza_motrice": "0-230-400",
+      "tensione_uscita": 24,
+      "va_disponibili": 200,
+      "nome_uscita": "manovra",
+      "art_trasformatore": "EQ-TRF-T300"
+    },
+    {
+      "codice_trasf": "T300",
+      "tipo": "Monofase",
+      "potenza_totale_va": 630,
+      "forza_motrice": "0-230-400",
+      "tensione_uscita": 75,
+      "va_disponibili": 300,
+      "nome_uscita": "operatore",
+      "art_trasformatore": "EQ-TRF-T300"
+    },
+    {
+      "codice_trasf": "T300",
+      "tipo": "Monofase",
+      "potenza_totale_va": 630,
+      "forza_motrice": "0-230-400",
+      "tensione_uscita": 5,
+      "va_disponibili": 50,
+      "nome_uscita": "display",
+      "art_trasformatore": "EQ-TRF-T300"
+    },
+    {
+      "codice_trasf": "T300",
+      "tipo": "Monofase",
+      "potenza_totale_va": 630,
+      "forza_motrice": "0-230-400",
+      "tensione_uscita": 55,
+      "va_disponibili": 80,
+      "nome_uscita": "valvole",
+      "art_trasformatore": "EQ-TRF-T300"
+    },
+    {
+      "codice_trasf": "T400",
+      "tipo": "Trimono",
+      "potenza_totale_va": 800,
+      "forza_motrice": "380",
+      "tensione_uscita": 24,
+      "va_disponibili": 300,
+      "nome_uscita": "manovra",
+      "art_trasformatore": "EQ-TRF-T400"
+    },
+    {
+      "codice_trasf": "T400",
+      "tipo": "Trimono",
+      "potenza_totale_va": 800,
+      "forza_motrice": "380",
+      "tensione_uscita": 75,
+      "va_disponibili": 350,
+      "nome_uscita": "operatore",
+      "art_trasformatore": "EQ-TRF-T400"
+    },
+    {
+      "codice_trasf": "T400",
+      "tipo": "Trimono",
+      "potenza_totale_va": 800,
+      "forza_motrice": "380",
+      "tensione_uscita": 5,
+      "va_disponibili": 50,
+      "nome_uscita": "display",
+      "art_trasformatore": "EQ-TRF-T400"
+    },
+    {
+      "codice_trasf": "T400",
+      "tipo": "Trimono",
+      "potenza_totale_va": 800,
+      "forza_motrice": "380",
+      "tensione_uscita": 55,
+      "va_disponibili": 100,
+      "nome_uscita": "valvole",
+      "art_trasformatore": "EQ-TRF-T400"
+    },
+    {
+      "codice_trasf": "T500",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1000,
+      "forza_motrice": "380",
+      "tensione_uscita": 24,
+      "va_disponibili": 350,
+      "nome_uscita": "manovra",
+      "art_trasformatore": "EQ-TRF-T500"
+    },
+    {
+      "codice_trasf": "T500",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1000,
+      "forza_motrice": "380",
+      "tensione_uscita": 75,
+      "va_disponibili": 400,
+      "nome_uscita": "operatore",
+      "art_trasformatore": "EQ-TRF-T500"
+    },
+    {
+      "codice_trasf": "T500",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1000,
+      "forza_motrice": "380",
+      "tensione_uscita": 5,
+      "va_disponibili": 50,
+      "nome_uscita": "display",
+      "art_trasformatore": "EQ-TRF-T500"
+    },
+    {
+      "codice_trasf": "T500",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1000,
+      "forza_motrice": "380",
+      "tensione_uscita": 55,
+      "va_disponibili": 150,
+      "nome_uscita": "valvole",
+      "art_trasformatore": "EQ-TRF-T500"
+    },
+    {
+      "codice_trasf": "T500",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1000,
+      "forza_motrice": "380",
+      "tensione_uscita": 18,
+      "va_disponibili": 50,
+      "nome_uscita": "ausiliario",
+      "art_trasformatore": "EQ-TRF-T500"
+    },
+    {
+      "codice_trasf": "T600",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1250,
+      "forza_motrice": "380",
+      "tensione_uscita": 24,
+      "va_disponibili": 400,
+      "nome_uscita": "manovra",
+      "art_trasformatore": "EQ-TRF-T600"
+    },
+    {
+      "codice_trasf": "T600",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1250,
+      "forza_motrice": "380",
+      "tensione_uscita": 75,
+      "va_disponibili": 500,
+      "nome_uscita": "operatore",
+      "art_trasformatore": "EQ-TRF-T600"
+    },
+    {
+      "codice_trasf": "T600",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1250,
+      "forza_motrice": "380",
+      "tensione_uscita": 5,
+      "va_disponibili": 80,
+      "nome_uscita": "display",
+      "art_trasformatore": "EQ-TRF-T600"
+    },
+    {
+      "codice_trasf": "T600",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1250,
+      "forza_motrice": "380",
+      "tensione_uscita": 55,
+      "va_disponibili": 200,
+      "nome_uscita": "valvole",
+      "art_trasformatore": "EQ-TRF-T600"
+    },
+    {
+      "codice_trasf": "T600",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1250,
+      "forza_motrice": "380",
+      "tensione_uscita": 18,
+      "va_disponibili": 70,
+      "nome_uscita": "ausiliario",
+      "art_trasformatore": "EQ-TRF-T600"
+    },
+    {
+      "codice_trasf": "T600",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1250,
+      "forza_motrice": "380",
+      "tensione_uscita": 15,
+      "va_disponibili": 50,
+      "nome_uscita": "extra",
+      "art_trasformatore": "EQ-TRF-T600"
+    },
+    {
+      "codice_trasf": "T700",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1600,
+      "forza_motrice": "380",
+      "tensione_uscita": 24,
+      "va_disponibili": 500,
+      "nome_uscita": "manovra",
+      "art_trasformatore": "EQ-TRF-T700"
+    },
+    {
+      "codice_trasf": "T700",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1600,
+      "forza_motrice": "380",
+      "tensione_uscita": 75,
+      "va_disponibili": 600,
+      "nome_uscita": "operatore",
+      "art_trasformatore": "EQ-TRF-T700"
+    },
+    {
+      "codice_trasf": "T700",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1600,
+      "forza_motrice": "380",
+      "tensione_uscita": 5,
+      "va_disponibili": 100,
+      "nome_uscita": "display",
+      "art_trasformatore": "EQ-TRF-T700"
+    },
+    {
+      "codice_trasf": "T700",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1600,
+      "forza_motrice": "380",
+      "tensione_uscita": 55,
+      "va_disponibili": 250,
+      "nome_uscita": "valvole",
+      "art_trasformatore": "EQ-TRF-T700"
+    },
+    {
+      "codice_trasf": "T700",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1600,
+      "forza_motrice": "380",
+      "tensione_uscita": 18,
+      "va_disponibili": 100,
+      "nome_uscita": "ausiliario",
+      "art_trasformatore": "EQ-TRF-T700"
+    },
+    {
+      "codice_trasf": "T700",
+      "tipo": "Trimono",
+      "potenza_totale_va": 1600,
+      "forza_motrice": "380",
+      "tensione_uscita": 15,
+      "va_disponibili": 50,
+      "nome_uscita": "extra",
+      "art_trasformatore": "EQ-TRF-T700"
+    }
+  ],
+  "_meta": {
+    "nome": "catalogo_trasformatori_flat",
+    "tipo": "catalogo",
+    "tipo_engine": "catalog",
+    "fogli_origine": [
+      "Catalogo_trasformatori"
+    ],
+    "file_origine": "tmpet_g7r0a.xlsx",
+    "generato_il": "2026-03-05T23:26:41.971785",
+    "righe_totali": 30,
+    "colonna_chiave": "codice_trasf",
+    "tipo_chiave": "testo",
+    "partizionato_per": "",
+    "valori_partizione": []
+  }
+}

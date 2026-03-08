@@ -941,7 +941,7 @@ export default function PipelineBuilderPage() {
             id: pipeline.id,
             pipeline_steps: pipeline.pipeline_steps,
           },
-          preventivo_id: preventivoId || 1,
+          ...(preventivoId ? { preventivo_id: preventivoId } : {}),
         }),
       });
       if (res.ok) {
@@ -1253,12 +1253,10 @@ export default function PipelineBuilderPage() {
                             tabella,
                             colonna_chiave: campo_lookup,
                             colonna_label: 'label',
+                            colonna_suffisso: (dataTables.find((t: any) => t.nome === tabella)?._meta?.colonna_suffisso) || '',
                             sezione_codice: sezione,
                             sezione_etichetta: label,
                             sezione_icona: 'Zap',
-                            campi_extra: [
-                              { codice: 'power_factor', etichetta: 'Power Factor', tipo: 'testo', default: '0.8' }
-                            ],
                           }),
                         });
                         const data = await res.json();

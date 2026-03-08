@@ -1,0 +1,36 @@
+{
+  "id": "EN81-20",
+  "name": "En81-20",
+  "description": "Regola importata da Rule Designer - normative.en_81_20",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "en_81_20",
+      "operator": "equals",
+      "value": "2014",
+      "description": "Campo normative.en_81_20 == 2014"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "PCB-CTRL",
+      "descrizione": "Scheda controllo principale",
+      "quantita": 1,
+      "prezzo_unitario": 251.99999999999997,
+      "categoria": "",
+      "unita": "pz",
+      "codice_fonte": "DB_EQ"
+    },
+    {
+      "codice": "CAV-3G25",
+      "descrizione": "Cavo FG7OR 3G2.5",
+      "quantita": 1,
+      "prezzo_unitario": 0.0,
+      "categoria": "",
+      "unita": "pz",
+      "codice_fonte": "DB_EQ"
+    }
+  ]
+}

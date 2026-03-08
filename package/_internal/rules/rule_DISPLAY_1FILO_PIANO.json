@@ -1,0 +1,26 @@
+{
+  "id": "DISPLAY_1FILO_PIANO",
+  "name": "Display 1 filo per piano",
+  "description": "Collegamento display con 1 filo per piano",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 35,
+  "conditions": [
+    {
+      "field": "collegamento_display",
+      "operator": "equals",
+      "value": "1 filo per piano",
+      "description": "Collegamento display 1 filo per piano"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "DISP-1FILO",
+      "descrizione": "Kit collegamento display 1 filo per piano",
+      "quantita": 1,
+      "prezzo_unitario": 35.0,
+      "categoria": "Segnalazione",
+      "note": "Prezzo base, aggiungere costo per fermata"
+    }
+  ]
+}

@@ -44,7 +44,7 @@ class ExcelDataLoader:
     MAPPA_COLUMNS = [
         "foglio", "tipo", "nome_tabella", "colonna_chiave",
         "tipo_chiave", "partizionato_per", "valore_partizione",
-        "riga_intestazioni", "note"
+        "riga_intestazioni", "colonna_suffisso", "note"
     ]
 
     @staticmethod
@@ -471,39 +471,50 @@ class ExcelDataLoader:
     def _build_catalog(self, fogli_data: List[Dict]) -> Dict[str, Any]:
         """
         Genera catalogo: tabella piatta di prodotti per matching multi-criterio.
-        
-        Output JSON:
-        {
-            "tipo": "catalog",
-            "colonna_id": "codice",
-            "colonne": ["codice", "tipo", "potenza_va", ...],
-            "records": [
-                {"codice": "218", "tipo": "mono", "potenza_va": 600, ...},
-                ...
-            ]
-        }
+        Se colonna_suffisso è definita nella _MAPPA, i componenti con righe multiple
+        ricevono il suffisso _{valore}v nella colonna chiave.
         """
+        from collections import Counter
         all_records = []
         all_headers = []
 
         for foglio_info in fogli_data:
-            entry = foglio_info["entry"]
             rows = foglio_info["rows"]
             headers, data = self._rows_to_dicts(rows)
             if not all_headers:
                 all_headers = headers
             all_records.extend(data)
 
-        col_chiave_raw = fogli_data[0]["entry"].get("colonna_chiave", "").strip()
+        entry = fogli_data[0]["entry"]
+        col_chiave_raw = entry.get("colonna_chiave", "").strip()
         col_chiave = self._normalize_key(col_chiave_raw)
         if col_chiave not in all_headers:
             col_chiave = all_headers[0] if all_headers else "codice"
+
+        col_suffisso_raw = entry.get("colonna_suffisso") or ""
+        col_suffisso = self._normalize_key(col_suffisso_raw) if col_suffisso_raw else ""
+
+        if col_suffisso:
+            conteggio = Counter(str(r.get(col_chiave, "")).strip() for r in all_records)
+            for record in all_records:
+                chiave_val = str(record.get(col_chiave, "")).strip()
+                if conteggio.get(chiave_val, 1) > 1:
+                    suf_raw = record.get(col_suffisso)
+                    if suf_raw is not None:
+                        try:
+                            suf = str(int(float(str(suf_raw))))
+                        except (ValueError, TypeError):
+                            suf = str(suf_raw).replace(" ", "_").lower()
+                        record[col_chiave] = f"{chiave_val}_{suf}v"
 
         return {
             "tipo": "catalog",
             "colonna_id": col_chiave,
             "colonne": all_headers,
             "records": all_records,
+            "_meta": {
+                "colonna_suffisso": col_suffisso or None,
+            }
         }
 
     # ========================================================================

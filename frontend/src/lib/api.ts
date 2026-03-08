@@ -1,21 +1,16 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8000';
+// In produzione (build), se VITE_API_URL non è definito, usa URL relativo (stessa origine)
+// In sviluppo, fallback a localhost:8000
+const isDev = import.meta.env.DEV;
+const API_BASE_URL = import.meta.env.VITE_API_URL || (isDev ? 'http://localhost:8000' : '');
 
+// Istanza axios configurata
 export const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
-});
-
-// Interceptor: aggiunge Authorization header da localStorage
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
 });
 
 // Interceptor per gestire errori globali

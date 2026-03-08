@@ -1,0 +1,80 @@
+{
+  "id": "CONT_OLEO_DIR_60HZ_18_5KW",
+  "name": "Contattori oleo diretto 18.5kW 60Hz/440V",
+  "description": "Selezione contattori per centralina oleodinamica 18.5kW, avviamento diretto, 60Hz/440V",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "trazione.trazione",
+      "operator": "equals",
+      "value": "oleodinamica",
+      "description": "Trazione oleodinamica"
+    },
+    {
+      "field": "trazione.tipo_avviamento_motore",
+      "operator": "equals",
+      "value": "diretto",
+      "description": "Avviamento diretto"
+    },
+    {
+      "field": "tensioni.frequenza_rete",
+      "operator": "equals",
+      "value": "60",
+      "description": "Rete 60Hz"
+    },
+    {
+      "field": "trazione.potenza_motore_kw",
+      "operator": "greater_equal",
+      "value": 16.8,
+      "description": "Potenza >= 16.8 kW"
+    },
+    {
+      "field": "trazione.potenza_motore_kw",
+      "operator": "less_than",
+      "value": 21.2,
+      "description": "Potenza < 21.2 kW"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "CONT-D50-KM",
+      "descrizione": "Contattore D50 marcia (KM) - motore 18.5kW",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "categoria": "Contattori",
+      "note": "Avviamento diretto"
+    },
+    {
+      "codice": "MORS-35MM2-RST",
+      "descrizione": "Morsetti 35mm² linea R-S-T",
+      "quantita": 3,
+      "prezzo_unitario": 0,
+      "categoria": "Morsetteria"
+    },
+    {
+      "codice": "MORS-35MM2-UVW",
+      "descrizione": "Morsetti 35mm² motore U-V-W",
+      "quantita": 3,
+      "prezzo_unitario": 0,
+      "categoria": "Morsetteria"
+    },
+    {
+      "codice": "FILO-10MM2-RST",
+      "descrizione": "Filo 10mm² linea R-S-T",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "unita_misura": "mt",
+      "categoria": "Cablaggio"
+    },
+    {
+      "codice": "FILO-10MM2-UVW",
+      "descrizione": "Filo 10mm² motore U-V-W",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "unita_misura": "mt",
+      "categoria": "Cablaggio"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "SEGN_TUTTI_PIANI",
+  "name": "Segnalazioni a tutti i piani",
+  "description": "Posizione e direzione visibili a tutti i piani",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 35,
+  "conditions": [
+    {
+      "field": "segnalazioni_posizione",
+      "operator": "equals",
+      "value": "Tutti i piani",
+      "description": "Segnalazione posizione a tutti i piani"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "DISP-POS-PIANO",
+      "descrizione": "Display posizione al piano",
+      "quantita": 1,
+      "prezzo_unitario": 55.0,
+      "categoria": "Segnalazione",
+      "note": "Quantità = numero fermate"
+    }
+  ]
+}

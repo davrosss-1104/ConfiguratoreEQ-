@@ -1,0 +1,25 @@
+{
+  "id": "NORM_A3_95_16",
+  "name": "A3 95/16 Sovraccarico",
+  "description": "Dispositivo sovraccarico secondo A3 95/16",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "a3_95_16",
+      "operator": "equals",
+      "value": "true",
+      "description": "A3 95/16 attiva"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "SOVR-CAB-A3",
+      "descrizione": "Sovraccarico cabina (A3 95/16)",
+      "quantita": 1,
+      "prezzo_unitario": 145.0,
+      "categoria": "Sicurezza"
+    }
+  ]
+}

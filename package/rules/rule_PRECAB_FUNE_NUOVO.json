@@ -1,0 +1,74 @@
+{
+  "id": "PRECAB_FUNE_NUOVO",
+  "name": "Precablaggio ascensore fune nuovo",
+  "description": "Kit precablaggio standard per ascensore a fune nuovo",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 30,
+  "conditions": [
+    {
+      "field": "tipo_impianto",
+      "operator": "equals",
+      "value": "ascensore",
+      "description": "Tipo impianto ascensore"
+    },
+    {
+      "field": "nuovo_impianto",
+      "operator": "equals",
+      "value": "true",
+      "description": "Nuovo impianto"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "KIT_PRECAB_FUNE",
+      "descrizione": "Kit precablaggio ascensore fune",
+      "quantita": 1,
+      "prezzo_unitario": 950.0,
+      "categoria": "Precablaggio"
+    },
+    {
+      "codice": "MORS-TETTO-CAB",
+      "descrizione": "Morsettiera tetto cabina",
+      "quantita": 1,
+      "prezzo_unitario": 45.0,
+      "categoria": "Precablaggio"
+    },
+    {
+      "codice": "BOTT-MANUT",
+      "descrizione": "Bottoniera di manutenzione",
+      "quantita": 1,
+      "prezzo_unitario": 65.0,
+      "categoria": "Precablaggio"
+    },
+    {
+      "codice": "CONT-MAGN-REED",
+      "descrizione": "Contatti magnetici Reed con staffe",
+      "quantita": 1,
+      "prezzo_unitario": 18.0,
+      "categoria": "Precablaggio",
+      "note": "Quantità = numero fermate"
+    },
+    {
+      "codice": "STOP-FOSSA",
+      "descrizione": "Stop in fossa",
+      "quantita": 1,
+      "prezzo_unitario": 22.0,
+      "categoria": "Sicurezza"
+    },
+    {
+      "codice": "SIRENA-ALL",
+      "descrizione": "Sirena allarme",
+      "quantita": 1,
+      "prezzo_unitario": 15.0,
+      "categoria": "Segnalazione"
+    },
+    {
+      "codice": "CAVO-TERRA-GUIDE",
+      "descrizione": "Cavo di terra per guide (10m)",
+      "quantita": 1,
+      "prezzo_unitario": 12.0,
+      "categoria": "Precablaggio"
+    }
+  ]
+}

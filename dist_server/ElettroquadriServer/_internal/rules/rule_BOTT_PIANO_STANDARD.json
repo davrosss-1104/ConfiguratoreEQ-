@@ -1,0 +1,26 @@
+{
+  "id": "BOTT_PIANO_STANDARD",
+  "name": "Bottoniere di piano standard",
+  "description": "Bottoniere di piano - quantità pari al numero fermate",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 40,
+  "conditions": [
+    {
+      "field": "tipo_impianto",
+      "operator": "equals",
+      "value": "ascensore",
+      "description": "Tipo impianto ascensore"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "BOTT_PIANO_STD",
+      "descrizione": "Bottoniera di piano standard",
+      "quantita": 1,
+      "prezzo_unitario": 95.0,
+      "categoria": "Bottoniere",
+      "note": "Quantità = numero fermate (da moltiplicare)"
+    }
+  ]
+}

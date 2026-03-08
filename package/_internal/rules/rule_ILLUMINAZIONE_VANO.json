@@ -1,0 +1,25 @@
+{
+  "id": "ILLUMINAZIONE_VANO",
+  "name": "Illuminazione vano",
+  "description": "Kit illuminazione vano con strisce LED e prese",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 70,
+  "conditions": [
+    {
+      "field": "illuminazione_vano",
+      "operator": "equals",
+      "value": "true",
+      "description": "Illuminazione vano richiesta"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "KIT-ILL-VANO",
+      "descrizione": "Kit illuminazione vano LED con prese e deviatori",
+      "quantita": 1,
+      "prezzo_unitario": 280.0,
+      "categoria": "Illuminazione"
+    }
+  ]
+}

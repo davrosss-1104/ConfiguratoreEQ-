@@ -1,0 +1,32 @@
+{
+  "id": "FOSSA_TESTATA_RIDOTTA",
+  "name": "Opzioni fossa/testata ridotta",
+  "description": "Componenti aggiuntivi per fossa e/o testata ridotta",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 60,
+  "conditions": [
+    {
+      "field": "fossa_ridotta",
+      "operator": "equals",
+      "value": "true",
+      "description": "Fossa ridotta"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "SEMAF-FOSSA-RID",
+      "descrizione": "Semaforo ingresso vano per fossa ridotta",
+      "quantita": 1,
+      "prezzo_unitario": 55.0,
+      "categoria": "Sicurezza"
+    },
+    {
+      "codice": "STOP-TETTO-2",
+      "descrizione": "2° Stop tetto cabina",
+      "quantita": 1,
+      "prezzo_unitario": 22.0,
+      "categoria": "Sicurezza"
+    }
+  ]
+}

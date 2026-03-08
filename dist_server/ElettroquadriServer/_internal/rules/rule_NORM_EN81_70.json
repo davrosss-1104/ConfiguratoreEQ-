@@ -1,0 +1,39 @@
+{
+  "id": "NORM_EN81_70",
+  "name": "Normativa EN 81-70 Accessibilità",
+  "description": "Componenti per accessibilità disabili EN 81-70",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "en_81_70",
+      "operator": "equals",
+      "value": "true",
+      "description": "EN 81-70 attiva"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "GONG-CAB-70",
+      "descrizione": "Gong in cabina inizio apertura porte (EN81-70)",
+      "quantita": 1,
+      "prezzo_unitario": 28.0,
+      "categoria": "Segnalazione"
+    },
+    {
+      "codice": "CONF-ACUST-70",
+      "descrizione": "Conferma acustica e luminosa pulsanti (EN81-70)",
+      "quantita": 1,
+      "prezzo_unitario": 35.0,
+      "categoria": "Segnalazione"
+    },
+    {
+      "codice": "SINTETIZ-VOCALE",
+      "descrizione": "Sintetizzatore vocale annuncio piano",
+      "quantita": 1,
+      "prezzo_unitario": 120.0,
+      "categoria": "Segnalazione"
+    }
+  ]
+}

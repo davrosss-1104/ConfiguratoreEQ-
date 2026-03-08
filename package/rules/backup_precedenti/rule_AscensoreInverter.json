@@ -1,0 +1,27 @@
+{
+  "id": "AscensoreInverter",
+  "name": "Ascensoreinverter",
+  "description": "Regola importata da Rule Designer - dati_principali.tipo_impianto",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "tipo_impianto",
+      "operator": "equals",
+      "value": "ascensore",
+      "description": "Campo dati_principali.tipo_impianto == ascensore"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "INV-7K5",
+      "descrizione": "Inverter 7.5 kW",
+      "quantita": 1,
+      "prezzo_unitario": 780.0,
+      "categoria": "",
+      "unita": "pz",
+      "codice_fonte": "DB_EQ"
+    }
+  ]
+}

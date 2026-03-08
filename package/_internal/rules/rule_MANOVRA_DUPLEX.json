@@ -1,0 +1,32 @@
+{
+  "id": "MANOVRA_DUPLEX",
+  "name": "Manovra Duplex",
+  "description": "Gestione duplex per 2 ascensori collegati",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 25,
+  "conditions": [
+    {
+      "field": "tipo_manovra",
+      "operator": "equals",
+      "value": "Duplex",
+      "description": "Manovra Duplex"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "MOD-DUPLEX",
+      "descrizione": "Modulo gestione Duplex",
+      "quantita": 1,
+      "prezzo_unitario": 320.0,
+      "categoria": "Quadri Elettrici"
+    },
+    {
+      "codice": "CAVO-INTERCON-DPX",
+      "descrizione": "Cavo interconnessione Duplex",
+      "quantita": 1,
+      "prezzo_unitario": 45.0,
+      "categoria": "Cavi"
+    }
+  ]
+}

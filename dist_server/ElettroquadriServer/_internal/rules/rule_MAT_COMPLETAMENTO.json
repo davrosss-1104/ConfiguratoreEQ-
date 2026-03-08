@@ -1,0 +1,36 @@
+{
+  "id": "MAT_COMPLETAMENTO",
+  "name": "Materiale a completamento",
+  "description": "Kit materiale standard di completamento (fascette, nastro, schemi, certificazioni)",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 90,
+  "conditions": [
+    {
+      "field": "tipo_impianto",
+      "operator": "in",
+      "value": [
+        "ascensore",
+        "scala_mobile",
+        "tappeto_mobile"
+      ],
+      "description": "Qualsiasi tipo impianto"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "KIT-COMPL-STD",
+      "descrizione": "Kit completamento (fascette, nastro, accessori)",
+      "quantita": 1,
+      "prezzo_unitario": 45.0,
+      "categoria": "Accessori"
+    },
+    {
+      "codice": "DOC-SCHEMI-CERT",
+      "descrizione": "Schemi elettrici, manuale, certificazioni",
+      "quantita": 1,
+      "prezzo_unitario": 35.0,
+      "categoria": "Documentazione"
+    }
+  ]
+}

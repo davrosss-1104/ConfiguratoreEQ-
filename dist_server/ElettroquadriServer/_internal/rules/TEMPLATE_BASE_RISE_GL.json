@@ -1,0 +1,46 @@
+{
+  "id": "TEMPLATE_BASE_RISE_GL",
+  "name": "BOM Base - RISE Gearless MRL",
+  "description": "Articoli base automatici per linea RISE sottocategoria Gearless (GL). Inseriti alla creazione del preventivo.",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 1,
+  "conditions": [
+    {
+      "field": "template_categoria",
+      "operator": "equals",
+      "value": "RISE"
+    },
+    {
+      "field": "template_sottocategoria",
+      "operator": "equals",
+      "value": "GL"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "QUADRO_QM_GL_001",
+      "descrizione": "Quadro Manovra Gearless MRL",
+      "quantita": 1,
+      "prezzo_unitario": 2850.00,
+      "categoria": "Quadri Elettrici",
+      "note": "Quadro base per ascensore gearless"
+    },
+    {
+      "codice": "KIT_PRECAB_FUNE",
+      "descrizione": "Kit Precablaggio Ascensore a Fune",
+      "quantita": 1,
+      "prezzo_unitario": 1200.00,
+      "categoria": "Precablaggio",
+      "note": "Precablaggio standard fune"
+    },
+    {
+      "codice": "BOTT_CABINA_STD",
+      "descrizione": "Bottoniera di Cabina Standard",
+      "quantita": 1,
+      "prezzo_unitario": 450.00,
+      "categoria": "Bottoniere",
+      "note": "Bottoniera cabina base"
+    }
+  ]
+}

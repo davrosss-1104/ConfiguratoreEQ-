@@ -32,7 +32,7 @@ RULES_DIR = "./rules"
 MAPPA_COLUMNS = [
     "foglio", "tipo", "nome_tabella", "colonna_chiave",
     "tipo_chiave", "partizionato_per", "valore_partizione",
-    "riga_intestazioni", "note"
+    "riga_intestazioni", "colonna_suffisso", "note"
 ]
 
 TIPI_VALIDI = {"lookup_range", "catalogo", "costanti"}
@@ -544,14 +544,26 @@ class ExcelImporter:
     # --------------------------------------------------------------------
     def _build_catalogo(self, wb, entries: List[Dict]) -> Optional[Dict]:
         """Costruisce tabella catalogo."""
+        from collections import Counter
         entry = entries[0]
         nome_tabella = entry["nome_tabella"]
+        colonna_chiave = self._normalize_name(entry["colonna_chiave"])
+        col_suffisso_raw = entry.get("colonna_suffisso") or ""
+        col_suffisso = self._normalize_name(col_suffisso_raw) if col_suffisso_raw else ""
+        print(f"[BUILD_CATALOGO] col_suffisso_raw='{col_suffisso_raw}', col_suffisso='{col_suffisso}'")
 
         result = self._read_data_sheet(wb, entry)
         if result is None:
             return None
         headers, rows = result
         tech_cols, art_cols = self._separate_art_columns(headers)
+
+        # Conta occorrenze per chiave — se >1 e col_suffisso definita, espanderemo con suffisso
+        conteggio = Counter()
+        for row in rows:
+            v = row.get(entry["colonna_chiave"])
+            if v is not None:
+                conteggio[str(v).strip()] += 1
 
         records = []
         for row in rows:
@@ -568,19 +580,34 @@ class ExcelImporter:
                         art[self._normalize_name(col[4:].strip())] = str(v).strip()
                 if art:
                     record["_articoli"] = art
+
+            # Espandi chiave con suffisso se componente ha righe multiple
+            chiave_val = str(row.get(entry["colonna_chiave"], "")).strip()
+            if col_suffisso and conteggio.get(chiave_val, 1) > 1:
+                suf_raw = record.get(col_suffisso)
+                if suf_raw is not None:
+                    try:
+                        suf = str(int(float(str(suf_raw))))
+                    except (ValueError, TypeError):
+                        suf = str(suf_raw).replace(" ", "_").lower()
+                    record[colonna_chiave] = f"{self._normalize_name(chiave_val)}_{suf}v"
+
             records.append(record)
 
         return {
             "tipo": "catalog",
-            "colonna_id": self._normalize_name(entry["colonna_chiave"]),
+            "colonna_id": colonna_chiave,
             "colonne": [self._normalize_name(c) for c in tech_cols],
             "records": records,
             "_meta": {
                 "nome": nome_tabella,
                 "tipo": "catalogo",
-                "generato_il": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "tipo_engine": "catalog",
+                "colonna_suffisso": col_suffisso or None,
+                "generato_il": datetime.now().isoformat(),
                 "file_origine": "import Excel con _MAPPA",
-                "righe": len(records),
+                "righe_totali": len(records),
+                "colonna_chiave": colonna_chiave,
             }
         }
 

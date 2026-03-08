@@ -1,0 +1,45 @@
+{
+  "id": "gearless_mrl_traction",
+  "name": "Trazione Gearless MRL - Quadro e Componenti",
+  "description": "Materiali automatici per impianti con trazione Gearless senza locale macchina",
+  "version": "1.0",
+  "enabled": true,
+  "conditions": [
+    {
+      "field": "tipo_trazione",
+      "operator": "equals",
+      "value": "Gearless MRL",
+      "description": "Trazione tipo Gearless MRL"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "QEL-GRL-001",
+      "descrizione": "Quadro elettrico Gearless MRL - Configurazione standard",
+      "quantita": 1,
+      "prezzo_unitario": 2850.00,
+      "categoria": "Quadri Elettrici"
+    },
+    {
+      "codice": "INV-GRL-001",
+      "descrizione": "Inverter per motore Gearless - Alta efficienza",
+      "quantita": 1,
+      "prezzo_unitario": 1650.00,
+      "categoria": "Quadri Elettrici"
+    },
+    {
+      "codice": "ENC-MRL-001",
+      "descrizione": "Encoder assoluto per trazione MRL",
+      "quantita": 1,
+      "prezzo_unitario": 420.00,
+      "categoria": "Componenti Trazione"
+    },
+    {
+      "codice": "PCB-GRL-001",
+      "descrizione": "Scheda controllo principale Gearless",
+      "quantita": 1,
+      "prezzo_unitario": 580.00,
+      "categoria": "Componenti Elettronici"
+    }
+  ]
+}

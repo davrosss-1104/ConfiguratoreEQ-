@@ -1,0 +1,40 @@
+{
+  "id": "NORM_EN81_28",
+  "name": "Normativa EN 81-28 Allarme",
+  "description": "Sistema di allarme bidirezionale conforme EN 81-28",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "en_81_28",
+      "operator": "equals",
+      "value": "true",
+      "description": "EN 81-28 attiva"
+    }
+  ],
+  "actions": [
+    {
+      "action": "add_material",
+      "material": {
+        "codice": "FILTRO-ATT-ALL",
+        "descrizione": "Filtro attivazione allarme (EN81-28)",
+        "quantita": 1,
+        "prezzo_unitario": 35,
+        "categoria": "Sicurezza"
+      }
+    },
+    {
+      "action": "add_material",
+      "material": {
+        "codice": "COMB-TEL-GSM",
+        "descrizione": "Combinatore telefonico GSM per allarme",
+        "quantita": 1,
+        "prezzo_unitario": 165,
+        "categoria": "Comunicazione"
+      }
+    }
+  ],
+  "group": "Norme",
+  "materials": []
+}

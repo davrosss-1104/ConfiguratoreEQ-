@@ -1,0 +1,80 @@
+{
+  "id": "CONT_OLEO_ST_60HZ_29KW",
+  "name": "Contattori oleo stella-triangolo 29kW 60Hz/440V",
+  "description": "Selezione contattori per centralina oleodinamica 29kW, avviamento stella-triangolo, 60Hz/440V",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "trazione.trazione",
+      "operator": "equals",
+      "value": "oleodinamica",
+      "description": "Trazione oleodinamica"
+    },
+    {
+      "field": "trazione.tipo_avviamento_motore",
+      "operator": "equals",
+      "value": "stella_triangolo",
+      "description": "Avviamento stella-triangolo"
+    },
+    {
+      "field": "tensioni.frequenza_rete",
+      "operator": "equals",
+      "value": "60",
+      "description": "Rete 60Hz"
+    },
+    {
+      "field": "trazione.potenza_motore_kw",
+      "operator": "greater_equal",
+      "value": 26.5,
+      "description": "Potenza >= 26.5 kW"
+    },
+    {
+      "field": "trazione.potenza_motore_kw",
+      "operator": "less_than",
+      "value": 33.0,
+      "description": "Potenza < 33.0 kW"
+    }
+  ],
+  "materials": [
+    {
+      "codice": "CONT-D80-KS",
+      "descrizione": "Contattore D80 stella (KS) - motore 29kW",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "categoria": "Contattori",
+      "note": "Avviamento stella-triangolo, contattore stella"
+    },
+    {
+      "codice": "MORS-35MM2-RST",
+      "descrizione": "Morsetti 35mm² linea R-S-T",
+      "quantita": 3,
+      "prezzo_unitario": 0,
+      "categoria": "Morsetteria"
+    },
+    {
+      "codice": "MORS-35MM2-UVW",
+      "descrizione": "Morsetti 35mm² motore U-V-W",
+      "quantita": 3,
+      "prezzo_unitario": 0,
+      "categoria": "Morsetteria"
+    },
+    {
+      "codice": "FILO-35MM2-RST",
+      "descrizione": "Filo 35mm² linea R-S-T",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "unita_misura": "mt",
+      "categoria": "Cablaggio"
+    },
+    {
+      "codice": "FILO-35MM2-UVW",
+      "descrizione": "Filo 35mm² motore U-V-W",
+      "quantita": 1,
+      "prezzo_unitario": 0,
+      "unita_misura": "mt",
+      "categoria": "Cablaggio"
+    }
+  ]
+}

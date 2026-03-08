@@ -1,0 +1,70 @@
+{
+  "id": "NORM_EN81_72",
+  "name": "Normativa EN 81-72 Pompieri",
+  "description": "Predisposizione manovra pompieri EN 81-72",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "en_81_72",
+      "operator": "equals",
+      "value": "true",
+      "description": "EN 81-72 attiva"
+    }
+  ],
+  "actions": [
+    {
+      "action": "add_material",
+      "material": {
+        "codice": "KIT-POMP-72",
+        "descrizione": "Kit manovra pompieri EN81-72",
+        "quantita": 1,
+        "prezzo_unitario": 380,
+        "categoria": "Sicurezza"
+      }
+    },
+    {
+      "action": "add_material",
+      "material": {
+        "codice": "COPERT-IPX3",
+        "descrizione": "Coperchio morsettiera tetto cabina IPX3",
+        "quantita": 1,
+        "prezzo_unitario": 45,
+        "categoria": "Sicurezza"
+      }
+    },
+    {
+      "action": "add_material",
+      "material": {
+        "codice": "SIRENA-IPX3",
+        "descrizione": "Sirena allarme IPX3",
+        "quantita": 1,
+        "prezzo_unitario": 32,
+        "categoria": "Sicurezza"
+      }
+    },
+    {
+      "action": "add_material",
+      "material": {
+        "codice": "SCATOLE-IPX3",
+        "descrizione": "Scatole interconnessione vano IPX3",
+        "quantita": 1,
+        "prezzo_unitario": 55,
+        "categoria": "Sicurezza"
+      }
+    },
+    {
+      "action": "add_material",
+      "material": {
+        "codice": "CITOF-POMP",
+        "descrizione": "Predisposizione citofonia cabina-piano pompieri",
+        "quantita": 1,
+        "prezzo_unitario": 95,
+        "categoria": "Comunicazione"
+      }
+    }
+  ],
+  "group": "Norme",
+  "materials": []
+}

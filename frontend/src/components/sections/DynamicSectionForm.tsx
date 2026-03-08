@@ -176,6 +176,14 @@ export default function DynamicSectionForm({
         setDefaultsMap(result.is_default);
       }
 
+      const rr = result.rules_result;
+      if (rr) {
+        const materialsAdded = (rr.materials_added ?? 0) > 0;
+        if (rr.errors?.length > 0 && !materialsAdded) {
+          rr.errors.forEach((e: string) => toast({ title: 'Errore regole', description: e, variant: 'destructive' }));
+        }
+      }
+
       setSaveStatus('saved');
       onDataChange?.();
       setTimeout(() => setSaveStatus('idle'), 2000);

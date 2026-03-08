@@ -1,0 +1,129 @@
+{
+  "tipo": "catalog",
+  "colonna_id": "componente",
+  "colonne": [
+    "componente",
+    "label",
+    "watt",
+    "tensione_uscita_trasf"
+  ],
+  "records": [
+    {
+      "componente": "pattino_retrattile",
+      "label": "Pattino retrattile",
+      "watt": 150,
+      "tensione_uscita_trasf": 75
+    },
+    {
+      "componente": "pattino_retrattile",
+      "label": "Pattino retrattile",
+      "watt": 150,
+      "tensione_uscita_trasf": 15
+    },
+    {
+      "componente": "pattino_retrattile",
+      "label": "Pattino retrattile",
+      "watt": 150,
+      "tensione_uscita_trasf": 18
+    },
+    {
+      "componente": "ami100_24v",
+      "label": "AMI100 24V",
+      "watt": 70,
+      "tensione_uscita_trasf": 18
+    },
+    {
+      "componente": "valvole_3",
+      "label": "3 Valvole",
+      "watt": 135,
+      "tensione_uscita_trasf": 55
+    },
+    {
+      "componente": "valvole_3",
+      "label": "3 Valvole",
+      "watt": 135,
+      "tensione_uscita_trasf": 18
+    },
+    {
+      "componente": "operatore_porte",
+      "label": "Operatore porte",
+      "watt": 200,
+      "tensione_uscita_trasf": 75
+    },
+    {
+      "componente": "luce_cabina",
+      "label": "Luce cabina",
+      "watt": 100,
+      "tensione_uscita_trasf": 24
+    },
+    {
+      "componente": "ventilatore",
+      "label": "Ventilatore cabina",
+      "watt": 80,
+      "tensione_uscita_trasf": 24
+    },
+    {
+      "componente": "citofono",
+      "label": "Citofono",
+      "watt": 30,
+      "tensione_uscita_trasf": 24
+    },
+    {
+      "componente": "display_piano",
+      "label": "Display di piano",
+      "watt": 15,
+      "tensione_uscita_trasf": 24
+    },
+    {
+      "componente": "display_piano",
+      "label": "Display di piano",
+      "watt": 15,
+      "tensione_uscita_trasf": 5
+    },
+    {
+      "componente": "pulsantiera_cabina",
+      "label": "Pulsantiera cabina",
+      "watt": 20,
+      "tensione_uscita_trasf": 24
+    },
+    {
+      "componente": "serrature_elettriche",
+      "label": "Serrature elettriche",
+      "watt": 60,
+      "tensione_uscita_trasf": 75
+    },
+    {
+      "componente": "serrature_elettriche",
+      "label": "Serrature elettriche",
+      "watt": 60,
+      "tensione_uscita_trasf": 18
+    },
+    {
+      "componente": "fotocellula",
+      "label": "Fotocellula",
+      "watt": 10,
+      "tensione_uscita_trasf": 24
+    },
+    {
+      "componente": "pesacarico",
+      "label": "Pesacarico",
+      "watt": 25,
+      "tensione_uscita_trasf": 24
+    }
+  ],
+  "_meta": {
+    "nome": "utilizzatori_trasformatore",
+    "tipo": "catalogo",
+    "tipo_engine": "catalog",
+    "fogli_origine": [
+      "Utilizzatori"
+    ],
+    "file_origine": "tmpet_g7r0a.xlsx",
+    "generato_il": "2026-03-05T23:26:41.966784",
+    "righe_totali": 17,
+    "colonna_chiave": "componente",
+    "tipo_chiave": "testo",
+    "partizionato_per": "",
+    "valori_partizione": []
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "id": "TRASFORMATORE",
+  "name": "Selezione trasformatore completa",
+  "description": "Calcola VA per tensione uscita, seleziona il trasformatore dal catalogo, aggiunge il materiale. Un unico file per l'intero componente.",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 10,
+  "conditions": [],
+  "actions": [
+    {
+      "action": "accumulate_from_lookup",
+      "tabella": "utilizzatori_elettrici",
+      "campi_da_verificare": [
+        "pattino_retrattile",
+        "ami100_24v",
+        "1_operatore_125v_tri",
+        "2_operatori_125v_tri",
+        "1_operatore_230v_mono",
+        "2_valvole",
+        "3_valvole",
+        "segnalazioni_12v",
+        "manovra_24v",
+        "freno_motore_60v",
+        "frenatura_porte",
+        "scheda_mp4",
+        "luce_cabina_24v"
+      ],
+      "accumula_campo": "va",
+      "raggruppa_per": "uscita_trasf_v",
+      "output_prefix": "_calc.va_richiesti_",
+      "output_suffix": "v",
+      "output_totale": "_calc.va_totali"
+    },
+    {
+      "action": "catalog_match",
+      "skip_if": "_calc.va_totali <= 0",
+      "tabella": "catalogo_trasformatori",
+      "criteri_dinamici": {
+        "pattern": "usc_{key}v_va",
+        "sorgente_prefix": "_calc.va_richiesti_",
+        "sorgente_suffix": "v",
+        "operatore": ">=",
+        "solo_se_maggiore_di": 0
+      },
+      "criteri_fissi": [
+        {"colonna": "potenza_va", "operatore": ">=", "valore": "{{_calc.va_totali}}"}
+      ],
+      "ordinamento": {"colonna": "potenza_va", "direzione": "ASC"},
+      "output": {
+        "_calc.codice_trasformatore": "codice",
+        "_calc.tipo_trasformatore": "tipo",
+        "_calc.potenza_trasformatore": "potenza_va"
+      }
+    },
+    {
+      "action": "add_material",
+      "skip_if": "_calc.codice_trasformatore is_empty",
+      "material": {
+        "codice": "TRASF-{{_calc.codice_trasformatore}}",
+        "descrizione": "Trasformatore {{_calc.tipo_trasformatore}} {{_calc.potenza_trasformatore}}VA",
+        "categoria": "Trasformatori",
+        "quantita": 1,
+        "unita_misura": "pz"
+      }
+    }
+  ]
+}
