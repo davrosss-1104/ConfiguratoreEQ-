@@ -25,6 +25,8 @@ interface SearchResult {
   cliente_ragione_sociale?: string;
   cliente_codice?: string;
   template_id: number | null;
+  numero_ordine?: string | null;
+  stato_ordine?: string | null;
 }
 
 const STATUS_OPTIONS = [
@@ -279,6 +281,7 @@ export default function RicercaPreventiviPage() {
                   <th className="px-3 py-3 text-left">Cliente</th>
                   <th className="px-3 py-3 text-center">Linea</th>
                   <th className="px-3 py-3 text-center">Stato</th>
+                  <th className="px-3 py-3 text-center">Ordine</th>
                   <th className="px-3 py-3 text-right">Totale</th>
                   <th className="px-3 py-3 text-right">Data</th>
                   <th className="px-3 py-3"></th>
@@ -323,6 +326,15 @@ export default function RicercaPreventiviPage() {
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${statusBadge(r.status)}`}>
                         {statusLabel(r.status)}
                       </span>
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {r.numero_ordine ? (
+                        <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                          {r.numero_ordine}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300 text-xs">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-right font-medium text-gray-900">
                       {fmt(r.total_price || 0)}

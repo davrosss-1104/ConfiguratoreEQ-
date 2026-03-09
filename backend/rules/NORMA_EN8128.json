@@ -1,6 +1,6 @@
 {
-  "id": "RULE_1771437932745",
-  "name": "EN 81-28",
+  "id": "NORMA_EN8128",
+  "name": "Norma EN 81-28",
   "description": "",
   "version": "1.0",
   "enabled": true,
@@ -9,21 +9,21 @@
     {
       "field": "normative.en_81_28",
       "operator": "equals",
-      "value": "true"
+      "value": "True"
     }
   ],
   "actions": [
     {
       "action": "add_material",
       "material": {
-        "codice": "ENC-ABS",
-        "descrizione": "Encoder assoluto",
+        "codice": "INV-7K5",
+        "descrizione": "Inverter 7.5 kW",
         "quantita": 1,
-        "prezzo_unitario": 320,
-        "categoria": "ACQUISTO"
+        "prezzo_unitario": 650,
+        "categoria": "ACQUISTO",
+        "note": ""
       }
     }
   ],
-  "group": "Norme",
   "materials": []
 }

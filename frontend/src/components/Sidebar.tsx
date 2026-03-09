@@ -86,6 +86,8 @@ const ADMIN_MENU_PERMESSI: Record<string, string> = {
   'gestione-ruoli': 'admin.utenti',
   'rule-engine': 'admin.regole',
   'pipeline-builder': 'admin.regole',
+  'variabili-derivate': 'admin.regole',
+  'gestione-elementi-vano': 'admin.regole',
   'editor-template-doc': 'admin.template_doc',
   'gestione-moduli': 'admin.parametri',
   'fatturazione-config': 'admin.fatturazione',
@@ -210,6 +212,8 @@ export const Sidebar = ({
       { id: 'rule-engine', label: 'Rule Engine', icon: <Settings2 className="h-5 w-5" /> },
       { id: 'import-excel', label: 'Importa da Excel', icon: <LayoutList className="h-5 w-5" /> },
       { id: 'pipeline-builder', label: 'Pipeline di Calcolo', icon: <Cpu className="h-5 w-5" /> },
+      { id: 'variabili-derivate', label: 'Variabili Derivate', icon: <Cpu className="h-5 w-5" /> },
+      { id: 'gestione-elementi-vano', label: 'Elementi Vano', icon: <LayoutList className="h-5 w-5" /> },
       { id: 'editor-template-doc', label: 'Template Documenti', icon: <FileText className="h-5 w-5" /> },
       { id: 'gestione-moduli', label: 'Moduli & Parametri', icon: <Power className="h-5 w-5" /> },
       // Config fatturazione: solo se modulo attivo

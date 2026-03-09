@@ -400,10 +400,15 @@ export const HomePage = () => {
                         </span>
                       </div>
                     </div>
-                    <div className="bg-gray-50 px-5 py-3 border-t border-gray-100">
+                    <div className="bg-gray-50 px-5 py-3 border-t border-gray-100 flex items-center justify-between">
                       <span className="text-sm font-medium text-blue-600 group-hover:text-blue-700">
                         Apri preventivo →
                       </span>
+                      {(preventivo as any).numero_ordine && (
+                        <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                          {(preventivo as any).numero_ordine}
+                        </span>
+                      )}
                     </div>
                   </div>
                 );

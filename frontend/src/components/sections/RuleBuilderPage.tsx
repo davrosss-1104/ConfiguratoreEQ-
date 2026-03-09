@@ -439,7 +439,8 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
     queryFn: async () => { const r = await fetch(`${API}/regole?sort=${sortBy}&order=${sortOrder}`); return r.ok ? r.json() : []; },
   });
 
-  const { data: campiDisponibili = [] } = useQuery<{ field: string; source: string; label: string }[]>({
+  const { data: campiDisponibili = [] } = useQuery<{ field: string; source: string; label: string; type?: string; options?: any[] }[]>({
+
     queryKey: ['regole-campi'],
     queryFn: async () => { const r = await fetch(`${API}/regole-campi-disponibili`); return r.ok ? r.json() : []; },
   });
@@ -741,9 +742,29 @@ function EditorRegole({ initialRuleId, onRuleSelect }: { initialRuleId?: string;
                         <select value={cond.operator} onChange={e => updateCondition(idx, 'operator', e.target.value)} className="w-40 border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
                           {OPERATORS.map(op => (<option key={op.value} value={op.value}>{op.label}</option>))}
                         </select>
-                        <input value={typeof cond.value === 'object' ? JSON.stringify(cond.value) : cond.value}
-                          onChange={e => { let v: any = e.target.value; if (cond.operator === 'in') { try { v = JSON.parse(v); } catch { } } updateCondition(idx, 'value', v); }}
-                          className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm" placeholder={cond.operator === 'in' ? '["val1","val2"]' : 'Valore'} />
+                        {(() => {
+                          const fieldMeta = campiDisponibili.find(f => f.field === cond.field);
+                          const opts = fieldMeta?.options;
+                          if (opts && opts.length > 0 && cond.operator !== 'in') {
+                            return (
+                              <select value={typeof cond.value === 'object' ? JSON.stringify(cond.value) : (cond.value ?? '')}
+                                onChange={e => updateCondition(idx, 'value', e.target.value)}
+                                className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm bg-white">
+                                <option value="">-- Seleziona --</option>
+                                {opts.map((o: any) => {
+                                  const val = typeof o === 'object' ? o.value : o;
+                                  const lbl = typeof o === 'object' ? o.label : o;
+                                  return <option key={val} value={val}>{lbl}</option>;
+                                })}
+                              </select>
+                            );
+                          }
+                          return (
+                            <input value={typeof cond.value === 'object' ? JSON.stringify(cond.value) : (cond.value ?? '')}
+                              onChange={e => { let v: any = e.target.value; if (cond.operator === 'in') { try { v = JSON.parse(v); } catch { } } updateCondition(idx, 'value', v); }}
+                              className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm" placeholder={cond.operator === 'in' ? '["val1","val2"]' : 'Valore'} />
+                          );
+                        })()}
                         <button onClick={() => removeCondition(idx)} className={btnIcon}><X className="w-3.5 h-3.5 text-red-400" /></button>
                       </div>
                     ))}

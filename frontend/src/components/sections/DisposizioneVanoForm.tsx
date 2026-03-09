@@ -2,20 +2,21 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { useToast } from '@/components/ui/use-toast';
-import { PiantaInterattiva, PosizioneElemento } from './PiantaInterattiva';
+import { PiantaInterattiva, PosizioneElemento, ElementoConfig } from './PiantaInterattiva';
 import { TabellaSbarchi, Sbarco } from './TabellaSbarchi';
 import { ElementiPalette } from './ElementiPalette';
-import { 
-  getDisposizioneVano, 
+import {
+  getDisposizioneVano,
   updateDisposizioneVano,
   getDatiPrincipali,
 } from '@/services/preventivi.service';
+
+const API_BASE = (window as any).__API_BASE__ || 'http://localhost:8000';
 
 interface DisposizioneVanoFormProps {
   preventivoId: number;
 }
 
-// Tipo per i dati da salvare
 interface DisposizioneVanoData {
   preventivo_id?: number;
   posizioni_elementi?: string | null;
@@ -23,19 +24,31 @@ interface DisposizioneVanoData {
   note?: string | null;
 }
 
-// Helper per parsing sicuro di JSON
 const safeJsonParse = <T,>(jsonString: string | null | undefined, defaultValue: T): T => {
-  if (!jsonString || jsonString.trim() === '' || jsonString === 'null') {
-    return defaultValue;
-  }
+  if (!jsonString || jsonString.trim() === '' || jsonString === 'null') return defaultValue;
   try {
-    const parsed = JSON.parse(jsonString);
-    return parsed || defaultValue;
-  } catch (e) {
-    console.error('❌ Errore parsing JSON:', jsonString, e);
+    return JSON.parse(jsonString) || defaultValue;
+  } catch {
     return defaultValue;
   }
 };
+
+// ── Carica elementi vano dal DB ──────────────────────────────────────────────
+async function fetchElementiVano(): Promise<ElementoConfig[]> {
+  const r = await fetch(`${API_BASE}/elementi-vano?solo_attivi=true`);
+  if (!r.ok) throw new Error('Errore caricamento elementi vano');
+  const data = await r.json();
+  // Mappa il formato DB → ElementoConfig
+  return data.map((el: any) => ({
+    id:           el.id_elemento,
+    nome:         el.nome,
+    emoji:        el.emoji,
+    colore:       `${el.colore_bg} ${el.colore_border}`,
+    solo_esterno: el.solo_esterno,
+    solo_interno: el.solo_interno,
+    ha_distanza:  el.ha_distanza,
+  }));
+}
 
 export default function DisposizioneVanoForm({ preventivoId }: DisposizioneVanoFormProps) {
   const [posizioni, setPosizioni] = useState<Record<string, PosizioneElemento>>({});
@@ -43,21 +56,26 @@ export default function DisposizioneVanoForm({ preventivoId }: DisposizioneVanoF
   const [note, setNote] = useState<string>('');
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
-  
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const form = useForm();
+  useForm();
 
-  console.log('🔍 DisposizioneVanoForm - preventivoId:', preventivoId);
+  // ── Query elementi vano dal DB ─────────────────────────────────────────────
+  const { data: elementi = [], isLoading: isLoadingElementi } = useQuery<ElementoConfig[]>({
+    queryKey: ['elementi-vano'],
+    queryFn: fetchElementiVano,
+    staleTime: 5 * 60 * 1000, // 5 minuti — cambiano raramente
+  });
 
-  // Query per caricare dati esistenti
+  // ── Query dati disposizione ───────────────────────────────────────────────
   const { data: disposizioneData, isLoading: isLoadingDisposizione } = useQuery({
     queryKey: ['disposizioneVano', preventivoId],
     queryFn: () => getDisposizioneVano(preventivoId),
     retry: 1,
   });
 
-  // Query per ottenere numero fermate
+  // ── Query numero fermate ──────────────────────────────────────────────────
   const { data: datiPrincipali } = useQuery({
     queryKey: ['datiPrincipali', preventivoId],
     queryFn: () => getDatiPrincipali(preventivoId),
@@ -67,125 +85,56 @@ export default function DisposizioneVanoForm({ preventivoId }: DisposizioneVanoF
   const numeroFermate = datiPrincipali?.numero_fermate || 0;
   const numeroServizi = datiPrincipali?.numero_servizi || 0;
 
-  // Mutation per salvare
+  // ── Mutation salvataggio ──────────────────────────────────────────────────
   const mutation = useMutation({
     mutationFn: (data: DisposizioneVanoData) => updateDisposizioneVano(preventivoId, data),
     onSuccess: () => {
       setLastSaved(new Date());
-      console.log('✅ Disposizione vano salvata con successo');
       queryClient.invalidateQueries({ queryKey: ['disposizioneVano', preventivoId] });
     },
-    onError: (error: any) => {
-      console.error('❌ Errore salvataggio disposizione vano:', error);
-      toast({
-        variant: "destructive",
-        title: "Errore",
-        description: "Impossibile salvare i dati",
-      });
+    onError: () => {
+      toast({ variant: 'destructive', title: 'Errore', description: 'Impossibile salvare i dati' });
     },
   });
 
-  // Carica dati esistenti quando disponibili
+  // ── Caricamento dati iniziali ─────────────────────────────────────────────
   useEffect(() => {
     if (disposizioneData && !hasLoadedInitialData) {
-      console.log('📥 Caricamento dati disposizione vano:', disposizioneData);
-
-      // Parse posizioni elementi
       if (disposizioneData.posizioni_elementi) {
-        const parsed = safeJsonParse<Record<string, PosizioneElemento>>(
-          disposizioneData.posizioni_elementi,
-          {}
-        );
-        console.log('📍 Posizioni caricate:', Object.keys(parsed).length, 'elementi');
-        setPosizioni(parsed);
+        setPosizioni(safeJsonParse<Record<string, PosizioneElemento>>(disposizioneData.posizioni_elementi, {}));
       }
-
-      // Parse sbarchi
       if (disposizioneData.sbarchi) {
-        const parsed = safeJsonParse<Sbarco[]>(
-          disposizioneData.sbarchi,
-          []
-        );
-        console.log('🚪 Sbarchi caricati:', parsed.length, 'sbarchi');
-        setSbarchi(parsed);
+        setSbarchi(safeJsonParse<Sbarco[]>(disposizioneData.sbarchi, []));
       }
-
-      // Note
-      if (disposizioneData.note) {
-        setNote(disposizioneData.note);
-      }
-
-      // Marca come caricato per evitare loop
+      if (disposizioneData.note) setNote(disposizioneData.note);
       setHasLoadedInitialData(true);
     }
   }, [disposizioneData, hasLoadedInitialData]);
 
-  // Funzione di salvataggio - ✅ SENZA mutation nelle dependencies
+  // ── Auto-save ─────────────────────────────────────────────────────────────
   const saveData = useCallback(() => {
-    const payload: DisposizioneVanoData = {
+    mutation.mutate({
       preventivo_id: preventivoId,
       posizioni_elementi: Object.keys(posizioni).length > 0 ? JSON.stringify(posizioni) : null,
       sbarchi: sbarchi.length > 0 ? JSON.stringify(sbarchi) : null,
       note: note || null,
-    };
+    });
+  }, [preventivoId, posizioni, sbarchi, note]);
 
-    console.log('💾 Salvataggio disposizione vano:');
-    console.log('   - Posizioni:', Object.keys(posizioni).length);
-    console.log('   - Sbarchi:', sbarchi.length);
-    console.log('   - Payload:', payload);
-
-    // ✅ Usa mutation direttamente qui, NON in dependencies
-    mutation.mutate(payload);
-  }, [preventivoId, posizioni, sbarchi, note]); // ✅ SENZA mutation
-
-  // Auto-save per posizioni e sbarchi
   useEffect(() => {
-    // Non salvare se stiamo ancora caricando i dati iniziali
-    if (isLoadingDisposizione || !hasLoadedInitialData) {
-      return;
-    }
+    if (isLoadingDisposizione || !hasLoadedInitialData) return;
+    if (Object.keys(posizioni).length === 0 && sbarchi.length === 0 && !note) return;
 
-    // ✅ Non salvare se non ci sono dati modificati
-    if (Object.keys(posizioni).length === 0 && sbarchi.length === 0 && !note) {
-      return;
-    }
-
-    console.log('⏰ Auto-save schedulato (3 secondi)...');
-    const timeout = window.setTimeout(() => {
-      console.log('🚀 Esecuzione auto-save!');
-      saveData();
-    }, 3000);
-
-    return () => {
-      console.log('🔄 Auto-save timer cancellato');
-      clearTimeout(timeout);
-    };
+    const timeout = window.setTimeout(saveData, 3000);
+    return () => clearTimeout(timeout);
   }, [posizioni, sbarchi, note, isLoadingDisposizione, hasLoadedInitialData, saveData]);
 
-  // Handler per cambio posizioni
-  const handlePosizioniChange = (newPosizioni: Record<string, PosizioneElemento>) => {
-    console.log('📍 Posizioni aggiornate:', Object.keys(newPosizioni).length, 'elementi');
-    setPosizioni(newPosizioni);
-  };
-
-  // Handler per cambio sbarchi
-  const handleSbarchiChange = (newSbarchi: Sbarco[]) => {
-    console.log('🚪 Sbarchi aggiornati:', newSbarchi.length, 'sbarchi');
-    setSbarchi(newSbarchi);
-  };
-
-  // Handler per cambio note
-  const handleNoteChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setNote(e.target.value);
-  };
-
-  // Calcola elementi già posizionati
   const elementiPosizionati = new Set(Object.keys(posizioni));
 
-  if (isLoadingDisposizione) {
+  if (isLoadingDisposizione || isLoadingElementi) {
     return (
       <div className="p-8 text-center">
-        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
         <p className="mt-2 text-gray-600">Caricamento...</p>
       </div>
     );
@@ -202,12 +151,10 @@ export default function DisposizioneVanoForm({ preventivoId }: DisposizioneVanoF
               Configura la posizione degli elementi nel vano e gli sbarchi per ogni piano
             </p>
           </div>
-          
-          {/* Status auto-save */}
           <div className="text-right">
             {mutation.isPending && (
               <div className="flex items-center gap-2 text-blue-600">
-                <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></div>
+                <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
                 <span className="text-sm">Salvataggio...</span>
               </div>
             )}
@@ -216,51 +163,38 @@ export default function DisposizioneVanoForm({ preventivoId }: DisposizioneVanoF
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                <span className="text-sm">
-                  Salvato alle {lastSaved.toLocaleTimeString()}
-                </span>
+                <span className="text-sm">Salvato alle {lastSaved.toLocaleTimeString()}</span>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Palette elementi */}
+      {/* Palette */}
       <div className="bg-white/70 rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold mb-4">Elementi Disponibili</h3>
-        <ElementiPalette 
+        <ElementiPalette
           elementiPosizionati={elementiPosizionati}
+          elementi={elementi}
         />
-        
-        <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-          <p className="text-sm text-blue-800">
-            💡 <strong>Come usare:</strong>
-          </p>
-          <ul className="text-sm text-blue-700 mt-2 space-y-1 ml-4">
-            <li>• Trascina gli elementi sulla pianta del vano</li>
-            <li>• <strong>QM</strong> e <strong>Sirena</strong>: solo all'esterno (A1-D3)</li>
-            <li>• <strong>SD</strong> e <strong>UPS</strong>: solo all'interno del vano</li>
-            <li>• Doppio click su un elemento posizionato per rimuoverlo</li>
-            <li>• Per posizioni esterne: specifica distanza in metri</li>
-          </ul>
-        </div>
       </div>
 
-      {/* Pianta Interattiva */}
+      {/* Pianta */}
       <div className="bg-white/70 rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold mb-4">Pianta Vano Ascensore</h3>
-        <PiantaInterattiva 
+        <PiantaInterattiva
           posizioni={posizioni}
-          onPosizioniChange={handlePosizioniChange}
+          onPosizioniChange={setPosizioni}
+          elementi={elementi}
         />
       </div>
 
-      {/* Tabella Sbarchi */}
+      {/* Sbarchi */}
       <div className="bg-white/70 rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold mb-4">Sbarchi per Piano</h3>
-        <TabellaSbarchi 
+        <TabellaSbarchi
           sbarchi={sbarchi}
-          onSbarchiChange={handleSbarchiChange}
+          onSbarchiChange={setSbarchi}
           numeroFermate={numeroFermate}
           numeroServizi={numeroServizi}
         />
@@ -271,7 +205,7 @@ export default function DisposizioneVanoForm({ preventivoId }: DisposizioneVanoF
         <h3 className="text-lg font-semibold mb-4">Note Aggiuntive</h3>
         <textarea
           value={note}
-          onChange={handleNoteChange}
+          onChange={e => setNote(e.target.value)}
           placeholder="Inserisci eventuali note o osservazioni sulla disposizione del vano..."
           className="w-full h-32 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />

@@ -13,8 +13,8 @@ const API_BASE = 'http://localhost:8000';
 
 const APP_INFO = {
   nome: 'Configuratore Elettroquadri',
-  versione: '2.3.0',
-  build: '2026-02-24',
+  versione: '3.2.0',
+  build: '2026-03-08',
   descrizione: 'Sistema di configurazione e preventivazione per quadri elettrici ascensori, piattaforme e scale mobili.',
   sviluppatore: 'B-CONN SRLS',
   cliente: 'Elettroquadri S.r.l.',
@@ -36,16 +36,78 @@ interface Revisione {
 
 const STORICO_REVISIONI: Revisione[] = [
   {
-    versione: '2.3.0', data: '2026-02-24', tipo: 'minor',
-    titolo: 'Pipeline Builder e selezione trasformatori',
+    versione: '3.2.0', data: '2026-03-08', tipo: 'minor',
+    titolo: 'Elementi Vano configurabili da database',
     dettagli: [
-      'Pipeline Builder: editor visuale per calcoli multi-step (lookup_each, group_sum, multi_match)',
-      'Selezione automatica trasformatore basata su aggregazione potenze per tensione di uscita',
-      'Supporto righe multiple per componente (es. utilizzatori con 3 uscite a tensioni diverse)',
-      'Endpoint generico "Crea campi da tabella" — genera checkbox nel configuratore da qualsiasi data table',
-      'Raggruppamento automatico componenti con note aggregate per uscite multiple',
-      'Import Excel con foglio _MAPPA per pipeline (tipo "catalogo" per tabelle con righe ripetute)',
-      'Simulazione pipeline con preview step-by-step dei risultati intermedi',
+      'Tabella elementi_vano: gestione completa da UI senza toccare il codice',
+      'GestioneElementiVanoPage: CRUD con picker emoji, griglia colori, anteprima live',
+      'Palette Disposizione Vano caricata da API invece di costante hardcoded',
+      'Badge dinamici esterno/interno generati dai vincoli dell\'elemento',
+      'Istruzioni "Come usare" nella palette aggiornate dinamicamente',
+      'PiantaInterattiva, Lato, Segmento, ElementiPalette: prop elementi al posto di ELEMENTI_DISPONIBILI',
+    ]
+  },
+  {
+    versione: '3.1.0', data: '2026-03-08', tipo: 'minor',
+    titolo: 'Variabili Derivate: calcoli configurabili pre-regole',
+    dettagli: [
+      'Tabella variabili_derivate: formule con parametri configurabili, tipo risultato, ordine',
+      'PASS 0 nel rule engine: calcola variabili derivate prima di lookup e materiali',
+      'Risultati disponibili come _vd.nome e forma flat nel contesto regole',
+      'Evaluator formule: supporto if(cond, vero, falso), ceil/floor/round/abs/sqrt/min/max',
+      'GestioneVariabiliDerivatePage: editor con autocomplete, builder condizionale, pannello test inline',
+      'Parsing automatico posizioni vano → campi flat vano.{id}_presente/lato/segmento/distanza',
+      'Parsing sbarchi → vano.sbarchi_lato_* e vano.num_sbarchi',
+    ]
+  },
+  {
+    versione: '3.0.0', data: '2026-03-05', tipo: 'major',
+    titolo: 'Gestione ordini: state machine, storico stati, fatturazione multi-ordine',
+    dettagli: [
+      'State machine ordini: confermato → in_produzione → completato → spedito → fatturato',
+      'Stati speciali: sospeso (reversibile, salva stato_precedente) e annullato (terminale)',
+      'Regole di transizione: BOM richiesto per in_produzione; fattura attiva per fatturato',
+      'Tabella ordini_storico_stato: log immutabile di ogni cambio stato con motivo e utente',
+      'StatoTransizioniBar e StoricoStatiTimeline: componenti UI per visualizzare e gestire gli stati',
+      'OrdinePanel: intercetta transizione "fatturato" per aprire dialog selezione multi-ordine',
+      'Junction table fe_fatture_ordini: una fattura può coprire più ordini dello stesso cliente',
+      'RicercaOrdiniPage: filtri avanzati + floating action bar per fatturazione batch',
+      'FilieraCompatta: visualizzazione grafica preventivo → ordine → BOM → fattura',
+    ]
+  },
+  {
+    versione: '2.5.0', data: '2026-03-01', tipo: 'minor',
+    titolo: 'Modulo fatturazione elettronica (FatturaPA / SDI)',
+    dettagli: [
+      'Generazione XML FatturaPA compliant per SDI italiano',
+      'Integrazione Aruba come intermediario SDI (architettura pluggable)',
+      'CRUD fatture con stati: bozza → inviata → accettata → rifiutata → scartata',
+      'Calcoli fiscali: IVA, ritenuta d\'acconto, contributo INPS, bollo virtuale',
+      'Attivabile come modulo opzionale tramite parametri_sistema',
+      'HelpFatturazionePage con istruzioni configurazione Aruba',
+    ]
+  },
+  {
+    versione: '2.4.0', data: '2026-02-28', tipo: 'minor',
+    titolo: 'Sistema revisioni e migrazione sezioni dinamiche',
+    dettagli: [
+      'Snapshot automatico preventivo ad ogni exit con numero revisione',
+      'RevisioniDrawer: cronologia con diff comparativo e restore',
+      'FilieraCompatta: visualizzazione catena preventivo → ordine → BOM',
+      'Migrazione 4 sezioni hardcoded (dati_principali, normative, argano, porte) al sistema dinamico',
+      'Solo dati_commessa e disposizione_vano rimangono hardcoded per requisiti UI speciali',
+      'Numero revisione visibile nei documenti esportati',
+    ]
+  },
+  {
+    versione: '2.3.0', data: '2026-02-24', tipo: 'minor',
+    titolo: 'Pipeline Builder, Excel Formula Engine e integrazione TRUSS 3D',
+    dettagli: [
+      'Pipeline Builder: editor visuale calcoli multi-step (lookup_each, group_sum, multi_match, math_expr)',
+      'Selezione automatica trasformatore da aggregazione VA per tensione di uscita',
+      'Excel Formula Engine: parser Named Ranges + HyperFormula client-side (187 input, 460 formule)',
+      'TRUSS bridge: sincronizzazione JSON con visualizzatore 3D via iframe, generazione array porte',
+      'CalcRefPicker: menu a discesa riferimenti _calc.* disponibili nel builder',
     ]
   },
   {
@@ -53,34 +115,23 @@ const STORICO_REVISIONI: Revisione[] = [
     titolo: 'Wizard Import Excel e Rule Engine v5',
     dettagli: [
       'Nuovo wizard import Excel a 4 step — non serve più il foglio _MAPPA',
-      'Selezione interattiva di foglio, colonne chiave e colonne output',
+      'Selezione interattiva foglio, colonne chiave, colonne output',
       'Mapping automatico colonne → campi configuratore con punteggio',
       'Associazione valori → articoli con ricerca nel catalogo',
       'Supporto lookup_multi con match composito (lte + exact)',
       'Value mappings: materiali automatici da valori lookup',
       'Fallback ceiling: se valore sotto il minimo, prende la riga successiva',
       'Rule engine interamente SQL diretto (nessun mismatch ORM)',
-      'Normalizzazione booleana nelle condizioni (1/true/sì/vero)',
-    ]
-  },
-  {
-    versione: '2.1.0', data: '2026-02-22', tipo: 'minor',
-    titolo: 'Import Excel con _MAPPA (deprecato per lookup semplici)',
-    dettagli: [
-      'Primo modulo import Excel con foglio _MAPPA (sostituito dal wizard v2.2 per lookup semplici)',
-      'Supporto tipi tabella: lookup_range, catalogo, costanti',
-      'Pagina Informazioni App con storico revisioni e documentazione',
-      'Rimane necessario per import pipeline (cataloghi multi-riga)',
     ]
   },
   {
     versione: '2.0.0', data: '2026-02-15', tipo: 'major',
-    titolo: 'Form dinamici e sezioni da DB',
+    titolo: 'Form dinamici, sezioni da DB e disposizione vano',
     dettagli: [
       'Form preventivo completamente dinamici — campi e sezioni letti dal database',
       'Gestione sezioni con drag & drop per riordino',
-      'Gestione campi con assegnazione a sezioni',
-      'Gestione opzioni dropdown da interfaccia admin',
+      'PiantaInterattiva: drag & drop elementi nel vano con vincoli interno/esterno',
+      'TabellaSbarchi: configurazione sbarchi per piano con tipo porte per lato',
       'Auto-save con debounce 3 secondi',
       'Sistema revisioni preventivo (REV.0, REV.1, ...)',
     ]
@@ -98,12 +149,14 @@ const STORICO_REVISIONI: Revisione[] = [
   },
   {
     versione: '1.5.0', data: '2026-01-15', tipo: 'minor',
-    titolo: 'Gestione clienti e BOM',
+    titolo: 'Gestione clienti, BOM e documenti',
     dettagli: [
       'Anagrafica clienti con sconti configurabili',
       'Struttura BOM gerarchica',
       'Pannello ordine con calcolo prezzi',
       'Export documenti Word/PDF con template',
+      'Deployment produzione: PyInstaller + IIS reverse proxy + HTTPS win-acme',
+      'Security hardening: rate limiting login, HSTS, CSP, Swagger disabilitato in produzione',
     ]
   },
   {
@@ -113,7 +166,7 @@ const STORICO_REVISIONI: Revisione[] = [
       'Configuratore base con sezioni hardcoded',
       'Rule engine con regole JSON da file',
       'Tabella materiali automatica',
-      'Integrazione TRUSS 3D',
+      'Sistema autenticazione JWT con ruoli e permessi granulari (resource.action)',
     ]
   },
 ];

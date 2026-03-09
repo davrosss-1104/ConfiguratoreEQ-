@@ -17,3 +17,4 @@ EXPORT CHIAMATO preventivo_id=202 formato=docx
 EXPORT CHIAMATO preventivo_id=207 formato=docx
 EXPORT CHIAMATO preventivo_id=207 formato=docx
 EXPORT CHIAMATO preventivo_id=207 formato=docx
+EXPORT CHIAMATO preventivo_id=233 formato=docx

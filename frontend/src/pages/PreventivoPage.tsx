@@ -31,6 +31,8 @@ import DocumentTemplateEditorPage from '@/pages/DocumentTemplateEditorPage';
 import ImportExcelPage from '@/components/sections/ImportExcelPage';
 import InfoAppPage from '@/components/sections/InfoAppPage';
 import GestioneModuliPage from '@/components/sections/GestioneModuliPage';
+import GestioneVariabiliDerivatePage from '@/components/sections/GestioneVariabiliDerivatePage';
+import GestioneElementiVanoPage from '@/components/sections/GestioneElementiVanoPage';
 
 const API = 'http://localhost:8000';
 
@@ -279,6 +281,10 @@ export const PreventivoPage = () => {
         return <InfoAppPage />;
       case 'gestione_moduli':
         return <GestioneModuliPage />;
+      case 'variabili_derivate':
+        return <GestioneVariabiliDerivatePage />;
+      case 'gestione_elementi_vano':
+        return <GestioneElementiVanoPage />;
 
       default:
         // Fallback: tutte le sezioni non gestite usano il form dinamico

@@ -93,12 +93,12 @@ def _orm_to_dict(obj):
 # ─────────────────────────────────────────────────────────────────
 # DEFAULT VALUE EXPRESSION RESOLVER
 # Sintassi nel campo valore_default di campi_configuratore:
-#   {{TODAY}}                  → data odierna in formato gg/mm/aaaa
-#   {{YEAR}}                   → anno corrente (4 cifre)
-#   {{MONTH}}                  → mese corrente (2 cifre, es. 03)
-#   {{campo:codice.campo}}     → valore di un altro campo del preventivo
+#   {{TODAY}}                  -> data odierna in formato gg/mm/aaaa
+#   {{YEAR}}                   -> anno corrente (4 cifre)
+#   {{MONTH}}                  -> mese corrente (2 cifre, es. 03)
+#   {{campo:codice.campo}}     -> valore di un altro campo del preventivo
 # Variante con fallback:
-#   {{TODAY|01/01/2000}}       → data odierna, o 01/01/2000 se non disponibile
+#   {{TODAY|01/01/2000}}       -> data odierna, o 01/01/2000 se non disponibile
 #   {{campo:dati_commessa.numero_offerta|N/A}}
 # ─────────────────────────────────────────────────────────────────
 def _resolve_default_expr(expr: str, preventivo_id: int, db, context: dict = None) -> str:
@@ -304,9 +304,9 @@ def load_rules():
                 with open(os.path.join(rules_dir, filename), "r", encoding="utf-8") as f:
                     rule = json.load(f)
                     rules.append(rule)
-                    print(f"Ã¢Å“â€¦ Regola caricata: {filename}")
+                    print(f"[OK] Regola caricata: {filename}")
             except Exception as e:
-                print(f"Ã¢ÂÅ’ Errore caricamento {filename}: {e}")
+                print(f"[ERRORE] Caricamento {filename}: {e}")
     
     print(f"Ã°Å¸â€œâ€¹ Caricate {len(rules)} regole")
     return rules
@@ -1031,6 +1031,26 @@ def get_preventivi(
     # Se nessun token (backward compat), mostra tutto
     
     preventivi = query.order_by(Preventivo.created_at.desc()).all()
+
+    # Pre-carica ordini in una sola query
+    preventivi_ids = [p.id for p in preventivi]
+    ordini_map = {}
+    if preventivi_ids:
+        try:
+            conn = db.get_bind().raw_connection()
+            cur = conn.cursor()
+            placeholders = ",".join("?" * len(preventivi_ids))
+            cur.execute(
+                f"SELECT preventivo_id, numero_ordine, stato FROM ordini "
+                f"WHERE preventivo_id IN ({placeholders}) ORDER BY created_at DESC",
+                preventivi_ids
+            )
+            for r in cur.fetchall():
+                if r[0] not in ordini_map:
+                    ordini_map[r[0]] = {"numero_ordine": r[1], "stato_ordine": r[2]}
+        except Exception:
+            pass
+
     results = []
     for p in preventivi:
         row = {}
@@ -1039,11 +1059,13 @@ def get_preventivi(
             if hasattr(val, 'isoformat'):
                 val = val.isoformat()
             row[col.name] = val
-        # Risolvi nome cliente da cliente_id
         if p.cliente_id and not row.get('customer_name'):
             cl = db.query(Cliente).filter(Cliente.id == p.cliente_id).first()
             if cl:
                 row['customer_name'] = cl.ragione_sociale
+        ordine_info = ordini_map.get(p.id)
+        row['numero_ordine'] = ordine_info['numero_ordine'] if ordine_info else None
+        row['stato_ordine'] = ordine_info['stato_ordine'] if ordine_info else None
         results.append(row)
     return results
 
@@ -1110,17 +1132,38 @@ def search_preventivi(
 
     preventivi = query.order_by(Preventivo.created_at.desc()).limit(limit).all()
 
+    # Pre-carica ordini per tutti i preventivi in una sola query
+    preventivi_ids = [p.id for p in preventivi]
+    ordini_map = {}
+    if preventivi_ids:
+        try:
+            conn = db.get_bind().raw_connection()
+            cur = conn.cursor()
+            placeholders = ",".join("?" * len(preventivi_ids))
+            cur.execute(
+                f"SELECT preventivo_id, numero_ordine, stato FROM ordini "
+                f"WHERE preventivo_id IN ({placeholders}) ORDER BY created_at DESC",
+                preventivi_ids
+            )
+            for r in cur.fetchall():
+                if r[0] not in ordini_map:
+                    ordini_map[r[0]] = {"numero_ordine": r[1], "stato_ordine": r[2]}
+        except Exception:
+            pass
+
     results = []
     for p in preventivi:
         row = {}
         for col in p.__table__.columns:
             row[col.name] = getattr(p, col.name, None)
-        # Aggiungi ragione_sociale cliente se disponibile
         if p.cliente_id:
             cl = db.query(Cliente).filter(Cliente.id == p.cliente_id).first()
             if cl:
                 row['cliente_ragione_sociale'] = cl.ragione_sociale
                 row['cliente_codice'] = cl.codice
+        ordine_info = ordini_map.get(p.id)
+        row['numero_ordine'] = ordine_info['numero_ordine'] if ordine_info else None
+        row['stato_ordine'] = ordine_info['stato_ordine'] if ordine_info else None
         results.append(row)
 
     return results
@@ -1380,31 +1423,35 @@ def update_dati_commessa(preventivo_id: int, data: DatiCommessaUpdate, db: Sessi
             db.add(dati)
         update_data = data.dict(exclude_unset=True)
         print(f"[DATI COMMESSA] PUT preventivo_id={preventivo_id}, fields={list(update_data.keys())}")
-        # Salva campi dati_commessa
         cliente_id_value = update_data.pop('cliente_id', None)
-        # Mapping nomi frontend -> nomi ORM
         field_aliases = {
             "data_consegna_richiesta": "consegna_richiesta",
         }
+        actually_changed = False
         for key, value in update_data.items():
             orm_key = field_aliases.get(key, key)
             if hasattr(dati, orm_key):
+                old_norm = "" if getattr(dati, orm_key, None) is None else str(getattr(dati, orm_key)).strip()
+                new_norm = "" if value is None else str(value).strip()
+                if old_norm != new_norm:
+                    actually_changed = True
                 setattr(dati, orm_key, value)
             else:
                 print(f"[DATI COMMESSA] WARNING: campo '{key}' (orm: '{orm_key}') non esiste nel modello DatiCommessa")
-        
-        # Se presente cliente_id, aggiorna direttamente il preventivo
         if cliente_id_value is not None:
             preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
             if preventivo:
+                if preventivo.cliente_id != cliente_id_value:
+                    actually_changed = True
                 preventivo.cliente_id = cliente_id_value
                 print(f"[DATI COMMESSA] Aggiornato cliente_id={cliente_id_value} sul preventivo {preventivo_id}")
-        
         db.commit()
         db.refresh(dati)
-        safe_evaluate_rules(preventivo_id, db)
-        touch_preventivo(preventivo_id, db)
-        # Ritorna dict manuale per evitare errori schema
+        if actually_changed:
+            safe_evaluate_rules(preventivo_id, db)
+            touch_preventivo(preventivo_id, db)
+        else:
+            print(f"[DATI COMMESSA] Nessuna modifica reale, skip touch_preventivo")
         result = {}
         for col in dati.__table__.columns:
             result[col.name] = getattr(dati, col.name, None)
@@ -1450,15 +1497,21 @@ def update_dati_principali(preventivo_id: int, data: DatiPrincipaliUpdate, db: S
         db.add(dati)
     update_data = data.dict(exclude_unset=True)
     print(f"[DATI_PRINCIPALI] PUT preventivo_id={preventivo_id}, fields={list(update_data.keys())}")
+    actually_changed = False
     for key, value in update_data.items():
         if hasattr(dati, key):
+            old_norm = "" if getattr(dati, key, None) is None else str(getattr(dati, key)).strip()
+            new_norm = "" if value is None else str(value).strip()
+            if old_norm != new_norm:
+                actually_changed = True
             setattr(dati, key, value)
         else:
             print(f"[DATI_PRINCIPALI] WARNING: campo '{key}' non esiste nel modello")
     db.commit()
     db.refresh(dati)
-    rule_result = safe_evaluate_rules(preventivo_id, db)
-    touch_preventivo(preventivo_id, db)
+    rule_result = safe_evaluate_rules(preventivo_id, db) if actually_changed else {}
+    if actually_changed:
+        touch_preventivo(preventivo_id, db)
     result = _orm_to_dict(dati)
     if rule_result and isinstance(rule_result, dict):
         result["materials_added"] = rule_result.get("materiali_aggiunti", 0)
@@ -1487,17 +1540,22 @@ def update_normative(preventivo_id: int, data: NormativeUpdate, db: Session = De
         db.add(normative)
     update_data = data.dict(exclude_unset=True)
     print(f"[NORMATIVE] PUT preventivo_id={preventivo_id}, fields={update_data}")
+    actually_changed = False
     for key, value in update_data.items():
         if hasattr(normative, key):
+            old_norm = "" if getattr(normative, key, None) is None else str(getattr(normative, key)).strip()
+            new_norm = "" if value is None else str(value).strip()
+            if old_norm != new_norm:
+                actually_changed = True
             setattr(normative, key, value)
         else:
             print(f"[NORMATIVE] WARNING: campo '{key}' non esiste nel modello")
     db.commit()
     db.refresh(normative)
-    rule_result = safe_evaluate_rules(preventivo_id, db)
-    touch_preventivo(preventivo_id, db)
+    rule_result = safe_evaluate_rules(preventivo_id, db) if actually_changed else {}
+    if actually_changed:
+        touch_preventivo(preventivo_id, db)
     result = _orm_to_dict(normative)
-    # Aggiungi info regole alla risposta
     if rule_result and isinstance(rule_result, dict):
         result["materials_added"] = rule_result.get("materiali_aggiunti", 0)
         result["materials_removed"] = rule_result.get("materiali_rimossi", 0)
@@ -1532,15 +1590,22 @@ def update_disposizione_vano(preventivo_id: int, data: DisposizioneVanoUpdate, d
         else:
             cleaned_data[key] = value
     
+    actually_changed = False
     for key, value in cleaned_data.items():
         if hasattr(disposizione, key):
+            old_norm = "" if getattr(disposizione, key, None) is None else str(getattr(disposizione, key)).strip()
+            new_norm = "" if value is None else str(value).strip()
+            if old_norm != new_norm:
+                actually_changed = True
             setattr(disposizione, key, value)
         else:
             print(f"[DISPOSIZIONE_VANO] WARNING: campo '{key}' non esiste nel modello")
     
     db.commit()
     db.refresh(disposizione)
-    touch_preventivo(preventivo_id, db)
+    safe_evaluate_rules(preventivo_id, db)
+    if actually_changed:
+        touch_preventivo(preventivo_id, db)
     return _orm_to_dict(disposizione)
 
 @app.delete("/preventivi/{preventivo_id}/disposizione-vano")
@@ -1570,15 +1635,21 @@ def update_porte(preventivo_id: int, data: PorteUpdate, db: Session = Depends(ge
     if not porte:
         porte = Porte(preventivo_id=preventivo_id)
         db.add(porte)
+    actually_changed = False
     for key, value in data.dict(exclude_unset=True).items():
         if hasattr(porte, key):
+            old_norm = "" if getattr(porte, key, None) is None else str(getattr(porte, key)).strip()
+            new_norm = "" if value is None else str(value).strip()
+            if old_norm != new_norm:
+                actually_changed = True
             setattr(porte, key, value)
         else:
             print(f"[PORTE] WARNING: campo '{key}' non esiste nel modello")
     db.commit()
     db.refresh(porte)
-    safe_evaluate_rules(preventivo_id, db)
-    touch_preventivo(preventivo_id, db)
+    if actually_changed:
+        safe_evaluate_rules(preventivo_id, db)
+        touch_preventivo(preventivo_id, db)
     return _orm_to_dict(porte)
 
 # ==========================================
@@ -2680,7 +2751,7 @@ def crea_campi_da_tabella(data: dict, db: Session = Depends(get_db)):
     
     # 3. Raggruppa records per chiave (un componente può avere più righe = più uscite)
     from collections import OrderedDict
-    componenti: OrderedDict = OrderedDict()  # codice_safe → {label, righe: [{col: val}]}
+    componenti: OrderedDict = OrderedDict()  # codice_safe -> {label, righe: [{col: val}]}
     
     for rec in records:
         codice_campo = str(rec.get(col_chiave, "")).strip()
@@ -2720,7 +2791,7 @@ def crea_campi_da_tabella(data: dict, db: Session = Depends(get_db)):
         if len(righe) == 1:
             note = ", ".join(f"{k}={v}" for k, v in righe[0].items())
         else:
-            # Più uscite → "3 uscite: 75V 150W, 15V 150W, 18V 150W"
+            # Più uscite -> "3 uscite: 75V 150W, 15V 150W, 18V 150W"
             uscite_desc = []
             for r in righe:
                 vals = [f"{v}" for v in r.values()]
@@ -2799,7 +2870,7 @@ def get_campi_disponibili(db: Session = Depends(get_db)):
     campi = []
     codici_gia_aggiunti = set()
 
-    # Pre-carica mappa sezione codice → etichetta per nomi leggibili
+    # Pre-carica mappa sezione codice -> etichetta per nomi leggibili
     sez_labels = {}
     try:
         sez_rows = db.execute(text("SELECT codice, etichetta FROM sezioni_configuratore")).fetchall()
@@ -3268,7 +3339,7 @@ def rinomina_campo(data: dict, db: Session = Depends(get_db)):
             tmpl_data = json.loads(tmpl_json)
             changed = False
 
-            # Rinomina campo nelle sezioni dati (es: templateData.argano.trazione → templateData.argano.nuovo_nome)
+            # Rinomina campo nelle sezioni dati (es: templateData.argano.trazione -> templateData.argano.nuovo_nome)
             if vecchio_sez and vecchio_sez in tmpl_data:
                 sez_data = tmpl_data[vecchio_sez]
                 if isinstance(sez_data, dict) and vecchio_campo_only in sez_data:
@@ -4720,7 +4791,7 @@ def update_sezione_configuratore(sezione_id: int, data: dict, db: Session = Depe
                 db.execute(text("UPDATE campi_configuratore SET sezione=:new WHERE sezione=:old"),
                     {"new": new_codice, "old": old_codice})
                 
-                # 2. campi_configuratore.codice (prefisso sezione: "argano.trazione" → "motore.trazione")
+                # 2. campi_configuratore.codice (prefisso sezione: "argano.trazione" -> "motore.trazione")
                 db.execute(text("""
                     UPDATE campi_configuratore 
                     SET codice = :new || SUBSTR(codice, LENGTH(:old) + 1)
@@ -4747,12 +4818,12 @@ def update_sezione_configuratore(sezione_id: int, data: dict, db: Session = Depe
                         tmpl_data = _json.loads(tmpl_json)
                         changed = False
                         
-                        # Rinomina chiave sezione (es: "argano" → "motore")
+                        # Rinomina chiave sezione (es: "argano" -> "motore")
                         if old_codice in tmpl_data:
                             tmpl_data[new_codice] = tmpl_data.pop(old_codice)
                             changed = True
                         
-                        # Rinomina chiavi in field_config (es: "argano.trazione" → "motore.trazione")
+                        # Rinomina chiavi in field_config (es: "argano.trazione" -> "motore.trazione")
                         if "field_config" in tmpl_data:
                             fc = tmpl_data["field_config"]
                             new_fc = {}
@@ -5005,6 +5076,439 @@ def delete_campo(campo_id: int, db: Session = Depends(get_db)):
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ═══════════════════════════════════════════════════════════════════════════
+# VARIABILI DERIVATE — CRUD endpoints
+# Da aggiungere in main.py DOPO gli endpoint /campi-configuratore
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.get("/variabili-derivate")
+def get_variabili_derivate(solo_attive: bool = False, db: Session = Depends(get_db)):
+    try:
+        q = "SELECT id, nome, descrizione, formula, parametri, tipo_risultato, unita_misura, attivo, ordine, scope, tipo_variabile, dipendenze, meta FROM variabili_derivate"
+        if solo_attive:
+            q += " WHERE attivo = 1"
+        q += " ORDER BY ordine ASC, id ASC"
+        rows = db.execute(text(q)).fetchall()
+        result = []
+        for r in rows:
+            result.append({
+                "id":             r[0],
+                "nome":           r[1],
+                "descrizione":    r[2],
+                "formula":        r[3],
+                "parametri":      json.loads(r[4]) if r[4] else [],
+                "tipo_risultato": r[5] or "numero",
+                "unita_misura":   r[6],
+                "attivo":         bool(r[7]),
+                "ordine":         r[8] or 0,
+                "scope":          r[9],
+                "tipo_variabile": r[10] or "flat",
+                "dipendenze":     json.loads(r[11]) if r[11] else [],
+                "meta":           json.loads(r[12]) if r[12] else {},
+            })
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/variabili-derivate/{var_id}")
+def get_variabile_derivata(var_id: int, db: Session = Depends(get_db)):
+    try:
+        r = db.execute(text(
+            "SELECT id, nome, descrizione, formula, parametri, tipo_risultato, unita_misura, attivo, ordine, scope, tipo_variabile, dipendenze, meta "
+            "FROM variabili_derivate WHERE id = :id"
+        ), {"id": var_id}).fetchone()
+        if not r:
+            raise HTTPException(status_code=404, detail="Variabile non trovata")
+        return {
+            "id":             r[0],
+            "nome":           r[1],
+            "descrizione":    r[2],
+            "formula":        r[3],
+            "parametri":      json.loads(r[4]) if r[4] else [],
+            "tipo_risultato": r[5] or "numero",
+            "unita_misura":   r[6],
+            "attivo":         bool(r[7]),
+            "ordine":         r[8] or 0,
+            "scope":          r[9],
+            "tipo_variabile": r[10] or "flat",
+            "dipendenze":     json.loads(r[11]) if r[11] else [],
+            "meta":           json.loads(r[12]) if r[12] else {},
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/variabili-derivate")
+def create_variabile_derivata(data: dict, db: Session = Depends(get_db)):
+    try:
+        nome = data.get("nome", "").strip()
+        if not nome:
+            raise HTTPException(status_code=400, detail="Campo 'nome' obbligatorio")
+        formula = data.get("formula", "").strip()
+        if not formula:
+            raise HTTPException(status_code=400, detail="Campo 'formula' obbligatorio")
+
+        # Controlla unicità nome
+        existing = db.execute(text("SELECT id FROM variabili_derivate WHERE nome = :nome"), {"nome": nome}).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Variabile '{nome}' già esistente")
+
+        db.execute(text("""
+            INSERT INTO variabili_derivate
+                (nome, descrizione, formula, parametri, tipo_risultato, unita_misura, attivo, ordine, scope, tipo_variabile, dipendenze, meta)
+            VALUES
+                (:nome, :desc, :formula, :parametri, :tipo, :unita, :attivo, :ordine, :scope, :tipo_var, :dipendenze, :meta)
+        """), {
+            "nome":       nome,
+            "desc":       data.get("descrizione"),
+            "formula":    formula,
+            "parametri":  json.dumps(data.get("parametri", [])),
+            "tipo":       data.get("tipo_risultato", "numero"),
+            "unita":      data.get("unita_misura"),
+            "attivo":     1 if data.get("attivo", True) else 0,
+            "ordine":     data.get("ordine", 0),
+            "scope":      data.get("scope"),
+            "tipo_var":   data.get("tipo_variabile", "flat"),
+            "dipendenze": json.dumps(data.get("dipendenze", [])),
+            "meta":       json.dumps(data.get("meta", {})),
+        })
+        db.commit()
+        new_id = db.execute(text("SELECT last_insert_rowid()")).fetchone()[0]
+        return {"status": "ok", "id": new_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/variabili-derivate/{var_id}")
+def update_variabile_derivata(var_id: int, data: dict, db: Session = Depends(get_db)):
+    try:
+        # Controlla esistenza
+        existing = db.execute(text("SELECT id FROM variabili_derivate WHERE id = :id"), {"id": var_id}).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Variabile non trovata")
+
+        # Controlla unicità nome se cambiato
+        if "nome" in data:
+            conflict = db.execute(text(
+                "SELECT id FROM variabili_derivate WHERE nome = :nome AND id != :id"
+            ), {"nome": data["nome"], "id": var_id}).fetchone()
+            if conflict:
+                raise HTTPException(status_code=409, detail=f"Nome '{data['nome']}' già in uso")
+
+        field_map = {
+            "nome":           "nome",
+            "descrizione":    "descrizione",
+            "formula":        "formula",
+            "tipo_risultato": "tipo_risultato",
+            "unita_misura":   "unita_misura",
+            "attivo":         "attivo",
+            "ordine":         "ordine",
+            "scope":          "scope",
+            "tipo_variabile": "tipo_variabile",
+        }
+        fields, params = [], {"id": var_id}
+
+        for fkey, dbcol in field_map.items():
+            if fkey in data:
+                val = data[fkey]
+                if dbcol == "attivo":
+                    val = 1 if val else 0
+                fields.append(f"{dbcol} = :{dbcol}")
+                params[dbcol] = val
+
+        # Campi JSON
+        for json_field in ("parametri", "dipendenze", "meta"):
+            if json_field in data:
+                fields.append(f"{json_field} = :{json_field}")
+                params[json_field] = json.dumps(data[json_field])
+
+        if fields:
+            db.execute(text(f"UPDATE variabili_derivate SET {', '.join(fields)} WHERE id = :id"), params)
+            db.commit()
+
+        return {"status": "ok"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/variabili-derivate/{var_id}")
+def delete_variabile_derivata(var_id: int, db: Session = Depends(get_db)):
+    try:
+        db.execute(text("DELETE FROM variabili_derivate WHERE id = :id"), {"id": var_id})
+        db.commit()
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/variabili-derivate/riordina")
+def riordina_variabili(data: dict, db: Session = Depends(get_db)):
+    """Aggiorna l'ordine di tutte le variabili. Body: {"ordini": [{"id": 1, "ordine": 0}, ...]}"""
+    try:
+        for item in data.get("ordini", []):
+            db.execute(text(
+                "UPDATE variabili_derivate SET ordine = :ordine WHERE id = :id"
+            ), {"ordine": item["ordine"], "id": item["id"]})
+        db.commit()
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/variabili-derivate/testa")
+def testa_variabile(data: dict, db: Session = Depends(get_db)):
+    """
+    Testa una formula con un contesto di valori forniti dall'utente.
+    Body: {
+        "formula": "corsa + param_testa + vano.qm_distanza",
+        "parametri": [{"nome": "param_testa", "valore": 3.0}],
+        "tipo_risultato": "numero",
+        "contesto_test": {"corsa": 12, "vano.qm_distanza": 5}
+    }
+    """
+    from variabili_derivate import evaluate_formula
+    try:
+        formula = data.get("formula", "")
+        parametri = data.get("parametri", [])
+        tipo = data.get("tipo_risultato", "numero")
+        ctx_test = data.get("contesto_test", {})
+
+        if not formula:
+            raise HTTPException(status_code=400, detail="Formula vuota")
+
+        valore = evaluate_formula(formula, ctx_test, parametri, nome_variabile="test")
+
+        if tipo == "numero":
+            valore = float(valore)
+        elif tipo == "intero":
+            valore = int(round(float(valore)))
+        elif tipo == "booleano":
+            valore = bool(valore)
+
+        return {"status": "ok", "valore": valore, "tipo": tipo}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"status": "error", "errore": str(e), "valore": None}
+
+
+@app.get("/variabili-derivate/contesto-disponibile/{preventivo_id}")
+def get_contesto_disponibile(preventivo_id: int, db: Session = Depends(get_db)):
+    """
+    Restituisce tutti i campi disponibili nel contesto per un dato preventivo.
+    Usato dall'editor per l'autocomplete della formula.
+    """
+    try:
+        from rule_engine import RuleEngine
+        preventivo = db.execute(text("SELECT * FROM preventivi WHERE id = :id"), {"id": preventivo_id}).fetchone()
+        if not preventivo:
+            raise HTTPException(status_code=404, detail="Preventivo non trovato")
+
+        # Usa il RuleEngine per costruire il contesto
+        # Costruiamo un oggetto minimale compatibile
+        class PreventivoProxy:
+            def __init__(self, row):
+                cols = ["id", "tipo", "categoria", "cliente_id", "template_id", "configurazione"]
+                for i, c in enumerate(cols):
+                    try:
+                        setattr(self, c, row[i])
+                    except IndexError:
+                        setattr(self, c, None)
+
+        engine = RuleEngine(db)
+        ctx = engine.build_config_context(PreventivoProxy(preventivo))
+
+        # Filtra: esclude _calc.*, _vd.*, chiavi interne
+        campi = []
+        for k, v in ctx.items():
+            if k.startswith("_"):
+                continue
+            tipo_val = "numero" if isinstance(v, (int, float)) else "testo"
+            campi.append({"nome": k, "valore_esempio": v, "tipo": tipo_val})
+
+        # Aggiungi anche variabili vano standard (anche se vuote)
+        vano_std = [
+            "vano.qm_presente", "vano.qm_lato", "vano.qm_distanza",
+            "vano.ups_presente", "vano.ups_lato",
+            "vano.in_presente", "vano.sirena_presente",
+            "vano.boti_presente", "vano.sbarchi_lato_a", "vano.sbarchi_lato_b",
+            "vano.sbarchi_lato_c", "vano.sbarchi_lato_d", "vano.num_sbarchi",
+        ]
+        nomi_presenti = {c["nome"] for c in campi}
+        for k in vano_std:
+            if k not in nomi_presenti:
+                campi.append({"nome": k, "valore_esempio": None, "tipo": "misto"})
+
+        campi.sort(key=lambda c: c["nome"])
+        return {"campi": campi, "totale": len(campi)}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ELEMENTI VANO — CRUD endpoints
+# Da aggiungere in main.py DOPO gli endpoint /variabili-derivate
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.get("/elementi-vano")
+def get_elementi_vano(solo_attivi: bool = False, db: Session = Depends(get_db)):
+    try:
+        q = """SELECT id, id_elemento, nome, emoji, colore_bg, colore_border,
+                      solo_esterno, solo_interno, ha_distanza, descrizione, attivo, ordine
+               FROM elementi_vano"""
+        if solo_attivi:
+            q += " WHERE attivo = 1"
+        q += " ORDER BY ordine ASC, id ASC"
+        rows = db.execute(text(q)).fetchall()
+        return [
+            {
+                "id":            r[0],
+                "id_elemento":   r[1],
+                "nome":          r[2],
+                "emoji":         r[3],
+                "colore_bg":     r[4],
+                "colore_border": r[5],
+                "solo_esterno":  bool(r[6]),
+                "solo_interno":  bool(r[7]),
+                "ha_distanza":   bool(r[8]),
+                "descrizione":   r[9],
+                "attivo":        bool(r[10]),
+                "ordine":        r[11] or 0,
+                # Campo composito per compatibilità con ElementoConfig del frontend
+                "colore":        f"{r[4]} {r[5]}",
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/elementi-vano")
+def create_elemento_vano(data: dict, db: Session = Depends(get_db)):
+    try:
+        id_el = data.get("id_elemento", "").strip()
+        if not id_el:
+            raise HTTPException(status_code=400, detail="id_elemento obbligatorio")
+        nome = data.get("nome", "").strip()
+        if not nome:
+            raise HTTPException(status_code=400, detail="nome obbligatorio")
+
+        existing = db.execute(text(
+            "SELECT id FROM elementi_vano WHERE id_elemento = :id"
+        ), {"id": id_el}).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail=f"id_elemento '{id_el}' già esistente")
+
+        db.execute(text("""
+            INSERT INTO elementi_vano
+                (id_elemento, nome, emoji, colore_bg, colore_border,
+                 solo_esterno, solo_interno, ha_distanza, descrizione, attivo, ordine)
+            VALUES
+                (:id_el, :nome, :emoji, :cbg, :cborder,
+                 :solo_est, :solo_int, :ha_dist, :desc, :attivo, :ordine)
+        """), {
+            "id_el":    id_el,
+            "nome":     nome,
+            "emoji":    data.get("emoji", "📦"),
+            "cbg":      data.get("colore_bg", "bg-gray-200"),
+            "cborder":  data.get("colore_border", "border-gray-400"),
+            "solo_est": 1 if data.get("solo_esterno") else 0,
+            "solo_int": 1 if data.get("solo_interno") else 0,
+            "ha_dist":  1 if data.get("ha_distanza", True) else 0,
+            "desc":     data.get("descrizione"),
+            "attivo":   1 if data.get("attivo", True) else 0,
+            "ordine":   data.get("ordine", 0),
+        })
+        db.commit()
+        new_id = db.execute(text("SELECT last_insert_rowid()")).fetchone()[0]
+        return {"status": "ok", "id": new_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/elementi-vano/{el_id}")
+def update_elemento_vano(el_id: int, data: dict, db: Session = Depends(get_db)):
+    try:
+        existing = db.execute(text(
+            "SELECT id FROM elementi_vano WHERE id = :id"
+        ), {"id": el_id}).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Elemento non trovato")
+
+        if "id_elemento" in data:
+            conflict = db.execute(text(
+                "SELECT id FROM elementi_vano WHERE id_elemento = :id_el AND id != :id"
+            ), {"id_el": data["id_elemento"], "id": el_id}).fetchone()
+            if conflict:
+                raise HTTPException(status_code=409, detail=f"id_elemento '{data['id_elemento']}' già in uso")
+
+        field_map = {
+            "id_elemento":   "id_elemento",
+            "nome":          "nome",
+            "emoji":         "emoji",
+            "colore_bg":     "colore_bg",
+            "colore_border": "colore_border",
+            "descrizione":   "descrizione",
+            "ordine":        "ordine",
+        }
+        bool_fields = {"solo_esterno", "solo_interno", "ha_distanza", "attivo"}
+
+        fields, params = [], {"id": el_id}
+        for fkey, dbcol in field_map.items():
+            if fkey in data:
+                fields.append(f"{dbcol} = :{dbcol}")
+                params[dbcol] = data[fkey]
+        for bf in bool_fields:
+            if bf in data:
+                fields.append(f"{bf} = :{bf}")
+                params[bf] = 1 if data[bf] else 0
+
+        if fields:
+            db.execute(text(
+                f"UPDATE elementi_vano SET {', '.join(fields)} WHERE id = :id"
+            ), params)
+            db.commit()
+        return {"status": "ok"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/elementi-vano/{el_id}")
+def delete_elemento_vano(el_id: int, db: Session = Depends(get_db)):
+    try:
+        db.execute(text("DELETE FROM elementi_vano WHERE id = :id"), {"id": el_id})
+        db.commit()
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/elementi-vano/riordina")
+def riordina_elementi_vano(data: dict, db: Session = Depends(get_db)):
+    try:
+        for item in data.get("ordini", []):
+            db.execute(text(
+                "UPDATE elementi_vano SET ordine = :ordine WHERE id = :id"
+            ), {"ordine": item["ordine"], "id": item["id"]})
+        db.commit()
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # ============================================================================
 # SEZIONE B: GET/PUT valori_configurazione MODIFICATI
@@ -6266,6 +6770,12 @@ def api_esplodi_bom(ordine_id: int, body: dict = None, db: Session = Depends(get
         )
 
     now_iso = datetime.now().isoformat()
+
+    # Leggi stato corrente prima di aggiornare (per storico)
+    cursor.execute("SELECT stato FROM ordini WHERE id=?", (ordine_id,))
+    _stato_row = cursor.fetchone()
+    stato_precedente = _stato_row[0] if _stato_row else "confermato"
+
     try:
         cursor.execute(
             "UPDATE ordini SET bom_esplosa=1, data_esplosione_bom=?, stato='in_produzione', "
@@ -6273,9 +6783,32 @@ def api_esplodi_bom(ordine_id: int, body: dict = None, db: Session = Depends(get
             (now_iso, rev_id, rev_corrente, now_iso, ordine_id)
         )
     except Exception:
-        # Fallback se colonne nuove non esistono
         cursor.execute("UPDATE ordini SET bom_esplosa=1, data_esplosione_bom=?, stato='in_produzione' WHERE id=?",
                        (now_iso, ordine_id))
+
+    # Registra transizione nello storico
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ordini_storico_stato (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ordine_id INTEGER NOT NULL,
+                stato_precedente TEXT,
+                stato_nuovo TEXT NOT NULL,
+                motivo TEXT,
+                utente TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        cursor.execute(
+            "INSERT INTO ordini_storico_stato "
+            "(ordine_id, stato_precedente, stato_nuovo, motivo, utente, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (ordine_id, stato_precedente, "in_produzione",
+             "BOM esplosa — avvio produzione", "utente", now_iso)
+        )
+    except Exception as _e:
+        print(f"[WARN] storico_stato esplodi-bom: {_e}")
+
     conn.commit()
 
     costo_tot = sum(e.get("costo_totale", 0) for e in aggregati.values())
@@ -6788,7 +7321,7 @@ def auto_snapshot(preventivo_id: int, db: Session = Depends(get_db)):
 def ripristina_revisione(preventivo_id: int, revisione_id: int, db: Session = Depends(get_db)):
     """Ripristina un preventivo da una revisione precedente.
     Il numero revisione viene SEMPRE incrementato (mai decrementato).
-    Flow: snapshot stato attuale → ripristino dati → nuovo snapshot stato ripristinato.
+    Flow: snapshot stato attuale -> ripristino dati -> nuovo snapshot stato ripristinato.
     """
     _ensure_revisioni_table(db)
 
@@ -6902,7 +7435,7 @@ def ripristina_revisione(preventivo_id: int, revisione_id: int, db: Session = De
         except Exception:
             pass
 
-        # 7. Snapshot dello stato ripristinato → crea NUOVA revisione (numero sempre crescente)
+        # 7. Snapshot dello stato ripristinato -> crea NUOVA revisione (numero sempre crescente)
         snap_result = _crea_snapshot_preventivo(
             preventivo_id, db,
             motivo=f"Ripristino da Rev #{num_rev_ripristinata}"
@@ -6911,7 +7444,7 @@ def ripristina_revisione(preventivo_id: int, revisione_id: int, db: Session = De
 
         return {
             "success": True,
-            "message": f"Preventivo ripristinato dalla revisione #{num_rev_ripristinata} → nuova Rev #{new_rev}",
+            "message": f"Preventivo ripristinato dalla revisione #{num_rev_ripristinata} -> nuova Rev #{new_rev}",
             "preventivo_id": preventivo_id,
             "revisione_ripristinata": num_rev_ripristinata,
             "revisione_corrente": new_rev
@@ -7181,7 +7714,7 @@ def delete_data_table(nome_tabella: str):
 @app.post("/data-tables/upload")
 async def upload_excel_data(file: UploadFile = File(...), overwrite: bool = True):
     """
-    Carica un file Excel con foglio _MAPPA → genera data tables JSON.
+    Carica un file Excel con foglio _MAPPA -> genera data tables JSON.
     
     Il file Excel deve seguire la convenzione:
     - Foglio _MAPPA con colonne: foglio, tipo, nome_tabella, colonna_chiave, ...
@@ -7335,7 +7868,7 @@ async def import_excel_analyze_v3(
     db: Session = Depends(get_db),
 ):
     """
-    V3 Step 2→3: Analizza struttura, estrae valori distinti per colonne output,
+    V3 Step 2->3: Analizza struttura, estrae valori distinti per colonne output,
     trova candidati campi configuratore per colonne chiave.
     """
     import tempfile, shutil, openpyxl
@@ -7470,7 +8003,7 @@ async def import_excel_genera_v3(
     config_json: str = Form(...),
 ):
     """
-    V3 Step 3→4: Genera data table JSON (lookup_multi) + regola JSON.
+    V3 Step 3->4: Genera data table JSON (lookup_multi) + regola JSON.
     
     config_json contiene:
     - nome_tabella, sheet, header_row
@@ -7573,7 +8106,7 @@ async def import_excel_genera_v3(
                     # Supporta sia formato vecchio (codice_articolo singolo) che nuovo (articoli array)
                     vm_articoli = vm.get("articoli", [])
                     if not vm_articoli and vm.get("codice_articolo"):
-                        # Backward compat: singolo articolo → array
+                        # Backward compat: singolo articolo -> array
                         vm_articoli = [{
                             "codice": vm["codice_articolo"],
                             "descrizione": vm.get("descrizione_articolo", ""),
@@ -7862,9 +8395,9 @@ async def import_excel_genera(file: UploadFile = File(...), db: Session = Depend
     Fase 2 Step 2: genera data tables JSON + regole con matching intelligente.
     
     Supporta tutti i tipi di tabella:
-    - lookup_range → regola lookup_table + bozza MAT_ per colonne ART
-    - constants    → regola lookup_table (chiave testuale → valori)
-    - catalog      → bozza catalog_match (selezione multi-criterio, disabilitata)
+    - lookup_range -> regola lookup_table + bozza MAT_ per colonne ART
+    - constants    -> regola lookup_table (chiave testuale -> valori)
+    - catalog      -> bozza catalog_match (selezione multi-criterio, disabilitata)
     
     Ogni regola generata include _source="excel_import" e _imported_at per
     tracciabilità nel Rule Builder.
@@ -8103,7 +8636,7 @@ async def import_excel_genera(file: UploadFile = File(...), db: Session = Depend
                                            input_score=0)
 
                     # =============================================
-                    # TIPO: constants (chiave testuale → valori)
+                    # TIPO: constants (chiave testuale -> valori)
                     # =============================================
                     elif tipo == "constants":
                         input_field, input_score = find_best_match(parametro_lookup, "dropdown")
@@ -8341,7 +8874,7 @@ async def import_excel_analyze_v3(
     db: Session = Depends(get_db),
 ):
     """
-    Step 2→3: Analizza struttura + estrae valori distinti + candidati campi.
+    Step 2->3: Analizza struttura + estrae valori distinti + candidati campi.
     
     config_json:
     {
@@ -8598,7 +9131,7 @@ async def import_excel_genera_v3(
                     v_str = str(v).strip()
                     col_norm = norm(col)
                     output[col_norm] = v if not isinstance(v, str) else v_str
-                    # Value mapping → articolo
+                    # Value mapping -> articolo
                     if v_str in value_mappings:
                         vm = value_mappings[v_str]
                         if vm.get("tipo") == "articolo" and vm.get("codice_articolo"):
@@ -8653,7 +9186,7 @@ async def import_excel_genera_v3(
         rule_id = f"LOOKUP_{nome_tabella.upper()}"
 
         # Costruisci input_fields dalla field_mappings
-        # Ogni chiave Excel → uno o più campi configuratore
+        # Ogni chiave Excel -> uno o più campi configuratore
         input_fields = []
         has_todo = False
 
@@ -8662,7 +9195,7 @@ async def import_excel_genera_v3(
             mt = key_configs.get(kc, "exact")
 
             if isinstance(fm, dict) and fm.get("type") == "composite":
-                # Campo composto: N campi → concatenati con separatore
+                # Campo composto: N campi -> concatenati con separatore
                 comp_fields = fm.get("fields", [])
                 separator = fm.get("separator", "_")
                 if not comp_fields or any(not f for f in comp_fields):
@@ -8977,6 +9510,89 @@ def genera_regola_da_tabella(nome_tabella: str, body: dict = None, db: Session =
                 "candidates": partition_candidates,
             } if partizionato_per else None,
         },
+    }
+
+@app.get("/debug/preventivo/{preventivo_id}/context")
+def debug_ctx(preventivo_id: int, db: Session = Depends(get_db)):
+    from rule_engine import RuleEngine
+    preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
+    if not preventivo:
+        raise HTTPException(404)
+    engine = RuleEngine(db)
+    ctx = engine.build_config_context(preventivo)
+    try:
+        from variabili_derivate import apply_variabili_derivate
+        apply_variabili_derivate(ctx, db)
+    except Exception as e:
+        ctx["_debug_vd_error"] = str(e)
+    return {k: v for k, v in sorted(ctx.items())}
+
+@app.get("/debug/regole/{preventivo_id}")
+def debug_regole(preventivo_id: int, db: Session = Depends(get_db)):
+    from rule_engine import RuleEngine
+    preventivo = db.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
+    if not preventivo:
+        raise HTTPException(404, "Preventivo non trovato")
+
+    engine = RuleEngine(db)
+    ctx = engine.build_config_context(preventivo)
+
+    vd_result = {}
+    vd_error = None
+    try:
+        from variabili_derivate import apply_variabili_derivate
+        apply_variabili_derivate(ctx, db)
+        vd_result = {k: v for k, v in ctx.items() if k.startswith("_vd.")}
+    except Exception as e:
+        vd_error = str(e)
+
+    all_rules = engine.load_all_rules()
+    cavo_rule = next((r for r in all_rules if r.get("id") == "CAVO_QUADRO_ELETTRICO"), None)
+
+    cond_detail = []
+    cond_result = None
+    if cavo_rule:
+        for c in cavo_rule.get("conditions", []):
+            field = c.get("field")
+            actual = engine._resolve(field, ctx)
+            res = engine._eval_cond(c, ctx)
+            cond_detail.append({
+                "field": field, "operator": c.get("operator"),
+                "expected": c.get("value"), "actual": actual,
+                "actual_type": type(actual).__name__, "result": res
+            })
+        cond_result = all(c["result"] for c in cond_detail)
+
+    add_result = None
+    if cavo_rule and cond_result:
+        for action in cavo_rule.get("actions", []):
+            if action.get("action") == "add_material":
+                mat_data = action.get("material") or {k: v for k, v in action.items() if k != "action"}
+                quantita_raw = mat_data.get("quantita", 1)
+                if isinstance(quantita_raw, str):
+                    try:
+                        float(quantita_raw)
+                    except (ValueError, TypeError):
+                        quantita_raw = ctx.get(quantita_raw) or ctx.get(f"_vd.{quantita_raw}", 1)
+                add_result = {
+                    "codice": mat_data.get("codice"),
+                    "quantita_key": mat_data.get("quantita"),
+                    "quantita_resolved": quantita_raw,
+                }
+
+    return {
+        "vd_error": vd_error,
+        "vd_keys": vd_result,
+        "ctx_en_81_20": ctx.get("normative.en_81_20"),
+        "ctx_en_81_20_flat": ctx.get("en_81_20"),
+        "ctx_en_81_20_resolve": engine._resolve("normative.en_81_20", ctx),
+        "cavo_rule_found": cavo_rule is not None,
+        "cavo_rule_raw": cavo_rule,
+        "conditions": cond_detail,
+        "conditions_pass": cond_result,
+        "add_material_simulation": add_result,
+        "ctx_quadro_presente": ctx.get("vano.quadro_el_presente"),
+        "ctx_vd_lunghezza": ctx.get("_vd.lunghezza_cavo_quadro"),
     }
 
 if __name__ == "__main__":

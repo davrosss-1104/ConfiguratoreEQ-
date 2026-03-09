@@ -14,11 +14,8 @@ logger = logging.getLogger(__name__)
 CAMPI_ESCLUSI = {"id", "preventivo_id", "created_at", "updated_at"}
 
 # Tabelle ORM dedicate → prefix + alias
+# dati_principali, normative, argano, porte → ora in valori_configurazione
 TABELLE_DEDICATE = {
-    "dati_principali":   {"prefix": "dati_principali",   "aliases": ["tensioni"]},
-    "normative":         {"prefix": "normative",         "aliases": []},
-    "argano":            {"prefix": "argano",            "aliases": ["trazione"]},
-    "porte":             {"prefix": "porte",             "aliases": []},
     "disposizione_vano": {"prefix": "disposizione_vano", "aliases": []},
     "dati_commessa":     {"prefix": "dati_commessa",     "aliases": []},
 }
@@ -76,17 +73,28 @@ class RuleEngine:
             for r in rows:
                 sez, campo, val = r[0], r[1], r[2]
                 v = _conv(val)
+                def _set(k, val, ctx=ctx):
+                    existing = ctx.get(k)
+                    if existing not in (None, ""):
+                        # Non sovrascrivere un valore non-vuoto con uno falsy
+                        existing_s = str(existing).strip().lower()
+                        val_s = str(val).strip().lower() if val is not None else ""
+                        if existing_s not in ("false", "0", "no", "off", "") and val_s in ("false", "0", "no", "off", ""):
+                            return
+                        if existing_s not in (None, "") and val_s == "":
+                            return
+                    ctx[k] = val
                 if sez:
-                    ctx[f"{sez}.{campo}"] = v
+                    _set(f"{sez}.{campo}", v)
                     # propaga alias
                     target = ALIAS_MAP.get(sez)
                     if target:
-                        ctx[f"{target}.{campo}"] = v
+                        _set(f"{target}.{campo}", v)
                     for t2, c2 in TABELLE_DEDICATE.items():
                         if c2["prefix"] == sez:
                             for a in c2["aliases"]:
-                                ctx[f"{a}.{campo}"] = v
-                ctx[campo] = v  # chiave piatta
+                                _set(f"{a}.{campo}", v)
+                _set(campo, v)  # chiave piatta
         except Exception as e:
             self.warnings.append(f"valori_configurazione: {e}")
 
@@ -150,11 +158,11 @@ class RuleEngine:
             return None
         # 1. Esatto
         v = ctx.get(field)
-        if v is not None:
+        if v is not None and v != "":
             return v
         # 2. Lowercase
         v = ctx.get(field.lower())
-        if v is not None:
+        if v is not None and v != "":
             return v
         # 3. Alias sezione
         if "." in field:
@@ -951,7 +959,14 @@ class RuleEngine:
             if existing:
                 return False
 
-            q = float(mat_data.get("quantita", 1))
+            quantita_raw = mat_data.get("quantita", 1)
+            if isinstance(quantita_raw, str):
+                try:
+                    float(quantita_raw)  # è un numero stringa tipo "1" o "2.5"
+                except (ValueError, TypeError):
+                    # È un riferimento a campo ctx (es. "_vd.lunghezza_cavo_quadro")
+                    quantita_raw = ctx.get(quantita_raw) or ctx.get(f"_vd.{quantita_raw}", 1)
+            q = float(quantita_raw) if quantita_raw is not None else 1.0
             pu = float(mat_data.get("prezzo_unitario", 0))
             if pu == 0 and codice:
                 pu = self._lookup_prezzo(codice)
@@ -1012,7 +1027,9 @@ class RuleEngine:
                 continue
 
             if at == "add_material":
-                if self._add_material(preventivo, action.get("material", {}), rid, ctx):
+                # Supporta sia formato con wrapper {"material":{...}} sia formato flat {"codice":..., "quantita":...}
+                mat_data = action.get("material") or {k: v for k, v in action.items() if k != "action"}
+                if self._add_material(preventivo, mat_data, rid, ctx):
                     added += 1
             elif at == "set_field":
                 self._exec_set_field(action, ctx)
@@ -1244,8 +1261,7 @@ class RuleEngine:
         for k, v in ctx.items():
             if k.startswith(sez_prefix):
                 campo = k[len(sez_prefix):]
-                v_str = str(v).lower()
-                if v_str in ("true", "1", "yes", "on"):
+                if v and str(v).lower() not in ("false", "0", "no", "off", ""):
                     active_components.append(campo)
 
         written = {}
@@ -1631,7 +1647,7 @@ class RuleEngine:
 
         # Risolvi codice (può essere _calc.trasformatore.codice_trasf)
         if isinstance(codice_ref, str) and codice_ref.startswith("_calc."):
-            codice = str(ctx.get(codice_ref, ""))
+            codice = str(ctx.get(codice_ref, codice_ref))
         else:
             codice = str(codice_ref)
         codice = self._replace_ph(codice, ctx)
@@ -1642,10 +1658,6 @@ class RuleEngine:
         else:
             desc = str(desc_ref)
         desc = self._replace_ph(desc, ctx)
-
-        # Se il codice è vuoto o non risolto → skip
-        if not codice or codice.startswith("_calc."):
-            return {"codice": codice, "skipped": True, "reason": "codice non risolto"}
 
         # Risolvi quantità
         try:
@@ -1724,13 +1736,8 @@ class RuleEngine:
                     f"Pipeline {rid} step {i} ({step.get('action')}): {result['error']}")
                 break
             out = result.get("output", {})
-            # Se lookup_each non trova nulla → interrompi pipeline
-            if step.get("action") == "lookup_each" and not out:
-                break
             if out:
-                print(f"[PIPELINE]   → {len(out)} output keys: {list(out.keys())[:5]}")
-            else:
-                print(f"[PIPELINE]   → NESSUN output. ctx _calc.va_per_tensione.*: { {k:v for k,v in ctx.items() if '_va_per_tensione' in k or '_calc.va' in k} }")
+                print(f"[PIPELINE]   → {len(out)} output keys")
             if step.get("action") == "add_material" and out.get("added"):
                 added += 1
 
@@ -1802,6 +1809,11 @@ class RuleEngine:
 
         ctx = self.build_config_context(preventivo)
         ctx["_preventivo_id"] = preventivo.id
+        try:
+            from variabili_derivate import apply_variabili_derivate
+            apply_variabili_derivate(ctx, self.db)
+        except Exception as e:
+            self.warnings.append(f"variabili_derivate: {e}")
         all_rules = self.load_all_rules()
 
         if not all_rules:
