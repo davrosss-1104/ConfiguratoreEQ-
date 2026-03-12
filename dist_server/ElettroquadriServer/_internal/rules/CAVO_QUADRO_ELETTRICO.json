@@ -1,0 +1,16 @@
+{
+  "id": "CAVO_QUADRO_ELETTRICO",
+  "name": "Calcolo cavo piatto quadro elettrico",
+  "priority": 51,
+  "enabled": true,
+  "conditions": [
+    { "field": "vano.quadro_el_presente", "operator": "equals", "value": true }
+  ],
+  "actions": [
+    {
+      "action": "add_material",
+      "codice": "CAVO-PIATTO-ML",
+      "quantita": "_vd.lunghezza_cavo_quadro"
+    }
+  ]
+}

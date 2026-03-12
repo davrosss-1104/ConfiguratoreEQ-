@@ -1,0 +1,29 @@
+{
+  "id": "CABINA_TEST",
+  "name": "Cabina Test",
+  "description": "",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "cabina.larghezza",
+      "operator": "greater_than",
+      "value": "500"
+    }
+  ],
+  "actions": [
+    {
+      "action": "add_material",
+      "material": {
+        "codice": "QEL-GRL-001",
+        "descrizione": "Quadro elettrico Gearless MRL - Configurazione standard",
+        "quantita": 1,
+        "prezzo_unitario": 2850,
+        "categoria": "PRODUZIONE",
+        "note": ""
+      }
+    }
+  ],
+  "materials": []
+}

@@ -1647,10 +1647,15 @@ class RuleEngine:
 
         # Risolvi codice (può essere _calc.trasformatore.codice_trasf)
         if isinstance(codice_ref, str) and codice_ref.startswith("_calc."):
-            codice = str(ctx.get(codice_ref, codice_ref))
+            codice = ctx.get(codice_ref)
+            if not codice:
+                return {"skipped": True, "reason": f"{codice_ref} non risolto"}
+            codice = str(codice)
         else:
             codice = str(codice_ref)
         codice = self._replace_ph(codice, ctx)
+        if not codice or codice.startswith("_calc."):
+            return {"skipped": True, "reason": f"codice non risolto: {codice}"}
 
         # Risolvi descrizione
         if isinstance(desc_ref, str) and desc_ref.startswith("_calc."):
