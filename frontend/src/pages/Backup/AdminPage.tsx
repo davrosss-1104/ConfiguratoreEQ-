@@ -1,11 +1,11 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Package, Users, Settings, Plus, Search, Edit2, Trash2, 
   Save, X, ChevronDown, ChevronRight, Loader2
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 // ==========================================
 // TYPES

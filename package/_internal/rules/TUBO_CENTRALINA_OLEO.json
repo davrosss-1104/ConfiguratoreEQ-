@@ -1,0 +1,83 @@
+{
+  "id": "TUBO_CENTRALINA_OLEO",
+  "name": "Selezione tubo idraulico centralina oleodinamica",
+  "priority": 50,
+  "enabled": true,
+  "conditions": [
+    {
+      "field": "vano.centralina_presente",
+      "operator": "equals",
+      "value": true
+    },
+    {
+      "field": "tipo_impianto",
+      "operator": "equals",
+      "value": "oleodinamica"
+    }
+  ],
+  "actions": [
+    {
+      "action": "add_material",
+      "codice": "TUBO-IDRA-3M",
+      "quantita": 1,
+      "conditions": [
+        {
+          "field": "lunghezza_tubo_centralina",
+          "operator": "lte",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "action": "add_material",
+      "codice": "TUBO-IDRA-6M",
+      "quantita": 1,
+      "conditions": [
+        {
+          "field": "lunghezza_tubo_centralina",
+          "operator": "gt",
+          "value": 3
+        },
+        {
+          "field": "lunghezza_tubo_centralina",
+          "operator": "lte",
+          "value": 6
+        }
+      ]
+    },
+    {
+      "action": "add_material",
+      "codice": "TUBO-IDRA-9M",
+      "quantita": 1,
+      "conditions": [
+        {
+          "field": "lunghezza_tubo_centralina",
+          "operator": "gt",
+          "value": 6
+        },
+        {
+          "field": "lunghezza_tubo_centralina",
+          "operator": "lte",
+          "value": 9
+        }
+      ]
+    },
+    {
+      "action": "add_material",
+      "codice": "TUBO-IDRA-12M",
+      "quantita": 1,
+      "conditions": [
+        {
+          "field": "lunghezza_tubo_centralina",
+          "operator": "gt",
+          "value": 9
+        }
+      ]
+    },
+    {
+      "action": "add_material",
+      "codice": "RACK-TUBO-KIT",
+      "quantita": 1
+    }
+  ]
+}

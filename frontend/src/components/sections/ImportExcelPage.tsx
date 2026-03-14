@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+﻿import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   Upload, FileSpreadsheet, CheckCircle2, AlertCircle, ChevronRight,
   ChevronLeft, Loader2, Table2, Eye, RefreshCw, Info, X,
@@ -7,7 +7,7 @@ import {
   Key, ArrowRight, Columns, Hash, Type, Plus, Trash2
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 // ==========================================
 // TYPES

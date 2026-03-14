@@ -9,19 +9,19 @@
   ],
   "records": [
     {
-      "componente": "pattino_retrattile",
+      "componente": "pattino_retrattile_75v",
       "label": "Pattino retrattile",
       "watt": 150,
       "tensione_uscita_trasf": 75
     },
     {
-      "componente": "pattino_retrattile",
+      "componente": "pattino_retrattile_15v",
       "label": "Pattino retrattile",
       "watt": 150,
       "tensione_uscita_trasf": 15
     },
     {
-      "componente": "pattino_retrattile",
+      "componente": "pattino_retrattile_18v",
       "label": "Pattino retrattile",
       "watt": 150,
       "tensione_uscita_trasf": 18
@@ -33,13 +33,13 @@
       "tensione_uscita_trasf": 18
     },
     {
-      "componente": "valvole_3",
+      "componente": "valvole_3_55v",
       "label": "3 Valvole",
       "watt": 135,
       "tensione_uscita_trasf": 55
     },
     {
-      "componente": "valvole_3",
+      "componente": "valvole_3_18v",
       "label": "3 Valvole",
       "watt": 135,
       "tensione_uscita_trasf": 18
@@ -69,13 +69,13 @@
       "tensione_uscita_trasf": 24
     },
     {
-      "componente": "display_piano",
+      "componente": "display_piano_24v",
       "label": "Display di piano",
       "watt": 15,
       "tensione_uscita_trasf": 24
     },
     {
-      "componente": "display_piano",
+      "componente": "display_piano_5v",
       "label": "Display di piano",
       "watt": 15,
       "tensione_uscita_trasf": 5
@@ -87,13 +87,13 @@
       "tensione_uscita_trasf": 24
     },
     {
-      "componente": "serrature_elettriche",
+      "componente": "serrature_elettriche_75v",
       "label": "Serrature elettriche",
       "watt": 60,
       "tensione_uscita_trasf": 75
     },
     {
-      "componente": "serrature_elettriche",
+      "componente": "serrature_elettriche_18v",
       "label": "Serrature elettriche",
       "watt": 60,
       "tensione_uscita_trasf": 18
@@ -118,8 +118,8 @@
     "fogli_origine": [
       "Utilizzatori"
     ],
-    "file_origine": "tmp3akkel02.xlsx",
-    "generato_il": "2026-03-08T10:46:22.635271",
+    "file_origine": "tmp_za6r2ll.xlsx",
+    "generato_il": "2026-03-08T14:54:18.983616",
     "righe_totali": 17,
     "colonna_chiave": "componente",
     "tipo_chiave": "testo",

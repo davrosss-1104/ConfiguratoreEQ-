@@ -1,4 +1,4 @@
-/**
+﻿/**
  * RuleTestPanel.tsx — Pannello diagnostica regole
  * Posizionare in: frontend/src/components/RuleTestPanel.tsx
  */
@@ -8,7 +8,7 @@ import {
   FlaskConical, Search, Package, Zap, AlertTriangle, Eye
 } from 'lucide-react';
 
-const API = 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL ?? '';
 
 interface TestReport {
   preventivo_id: number;

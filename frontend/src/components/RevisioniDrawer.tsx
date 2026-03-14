@@ -1,4 +1,4 @@
-/**
+﻿/**
  * RevisioniDrawer.tsx
  * Drawer slide-over per gestione revisioni, accessibile da qualsiasi tab.
  * Posizionare in: frontend/src/components/RevisioniDrawer.tsx
@@ -11,7 +11,7 @@ import {
   PlusCircle, MinusCircle, Pencil, Settings2
 } from 'lucide-react';
 
-const API = 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL ?? '';
 const fmt = (v: number) => v?.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' }) || '€ 0,00';
 
 interface RevisioneInfo {

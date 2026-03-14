@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+﻿import { useEffect, useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Zap, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -6,7 +6,7 @@ import { SelectConAggiungi } from './SelectConAggiungi';
 import { CampiPersonalizzati } from './CampiPersonalizzati';
 import { useFieldsWithRules } from '@/hooks/useFieldsWithRules';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 interface NormativeFormProps {
   preventivoId: number;

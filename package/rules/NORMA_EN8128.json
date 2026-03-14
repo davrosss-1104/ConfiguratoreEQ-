@@ -1,0 +1,29 @@
+{
+  "id": "NORMA_EN8128",
+  "name": "Norma EN 81-28",
+  "description": "",
+  "version": "1.0",
+  "enabled": true,
+  "priority": 50,
+  "conditions": [
+    {
+      "field": "normative.en_81_28",
+      "operator": "equals",
+      "value": "True"
+    }
+  ],
+  "actions": [
+    {
+      "action": "add_material",
+      "material": {
+        "codice": "INV-7K5",
+        "descrizione": "Inverter 7.5 kW",
+        "quantita": 1,
+        "prezzo_unitario": 650,
+        "categoria": "ACQUISTO",
+        "note": ""
+      }
+    }
+  ],
+  "materials": []
+}

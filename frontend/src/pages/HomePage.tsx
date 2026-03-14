@@ -183,7 +183,7 @@ export const HomePage = () => {
                   `}
                 >
                   <img
-                    src="/icons/equa-rise-secondary-color.svg"
+                    src="/icons/equa-rise-secondary-color.png"
                     alt="RISE"
                     className="w-16 h-16 object-contain"
                   />
@@ -206,7 +206,7 @@ export const HomePage = () => {
                   `}
                 >
                   <img
-                    src="/icons/equa-home-secondary-color.svg"
+                    src="/icons/equa-home-secondary-color.png"
                     alt="HOME"
                     className="w-16 h-16 object-contain"
                   />

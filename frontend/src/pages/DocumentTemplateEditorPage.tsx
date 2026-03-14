@@ -1,4 +1,4 @@
-/**
+﻿/**
  * DocumentTemplateEditorPage.tsx — Editor visuale per template documenti
  * 
  * Permette di configurare layout e campi dei documenti DOCX
@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 // ==========================================
 // TYPES

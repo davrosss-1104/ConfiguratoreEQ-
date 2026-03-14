@@ -2,36 +2,43 @@
 moduli_attivabili.py — Feature flag system per moduli opzionali
 ================================================================
 
-Aggiunge a main.py:
-  1. GET  /moduli-attivi           → dict dei moduli e loro stato on/off
-  2. PUT  /moduli-attivi/{codice}  → attiva/disattiva un modulo (solo admin)
-  3. Dependency FastAPI: richiedi_modulo("fatturazione") → guard per endpoint
+Due livelli di controllo:
 
-I flag sono salvati in parametri_sistema con gruppo = "moduli"
-e chiave = "modulo_{codice}_attivo", valore = "true" / "false".
+  1. LICENZA (config.ini → env MODULI_LICENZIATI):
+     Definisce quali moduli sono acquistati per questa installazione.
+     Impostato da David in config.ini al momento del deploy.
+     L'amministratore non può modificarlo.
+     Un modulo non licenziato è invisibile nell'admin e bloccato lato API.
+
+  2. ATTIVAZIONE (parametri_sistema nel DB):
+     L'amministratore può attivare/disattivare solo i moduli licenziati.
+     Utile per accendere/spegnere funzionalità senza contattare David.
+
+Sezione config.ini da aggiungere per ogni installazione cliente:
+  [licenza]
+  moduli = ticketing, fatturazione, tempi
+
+  Oppure, per abilitare tutto (es. installazione David):
+  moduli = *
 
 INTEGRAZIONE in main.py:
   from moduli_attivabili import router as moduli_router, richiedi_modulo
   app.include_router(moduli_router)
-  
-  # Proteggere il router fatturazione:
+
   from fatturazione_api import router as fatturazione_router
   fatturazione_router.dependencies.append(Depends(richiedi_modulo("fatturazione")))
   app.include_router(fatturazione_router)
-
-MIGRAZIONE (aggiunta a migrate_fatturazione.py o eseguibile standalone):
-  python moduli_attivabili.py [db_path]
 """
 
+import os
 import sys
 from datetime import datetime
-from typing import Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-# Importa get_db dal progetto (adatta il path se necessario)
 try:
     from database import get_db
 except ImportError:
@@ -39,24 +46,72 @@ except ImportError:
 
 router = APIRouter(tags=["moduli"])
 
+
 # ==========================================
-# MODULI REGISTRATI
+# CATALOGO GLOBALE DI TUTTI I MODULI
 # ==========================================
-# Ogni modulo ha: codice, nome, descrizione, default (spento)
+# Aggiungere qui ogni nuovo modulo sviluppato.
+# "default": stato iniziale se il cliente ha la licenza ma non ha mai
+#            esplicitamente attivato/disattivato il modulo.
+
 MODULI_DISPONIBILI = {
     "fatturazione": {
-        "nome": "Fatturazione Elettronica",
-        "descrizione": "Generazione XML FatturaPA, invio SDI, gestione fatture attive/passive",
-        "default": False,
+        "nome":        "Fatturazione Elettronica",
+        "descrizione": "Generazione XML FatturaPA, invio SDI, fatture attive/passive",
+        "default":     False,
+        "icona":       "Receipt",
     },
-    # Futuri moduli:
-    # "magazzino": { "nome": "Gestione Magazzino", ... },
-    # "crm": { "nome": "CRM Clienti", ... },
+    "ticketing": {
+        "nome":        "Assistenza & Ticketing",
+        "descrizione": "Gestione ticket di assistenza, impianti, comunicazione con il cliente",
+        "default":     True,   # acceso di default quando licenziato
+        "icona":       "Ticket",
+    },
+    "portale_cliente": {
+        "nome":        "Portale Cliente",
+        "descrizione": "Accesso clienti al portale web per visualizzare ticket, ordini, preventivi",
+        "default":     True,
+        "icona":       "Globe",
+    },
+    "tempi": {
+        "nome":        "Misurazione Tempi",
+        "descrizione": "Timer su ticket, sessioni di lavoro, report tempi per tecnico/cliente",
+        "default":     True,
+        "icona":       "Timer",
+    },
+    "oda": {
+        "nome":        "Ordini di Acquisto",
+        "descrizione": "Gestione ordini di acquisto, fornitori, approvvigionamento",
+        "default":     True,
+        "icona":       "ShoppingCart",
+    },
 }
 
 
 # ==========================================
-# HELPERS
+# LETTURA LICENZA DA ENVIRONMENT
+# ==========================================
+
+def get_moduli_licenziati() -> set:
+    """
+    Legge l'env MODULI_LICENZIATI (impostato da server_prod.py leggendo config.ini).
+    Ritorna un set di codici modulo autorizzati.
+    "*" significa tutti i moduli del catalogo.
+    Se la variabile non è impostata, per retrocompatibilità,
+    si assume che solo "fatturazione" sia licenziato.
+    """
+    raw = os.environ.get("MODULI_LICENZIATI", "fatturazione").strip()
+    if raw == "*":
+        return set(MODULI_DISPONIBILI.keys())
+    return {m.strip() for m in raw.split(",") if m.strip() and m.strip() in MODULI_DISPONIBILI}
+
+
+def is_modulo_licenziato(codice: str) -> bool:
+    return codice in get_moduli_licenziati()
+
+
+# ==========================================
+# ATTIVAZIONE (togglabile dall'admin)
 # ==========================================
 
 def _chiave_parametro(codice_modulo: str) -> str:
@@ -64,7 +119,14 @@ def _chiave_parametro(codice_modulo: str) -> str:
 
 
 def is_modulo_attivo(db: Session, codice: str) -> bool:
-    """Controlla se un modulo è attivo leggendo parametri_sistema."""
+    """
+    Un modulo è attivo solo se:
+      1. È licenziato per questa installazione, E
+      2. Non è stato esplicitamente disattivato dall'admin (o ha default=True).
+    """
+    if not is_modulo_licenziato(codice):
+        return False
+
     chiave = _chiave_parametro(codice)
     try:
         row = db.execute(
@@ -75,54 +137,61 @@ def is_modulo_attivo(db: Session, codice: str) -> bool:
             return row[0].lower() in ("true", "1", "si", "yes")
     except Exception:
         pass
-    # Default dal registro
+
+    # Nessuna riga in DB → usa il default del catalogo
     mod = MODULI_DISPONIBILI.get(codice)
     return mod["default"] if mod else False
 
 
 def get_tutti_moduli(db: Session) -> dict:
-    """Ritorna { codice: True/False } per tutti i moduli registrati."""
+    """Ritorna { codice: True/False } solo per i moduli licenziati."""
     result = {}
-    for codice in MODULI_DISPONIBILI:
+    for codice in get_moduli_licenziati():
         result[codice] = is_modulo_attivo(db, codice)
     return result
 
 
 # ==========================================
-# DEPENDENCY: Guard per endpoint protetti
+# DEPENDENCY FastAPI
 # ==========================================
 
 def richiedi_modulo(codice: str):
     """
-    Ritorna una FastAPI dependency che blocca la request se il modulo non è attivo.
-    
+    Guard FastAPI: blocca la request se il modulo non è attivo
+    (non licenziato OPPURE disattivato dall'admin).
+
     Uso:
-      fatturazione_router.dependencies.append(Depends(richiedi_modulo("fatturazione")))
-    
+      ticketing_router.dependencies.append(Depends(richiedi_modulo("ticketing")))
+
     oppure su singolo endpoint:
-      @app.get("/...", dependencies=[Depends(richiedi_modulo("fatturazione"))])
+      @app.get("/...", dependencies=[Depends(richiedi_modulo("tempi"))])
     """
     def _guard(db: Session = Depends(get_db)):
+        if not is_modulo_licenziato(codice):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Modulo non disponibile in questa installazione."
+            )
         if not is_modulo_attivo(db, codice):
             mod = MODULI_DISPONIBILI.get(codice, {})
             nome = mod.get("nome", codice)
             raise HTTPException(
                 status_code=403,
                 detail=f"Il modulo '{nome}' non è attivo. "
-                        f"Attivarlo da Amministrazione → Parametri Sistema."
+                       f"Attivarlo da Amministrazione → Moduli."
             )
     return _guard
 
 
 # ==========================================
-# ENDPOINT: Lista moduli attivi (per frontend)
+# ENDPOINT
 # ==========================================
 
 @router.get("/moduli-attivi")
 def get_moduli_attivi(db: Session = Depends(get_db)):
     """
-    Ritorna { "fatturazione": true/false, ... }
-    Il frontend lo usa per mostrare/nascondere sezioni nel Sidebar.
+    { "ticketing": true, "fatturazione": false, ... }
+    Solo moduli licenziati. Usato dal Sidebar per mostrare/nascondere voci.
     """
     return get_tutti_moduli(db)
 
@@ -130,16 +199,21 @@ def get_moduli_attivi(db: Session = Depends(get_db)):
 @router.get("/moduli-disponibili")
 def get_moduli_disponibili(db: Session = Depends(get_db)):
     """
-    Ritorna la lista completa con nome, descrizione e stato attuale.
-    Per la pagina admin di gestione moduli.
+    Lista completa con nome, descrizione, stato attuale.
+    Ritorna SOLO i moduli licenziati — l'admin non vede gli altri.
     """
+    licenziati = get_moduli_licenziati()
     result = []
-    for codice, info in MODULI_DISPONIBILI.items():
+    for codice in MODULI_DISPONIBILI:
+        if codice not in licenziati:
+            continue
+        info = MODULI_DISPONIBILI[codice]
         result.append({
-            "codice": codice,
-            "nome": info["nome"],
+            "codice":      codice,
+            "nome":        info["nome"],
             "descrizione": info["descrizione"],
-            "attivo": is_modulo_attivo(db, codice),
+            "icona":       info.get("icona", "Package"),
+            "attivo":      is_modulo_attivo(db, codice),
         })
     return result
 
@@ -147,52 +221,47 @@ def get_moduli_disponibili(db: Session = Depends(get_db)):
 @router.put("/moduli-attivi/{codice}")
 def toggle_modulo(codice: str, data: dict, db: Session = Depends(get_db)):
     """
-    Attiva o disattiva un modulo.
+    Attiva o disattiva un modulo licenziato.
     Body: { "attivo": true/false }
-    Richiede admin (aggiungere auth dependency in produzione).
+    Blocca se il modulo non è nel pacchetto licenza di questa installazione.
     """
     if codice not in MODULI_DISPONIBILI:
-        raise HTTPException(status_code=404, detail=f"Modulo '{codice}' non trovato")
-    
-    attivo = data.get("attivo", False)
-    chiave = _chiave_parametro(codice)
-    valore = "true" if attivo else "false"
-    
-    # Upsert nel parametri_sistema
+        raise HTTPException(404, f"Modulo '{codice}' sconosciuto")
+
+    if not is_modulo_licenziato(codice):
+        raise HTTPException(403, "Modulo non incluso nella licenza di questa installazione")
+
+    attivo  = bool(data.get("attivo", False))
+    chiave  = _chiave_parametro(codice)
+    valore  = "true" if attivo else "false"
+    now     = datetime.now()
+
     try:
         existing = db.execute(
             text("SELECT id FROM parametri_sistema WHERE chiave = :k"),
             {"k": chiave}
         ).fetchone()
-        
+
         if existing:
             db.execute(
-                text("UPDATE parametri_sistema SET valore = :v, updated_at = :now WHERE chiave = :k"),
-                {"v": valore, "now": datetime.now(), "k": chiave}
+                text("UPDATE parametri_sistema SET valore=:v, updated_at=:now WHERE chiave=:k"),
+                {"v": valore, "now": now, "k": chiave}
             )
         else:
             mod = MODULI_DISPONIBILI[codice]
             db.execute(
-                text("""INSERT INTO parametri_sistema 
+                text("""INSERT INTO parametri_sistema
                         (chiave, valore, descrizione, tipo_dato, gruppo, created_at, updated_at)
                         VALUES (:k, :v, :d, 'boolean', 'moduli', :now, :now)"""),
-                {
-                    "k": chiave,
-                    "v": valore,
-                    "d": f"Attiva/disattiva modulo {mod['nome']}",
-                    "now": datetime.now(),
-                }
+                {"k": chiave, "v": valore,
+                 "d": f"Attiva/disattiva modulo {mod['nome']}", "now": now}
             )
         db.commit()
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    
-    return {
-        "codice": codice,
-        "attivo": attivo,
-        "nome": MODULI_DISPONIBILI[codice]["nome"],
-    }
+        raise HTTPException(500, str(e))
+
+    return {"codice": codice, "attivo": attivo, "nome": MODULI_DISPONIBILI[codice]["nome"]}
 
 
 # ==========================================
@@ -201,33 +270,38 @@ def toggle_modulo(codice: str, data: dict, db: Session = Depends(get_db)):
 
 def migrate_moduli(db_path: str = "configuratore.db"):
     """
-    Inserisce i parametri feature flag per tutti i moduli registrati.
-    Sicuro da eseguire più volte (skip se già presente).
+    Inserisce i parametri DB solo per i moduli licenziati.
+    Sicuro da eseguire più volte.
     """
     import sqlite3
-    
-    conn = sqlite3.connect(db_path)
+
+    licenziati = get_moduli_licenziati()
+    conn   = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    now = datetime.now().isoformat()
-    
+    now    = datetime.now().isoformat()
+
     print("=" * 50)
     print("MIGRAZIONE MODULI ATTIVABILI")
+    print(f"Moduli licenziati: {', '.join(licenziati) if licenziati else '(nessuno)'}")
     print("=" * 50)
-    
+
     for codice, info in MODULI_DISPONIBILI.items():
+        if codice not in licenziati:
+            print(f"  ⏭️  {codice} — non licenziato, skip")
+            continue
         chiave = _chiave_parametro(codice)
         cursor.execute("SELECT id FROM parametri_sistema WHERE chiave = ?", (chiave,))
         if cursor.fetchone():
             print(f"  ⏭️  {chiave} già presente, skip")
             continue
-        
         valore = "true" if info["default"] else "false"
         cursor.execute("""
-            INSERT INTO parametri_sistema (chiave, valore, descrizione, tipo_dato, gruppo, created_at, updated_at)
+            INSERT INTO parametri_sistema
+                (chiave, valore, descrizione, tipo_dato, gruppo, created_at, updated_at)
             VALUES (?, ?, ?, 'boolean', 'moduli', ?, ?)
         """, (chiave, valore, f"Attiva/disattiva modulo {info['nome']}", now, now))
         print(f"  ✅ Inserito: {chiave} = {valore}")
-    
+
     conn.commit()
     conn.close()
     print("\n✅ Migrazione moduli completata")

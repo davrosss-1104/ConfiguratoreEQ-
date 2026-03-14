@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Zap, Package, Loader2, Trash2 } from 'lucide-react';
 
@@ -18,7 +18,7 @@ interface Materiale {
   regola_id?: string;
 }
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 export function TabellaMaterialiAutomatici({ preventivoId }: TabellaMaterialiAutomaticiProps) {
   // Query per caricare materiali

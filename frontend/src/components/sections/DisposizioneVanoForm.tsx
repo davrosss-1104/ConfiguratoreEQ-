@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { useToast } from '@/components/ui/use-toast';
@@ -11,7 +11,7 @@ import {
   getDatiPrincipali,
 } from '@/services/preventivi.service';
 
-const API_BASE = (window as any).__API_BASE__ || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 interface DisposizioneVanoFormProps {
   preventivoId: number;

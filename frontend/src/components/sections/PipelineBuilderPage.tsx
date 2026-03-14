@@ -1,4 +1,4 @@
-/**
+﻿/**
  * PipelineBuilderPage.tsx
  * Visual Pipeline Builder per calcoli multi-step nel rule engine.
  * Interfaccia a card verticali collegate per costruire pipeline di calcolo.
@@ -35,7 +35,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 
-const API = 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL ?? '';
 
 // ======================================================
 // TYPES

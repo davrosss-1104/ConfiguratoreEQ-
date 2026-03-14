@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Zap, Package, Loader2, Trash2, Plus, Search, PenLine, X, Check, Clock, AlertTriangle, CheckCircle, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
@@ -42,7 +42,7 @@ interface DatiCommessa {
   data_consegna_richiesta?: string;
 }
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 const inputClass = "w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-sm";
 

@@ -1,4 +1,10 @@
 import sys; sys.stdout.reconfigure(line_buffering=True)
+
+
+# In sviluppo (senza server_prod.py) abilita tutti i moduli se la variabile non è impostata
+import os
+if not os.environ.get("MODULI_LICENZIATI"):
+    os.environ["MODULI_LICENZIATI"] = "*"
 from fastapi import FastAPI, Depends, HTTPException, Query, Header, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -55,7 +61,11 @@ from moduli_attivabili import router as moduli_router, richiedi_modulo
 from fatturazione_api import router as fatturazione_router
 from ordini_stato import router as ordini_stato_router
 from starlette.responses import StreamingResponse
-    
+from ticketing_api import router as ticketing_router
+
+
+from apscheduler.schedulers.background import BackgroundScheduler
+
 
 # Custom JSON encoder per SQLAlchemy objects
 class SQLAlchemyEncoder(json_module.JSONEncoder):
@@ -197,6 +207,29 @@ app.include_router(moduli_router)
 fatturazione_router.dependencies = [Depends(richiedi_modulo("fatturazione"))]
 app.include_router(fatturazione_router)
 app.include_router(ordini_stato_router)
+
+from fatture_passive_api import router as passive_router
+passive_router.dependencies = [Depends(richiedi_modulo("fatturazione"))]
+app.include_router(passive_router)
+
+ticketing_router.dependencies = [Depends(richiedi_modulo("ticketing"))]
+app.include_router(ticketing_router)
+
+from oda_api import router as oda_router
+oda_router.dependencies = [Depends(richiedi_modulo("oda"))]
+app.include_router(oda_router)
+
+from fornitori_api import router as fornitori_router
+app.include_router(fornitori_router)
+
+from portale_api import router as portale_router
+app.include_router(portale_router, prefix="/portale")
+
+from fornitori_api import router as fornitori_router
+app.include_router(fornitori_router)
+
+from tempi_api import router as tempi_router
+app.include_router(tempi_router)
 
 # ==========================================
 # DEPENDENCY
@@ -1461,6 +1494,135 @@ def update_dati_commessa(preventivo_id: int, data: DatiCommessaUpdate, db: Sessi
         traceback.print_exc()
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Errore salvataggio dati commessa: {str(e)}")
+
+# ─── IMPIANTI ────────────────────────────────────────────────────────────────
+
+@app.get("/preventivi/{preventivo_id}/impianti")
+def get_impianti_preventivo(preventivo_id: int, db: Session = Depends(get_db)):
+    conn = db.get_bind().raw_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT i.id, i.numero_impianto, i.tipo, i.indirizzo, i.cliente_finale,
+               i.anno_installazione, i.costruttore, i.modello, i.note,
+               i.created_at, i.updated_at
+        FROM impianti i
+        JOIN preventivi_impianti pi ON pi.impianto_id = i.id
+        WHERE pi.preventivo_id = ?
+        ORDER BY pi.created_at
+    """, (preventivo_id,))
+    cols = ["id","numero_impianto","tipo","indirizzo","cliente_finale",
+            "anno_installazione","costruttore","modello","note","created_at","updated_at"]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+@app.get("/anagrafica-impianti/cerca")
+def cerca_impianti(q: str = "", limit: int = 20, db: Session = Depends(get_db)):
+    conn = db.get_bind().raw_connection()
+    cur = conn.cursor()
+    like = f"%{q}%"
+    cur.execute("""
+        SELECT id, numero_impianto, tipo, indirizzo, cliente_finale,
+               anno_installazione, costruttore, modello, note
+        FROM impianti
+        WHERE numero_impianto LIKE ? OR indirizzo LIKE ? OR cliente_finale LIKE ?
+        ORDER BY updated_at DESC
+        LIMIT ?
+    """, (like, like, like, limit))
+    cols = ["id","numero_impianto","tipo","indirizzo","cliente_finale",
+            "anno_installazione","costruttore","modello","note"]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+@app.post("/preventivi/{preventivo_id}/impianti")
+def crea_e_collega_impianto(preventivo_id: int, payload: dict, db: Session = Depends(get_db)):
+    numero = (payload.get("numero_impianto") or "").strip()
+    if not numero:
+        raise HTTPException(status_code=400, detail="numero_impianto obbligatorio")
+    tipo = payload.get("tipo", "nuovo")
+    conn = db.get_bind().raw_connection()
+    cur = conn.cursor()
+    # Crea impianto
+    cur.execute("""
+        INSERT INTO impianti
+            (numero_impianto, tipo, indirizzo, cliente_finale,
+             anno_installazione, costruttore, modello, note)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        numero, tipo,
+        payload.get("indirizzo"), payload.get("cliente_finale"),
+        payload.get("anno_installazione"), payload.get("costruttore"),
+        payload.get("modello"), payload.get("note"),
+    ))
+    impianto_id = cur.lastrowid
+    # Collega al preventivo
+    try:
+        cur.execute("""
+            INSERT INTO preventivi_impianti (preventivo_id, impianto_id)
+            VALUES (?, ?)
+        """, (preventivo_id, impianto_id))
+    except Exception:
+        pass  # già collegato
+    conn.commit()
+    cur.execute("SELECT * FROM impianti WHERE id=?", (impianto_id,))
+    row = cur.fetchone()
+    cols = ["id","numero_impianto","tipo","indirizzo","cliente_finale",
+            "anno_installazione","costruttore","modello","note","created_at","updated_at"]
+    return dict(zip(cols, row))
+
+
+@app.post("/preventivi/{preventivo_id}/impianti/{impianto_id}")
+def collega_impianto(preventivo_id: int, impianto_id: int, db: Session = Depends(get_db)):
+    conn = db.get_bind().raw_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM impianti WHERE id=?", (impianto_id,))
+    if not cur.fetchone():
+        raise HTTPException(status_code=404, detail="Impianto non trovato")
+    try:
+        cur.execute("""
+            INSERT INTO preventivi_impianti (preventivo_id, impianto_id)
+            VALUES (?, ?)
+        """, (preventivo_id, impianto_id))
+        conn.commit()
+    except Exception:
+        pass  # già collegato — ok
+    return {"status": "ok", "impianto_id": impianto_id, "preventivo_id": preventivo_id}
+
+
+@app.delete("/preventivi/{preventivo_id}/impianti/{impianto_id}")
+def scollega_impianto(preventivo_id: int, impianto_id: int, db: Session = Depends(get_db)):
+    conn = db.get_bind().raw_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        DELETE FROM preventivi_impianti
+        WHERE preventivo_id=? AND impianto_id=?
+    """, (preventivo_id, impianto_id))
+    conn.commit()
+    return {"status": "ok"}
+
+
+@app.put("/impianti/{impianto_id}")
+def aggiorna_impianto(impianto_id: int, payload: dict, db: Session = Depends(get_db)):
+    conn = db.get_bind().raw_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM impianti WHERE id=?", (impianto_id,))
+    if not cur.fetchone():
+        raise HTTPException(status_code=404, detail="Impianto non trovato")
+    campi = ["numero_impianto","tipo","indirizzo","cliente_finale",
+             "anno_installazione","costruttore","modello","note"]
+    sets = [f"{c}=?" for c in campi if c in payload]
+    vals = [payload[c] for c in campi if c in payload]
+    if sets:
+        cur.execute(
+            f"UPDATE impianti SET {', '.join(sets)}, updated_at=datetime('now') WHERE id=?",
+            vals + [impianto_id]
+        )
+        conn.commit()
+    cur.execute("SELECT * FROM impianti WHERE id=?", (impianto_id,))
+    row = cur.fetchone()
+    cols = ["id","numero_impianto","tipo","indirizzo","cliente_finale",
+            "anno_installazione","costruttore","modello","note","created_at","updated_at"]
+    return dict(zip(cols, row))
+
     
 # ============================================================
 # FILE: main.py â€” DELETE CLIENTE (aggiungere dopo PUT /clienti/{id})
@@ -4143,6 +4305,64 @@ def update_parametro_sistema(chiave: str, data: dict, db: Session = Depends(get_
     parametro.updated_at = datetime.now()
     db.commit()
     return {"status": "ok"}
+
+# ==========================================
+# TEST EMAIL (aggiungi vicino agli endpoint /parametri-sistema)
+# ==========================================
+
+@app.post("/notifiche/test-email")
+def test_email(payload: dict, db: Session = Depends(get_db)):
+    """
+    Invia un'email di test per verificare la configurazione SMTP.
+    Body: { "destinatario": "email@test.it" }
+    """
+    destinatario = payload.get("destinatario", "").strip()
+    if not destinatario:
+        raise HTTPException(400, "destinatario obbligatorio")
+
+    try:
+        from notifiche_email import _get_smtp_config, _invia_smtp
+        conn = db.get_bind().raw_connection()
+        cfg = _get_smtp_config(conn)
+        conn.close()
+
+        if not cfg.get("smtp_host"):
+            raise HTTPException(400, "SMTP non configurato: imposta smtp_host nei parametri")
+
+        oggetto = "Test connessione SMTP — ConfiguratoreEQ"
+        corpo = """
+<html><body style="font-family:Arial,sans-serif;color:#333;padding:20px;">
+<h2 style="color:#4F46E5;">✅ Configurazione SMTP funzionante</h2>
+<p>Questo è un messaggio di test inviato da <strong>ConfiguratoreEQ</strong>.</p>
+<p>Se stai leggendo questa email, la configurazione SMTP è corretta e le notifiche automatiche funzioneranno.</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
+<p style="color:#6b7280;font-size:12px;">— ConfiguratoreEQ · Test automatico</p>
+</body></html>
+"""
+        _invia_smtp(cfg, [destinatario], oggetto, corpo)
+        return {"status": "inviata", "destinatario": destinatario}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Errore invio: {str(e)}")
+
+@app.get("/notifiche/log")
+def log_notifiche(limit: int = 20, db: Session = Depends(get_db)):
+    """Ultimi N invii email (ticket + ODA)."""
+    conn = db.get_bind().raw_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT * FROM email_notifiche_log ORDER BY created_at DESC LIMIT ?",
+            (limit,)
+        )
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception:
+        return []
+    finally:
+        conn.close()
 
 # ==========================================
 # OPZIONI DROPDOWN
@@ -6880,19 +7100,21 @@ def api_lead_time(preventivo_id: int, db: Session = Depends(get_db)):
     lt = calcola_lead_time(preventivo_id, db)
     return {"preventivo_id": preventivo_id, "lead_time_giorni": lt}
 
+_scheduler = None  # variabile globale prima di startup_event
+
 # ==========================================
 # STARTUP
 # ==========================================
 @app.on_event("startup")
 def startup_event():
     """Inizializzazione all'avvio"""
+    global _scheduler
     db = SessionLocal()
     try:
         create_default_admin(db)
         _ensure_revisioni_table(db)
         _ensure_revisione_corrente_column(db)
         _ensure_ordini_revisione_columns(db)
-        # Migrazione: product_template_ids su campi_configuratore
         try:
             db.execute(text("SELECT product_template_ids FROM campi_configuratore LIMIT 1"))
         except Exception:
@@ -6907,6 +7129,53 @@ def startup_event():
     finally:
         db.close()
 
+    # ── Scheduler escalation, scadenze e coda email differita ────────────────
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from ticketing_api import controlla_escalation_tickets
+        from notifiche_email import controlla_scadenze, svuota_coda, get_ora_invio_configurata
+
+        # Recupera DB path dalla config
+        from database import SQLALCHEMY_DATABASE_URL as DATABASE_URL
+        _db_path = DATABASE_URL.replace("sqlite:///", "")
+
+        def _job_escalation():
+            try:
+                controlla_escalation_tickets(_db_path)
+            except Exception as ex:
+                print(f"[SCHEDULER] Errore escalation: {ex}")
+
+        def _job_mattutino():
+            """Svuota coda email differita e controlla scadenze."""
+            try:
+                svuota_coda(_db_path)
+            except Exception as ex:
+                print(f"[SCHEDULER] Errore svuota_coda: {ex}")
+            try:
+                controlla_scadenze(_db_path)
+            except Exception as ex:
+                print(f"[SCHEDULER] Errore scadenze: {ex}")
+
+        # Legge l'ora configurata dall'admin (default 08:00)
+        _ora, _minuto = get_ora_invio_configurata(_db_path)
+
+        _scheduler = BackgroundScheduler(timezone="Europe/Rome")
+        _scheduler.add_job(_job_escalation, "interval", hours=1, id="escalation_check")
+        _scheduler.add_job(_job_mattutino,  "cron", hour=_ora, minute=_minuto, id="mattutino_check")
+        _scheduler.start()
+        print(f"[STARTUP] Scheduler avviato: escalation ogni ora, email+scadenze alle {_ora:02d}:{_minuto:02d}")
+    except ImportError:
+        print("[STARTUP] APScheduler non installato — scheduler disabilitato. Installa con: pip install apscheduler")
+    except Exception as ex:
+        print(f"[STARTUP] Errore avvio scheduler: {ex}")
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    global _scheduler
+    if _scheduler and _scheduler.running:
+        _scheduler.shutdown(wait=False)
+        print("[SHUTDOWN] Scheduler fermato")
 # ============================================================
 # REVISIONI PREVENTIVO
 # ============================================================

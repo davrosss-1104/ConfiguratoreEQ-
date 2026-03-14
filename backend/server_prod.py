@@ -76,6 +76,12 @@ if not config_file.exists():
         # Header HSTS max-age in secondi (31536000 = 1 anno)
         "hsts_max_age": "31536000",
     }
+    config["licenza"] = {
+        # Moduli acquistati per questa installazione.
+        # Valori separati da virgola tra: fatturazione, ticketing, portale_cliente, tempi
+        # Usare * per abilitare tutti i moduli (installazione demo / David)
+        "moduli": "fatturazione",
+    }
     with open(config_file, "w") as f:
         config.write(f)
     logger.info(f"Creato config.ini di default in {config_file}")
@@ -103,6 +109,11 @@ elif db_type == "mssql":
     )
 
 os.environ["SECRET_KEY"] = config.get("app", "secret_key", fallback="default-secret")
+
+# ── Licenza moduli ──
+moduli_licenziati = config.get("licenza", "moduli", fallback="fatturazione").strip()
+os.environ["MODULI_LICENZIATI"] = moduli_licenziati
+logger.info(f"Moduli licenziati: {moduli_licenziati}")
 
 # ── Parametri sicurezza ──
 debug_mode = config.getboolean("app", "debug", fallback=False)

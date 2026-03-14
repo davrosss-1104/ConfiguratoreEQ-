@@ -1,4 +1,4 @@
-/**
+﻿/**
  * PreventivoPage.tsx
  * Posizionare in: frontend/src/pages/PreventivoPage.tsx
  */
@@ -34,7 +34,7 @@ import GestioneModuliPage from '@/components/sections/GestioneModuliPage';
 import GestioneVariabiliDerivatePage from '@/components/sections/GestioneVariabiliDerivatePage';
 import GestioneElementiVanoPage from '@/components/sections/GestioneElementiVanoPage';
 
-const API = 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL ?? '';
 
 // Colori sfondo per categoria
 const CATEGORY_THEMES = {

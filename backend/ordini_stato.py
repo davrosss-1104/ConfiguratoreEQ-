@@ -203,6 +203,21 @@ def _valida_transizione(stato_corrente: str, stato_nuovo: str, ordine: dict, db:
     if stato_nuovo == "in_produzione":
         if not ordine.get("bom_esplosa"):
             return "Per avviare la produzione e' necessario esplodere la BOM prima"
+        
+    # Impianti obbligatori se modulo ticketing attivo
+    if stato_nuovo == "in_produzione":
+        if is_modulo_attivo(db, "ticketing"):
+            try:
+                prev_id = ordine.get("preventivo_id")
+                if prev_id:
+                    result = db.execute(
+                        text("SELECT numeri_impianto FROM dati_commessa WHERE preventivo_id = :pid"),
+                        {"pid": prev_id}
+                    ).fetchone()
+                    if not result or not result[0] or not str(result[0]).strip():
+                        return "Il modulo Ticketing e' attivo: inserire almeno un numero impianto nei Dati Commessa prima di avviare la produzione"
+            except Exception:
+                pass
 
     if stato_nuovo == "fatturato":
         if not is_modulo_attivo(db, "fatturazione"):

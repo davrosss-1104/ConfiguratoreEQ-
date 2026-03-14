@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import TemplateFieldConfigPanel from './TemplateFieldConfigPanel';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -12,7 +12,7 @@ import {
   type ProductTemplateUpdate,
 } from '@/services/preventivi.service';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 // ==========================================
 // COSTANTI

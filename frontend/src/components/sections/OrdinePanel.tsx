@@ -1,4 +1,4 @@
-/**
+﻿/**
  * OrdinePanel.tsx - Flusso Preventivo → Ordine → BOM + Macchina a Stati
  * Con tracciamento revisioni, auto-snapshot, conflict dialogs, filiera compatta,
  * transizioni stato, storico timeline
@@ -13,10 +13,10 @@ import {
   ClipboardList, FileText, History,
   Tag, Percent, RotateCcw, Plus, Eye, RefreshCw, X, GitBranch,
   PauseCircle, PlayCircle, XCircle, Settings, PackageCheck,
-  Clock, User, MessageSquare, ArrowDown
+  Clock, User, MessageSquare, ArrowDown, ShoppingCart, Send, AlertCircle, CheckCircle
 } from 'lucide-react';
 
-const API = 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL ?? '';
 const fmt = (n: number) => n.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
 
 // --- Types ---
@@ -572,6 +572,24 @@ export default function OrdinePanel() {
     enabled: !!ordine?.bom_esplosa,
   });
 
+  const { data: odaOrdine, refetch: refetchOda } = useQuery({
+    queryKey: ['oda-ordine', ordine?.id],
+    queryFn: async () => {
+      const r = await fetch(`${API}/oda?ordine_id=${ordine!.id}&limit=50`);
+      return r.ok ? r.json() : null;
+    },
+    enabled: !!ordine?.bom_esplosa,
+  });
+
+  const [showOdaDialog, setShowOdaDialog]     = useState(false);
+  const [odaCheckData, setOdaCheckData]       = useState<any>(null);
+  const [odaAzioni, setOdaAzioni]             = useState<Record<string, string>>({});
+  const [odaLoading, setOdaLoading]           = useState(false);
+  const [invioEmailOdaId, setInvioEmailOdaId]         = useState<number | null>(null);
+  const [noteEmail, setNoteEmail]                     = useState('');
+  const [emailOverride, setEmailOverride]             = useState('');
+  const [emailOdaMancante, setEmailOdaMancante]       = useState(false);
+
   useEffect(() => {
     if (preventivo?.sconto_extra_admin) setScontoExtra(preventivo.sconto_extra_admin);
   }, [preventivo]);
@@ -594,6 +612,7 @@ export default function OrdinePanel() {
     queryClient.invalidateQueries({ queryKey: ['materiali'] });
     queryClient.invalidateQueries({ queryKey: ['esplosi'] });
     queryClient.invalidateQueries({ queryKey: ['lista-acquisti'] });
+    queryClient.invalidateQueries({ queryKey: ['oda-ordine'] });
     queryClient.invalidateQueries({ queryKey: ['transizioni'] });
     queryClient.invalidateQueries({ queryKey: ['storico-stati'] });
   }, [queryClient]);
@@ -1196,6 +1215,276 @@ export default function OrdinePanel() {
           </div>
         </div>
       )}
+
+      {/* === ORDINI DI ACQUISTO === */}
+      {ordine?.bom_esplosa && (
+        <div className="bg-white rounded-lg shadow">
+          <div className="px-5 py-4 border-b flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <ShoppingCart className="w-5 h-5 text-indigo-600" /> Ordini di Acquisto
+              </h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                {odaOrdine?.totale ? `${odaOrdine.totale} ODA generati` : 'Nessun ODA generato'}
+              </p>
+            </div>
+            <button
+              onClick={async () => {
+                setOdaLoading(true);
+                try {
+                  const r = await fetch(`${API}/oda/genera-da-bom/${ordine.id}/check`);
+                  if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+                  const data = await r.json();
+                  // Imposta azioni default: "crea" per nuovi, "salta" per conflitti
+                  const azioniDefault: Record<string, string> = {};
+                  for (const f of data.fornitori) {
+                    azioniDefault[f.fornitore_nome] = f.conflitto ? 'salta' : 'crea';
+                  }
+                  setOdaAzioni(azioniDefault);
+                  setOdaCheckData(data);
+                  setShowOdaDialog(true);
+                } catch (e: any) {
+                  toast.error(e.message || 'Errore check ODA');
+                } finally {
+                  setOdaLoading(false);
+                }
+              }}
+              disabled={odaLoading}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50"
+            >
+              {odaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingCart className="w-4 h-4" />}
+              Genera ODA
+            </button>
+          </div>
+
+          {/* Lista ODA esistenti */}
+          {odaOrdine?.oda?.length > 0 && (
+            <div className="divide-y">
+              {odaOrdine.oda.map((oda: any) => {
+                const STATO_COLOR: Record<string, string> = {
+                  bozza:                 'bg-gray-100 text-gray-700',
+                  inviato:               'bg-blue-100 text-blue-700',
+                  parzialmente_ricevuto: 'bg-amber-100 text-amber-700',
+                  ricevuto:              'bg-green-100 text-green-700',
+                  chiuso:                'bg-gray-200 text-gray-600',
+                  annullato:             'bg-red-100 text-red-600',
+                };
+                const STATO_LABEL: Record<string, string> = {
+                  bozza:                 'Bozza',
+                  inviato:               'Inviato',
+                  parzialmente_ricevuto: 'Parz. ricevuto',
+                  ricevuto:              'Ricevuto',
+                  chiuso:                'Chiuso',
+                  annullato:             'Annullato',
+                };
+                return (
+                  <div key={oda.id} className="px-5 py-3 flex items-center gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-semibold text-gray-900 text-sm">{oda.numero_oda}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATO_COLOR[oda.stato] || 'bg-gray-100'}`}>
+                          {STATO_LABEL[oda.stato] || oda.stato}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-600 truncate">{oda.fornitore_denominazione}</p>
+                      <p className="text-xs text-gray-400">{oda.n_righe} righe &middot; {fmt(oda.totale_oda || 0)}</p>
+                    </div>
+                    {/* Pulsante invio email */}
+                    {['bozza', 'inviato'].includes(oda.stato) && (
+                      <button
+                        onClick={() => {
+                          setInvioEmailOdaId(oda.id);
+                          setNoteEmail('');
+                          // Cerca email del fornitore nel check data (se disponibile)
+                          const fCheck = odaCheckData?.fornitori?.find(
+                            (f: any) => f.fornitore_nome === oda.fornitore_denominazione
+                          );
+                          const emailNota = fCheck?.fornitore_email || '';
+                          setEmailOverride(emailNota);
+                          setEmailOdaMancante(!emailNota);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-xs font-medium"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        {oda.stato === 'inviato' ? 'Reinvia' : 'Invia email'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* === DIALOG: Genera ODA - Selezione azioni per fornitore === */}
+      <ConflictDialog
+        open={showOdaDialog}
+        title="Genera Ordini di Acquisto"
+        onClose={() => setShowOdaDialog(false)}
+      >
+        <div className="space-y-4">
+          {odaCheckData?.fornitori?.map((f: any) => (
+            <div key={f.fornitore_nome} className={`rounded-lg p-3 border ${f.conflitto ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-gray-50'}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-gray-900 text-sm truncate">{f.fornitore_nome}</p>
+                  <p className="text-xs text-gray-500">{f.num_articoli} articoli &middot; {fmt(f.totale)}</p>
+                  {!f.fornitore_email && (
+                    <p className="text-xs text-amber-600 mt-0.5 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" /> Email non configurata — aggiornare anagrafica
+                    </p>
+                  )}
+                  {f.conflitto && (
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      ⚠️ ODA già esistente: {f.oda_esistente?.numero_oda} ({f.oda_esistente?.stato})
+                    </p>
+                  )}
+                </div>
+                <select
+                  value={odaAzioni[f.fornitore_nome] || 'crea'}
+                  onChange={e => setOdaAzioni(prev => ({ ...prev, [f.fornitore_nome]: e.target.value }))}
+                  className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                >
+                  {!f.conflitto && <option value="crea">Crea ODA</option>}
+                  {f.conflitto && <option value="ricrea">Ricrea (elimina vecchio)</option>}
+                  {f.conflitto && <option value="salta">Salta (mantieni esistente)</option>}
+                  {!f.conflitto && <option value="salta">Salta</option>}
+                </select>
+              </div>
+            </div>
+          ))}
+
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={async () => {
+                setOdaLoading(true);
+                try {
+                  const fornitori = odaCheckData.fornitori.map((f: any) => ({
+                    fornitore_nome: f.fornitore_nome,
+                    azione: odaAzioni[f.fornitore_nome] || 'crea',
+                  }));
+                  const r = await fetch(`${API}/oda/genera-da-bom/${ordine!.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fornitori }),
+                  });
+                  if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+                  const data = await r.json();
+                  toast.success(`${data.totale_creati} ODA generati`);
+                  setShowOdaDialog(false);
+                  refetchOda();
+                } catch (e: any) {
+                  toast.error(e.message || 'Errore generazione ODA');
+                } finally {
+                  setOdaLoading(false);
+                }
+              }}
+              disabled={odaLoading}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50"
+            >
+              {odaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingCart className="w-4 h-4" />}
+              Genera ODA
+            </button>
+            <button
+              onClick={() => setShowOdaDialog(false)}
+              className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm"
+            >
+              Annulla
+            </button>
+          </div>
+        </div>
+      </ConflictDialog>
+
+      {/* === DIALOG: Invio email ODA === */}
+      <ConflictDialog
+        open={invioEmailOdaId !== null}
+        title="Invia ODA al fornitore"
+        onClose={() => setInvioEmailOdaId(null)}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Verrà inviata un'email al fornitore con l'ODA in allegato (PDF).
+            Lo stato dell'ODA passerà a <strong>Inviato</strong>.
+          </p>
+
+          {/* Campo email destinatario */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Email destinatario
+              {emailOdaMancante && (
+                <span className="ml-2 text-amber-600 font-normal text-xs">⚠ non configurata in anagrafica</span>
+              )}
+            </label>
+            <input
+              type="email"
+              value={emailOverride}
+              onChange={e => setEmailOverride(e.target.value)}
+              placeholder="fornitore@esempio.com"
+              className={`w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 ${
+                emailOdaMancante && !emailOverride ? 'border-amber-400 bg-amber-50' : 'border-gray-300'
+              }`}
+            />
+            {emailOdaMancante && (
+              <p className="text-xs text-amber-600 mt-1">
+                Inserisci l'email manualmente. Per salvare definitivamente, aggiorna l'anagrafica fornitore.
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Note aggiuntive (opzionale)</label>
+            <textarea
+              value={noteEmail}
+              onChange={e => setNoteEmail(e.target.value)}
+              rows={3}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500"
+              placeholder="Testo aggiuntivo nel corpo dell'email..."
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                if (!emailOverride.trim()) {
+                  toast.error('Inserire un indirizzo email destinatario');
+                  return;
+                }
+                setOdaLoading(true);
+                try {
+                  const r = await fetch(`${API}/oda/${invioEmailOdaId}/invia-email`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      note_email: noteEmail,
+                      email_override: emailOverride.trim(),
+                    }),
+                  });
+                  if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+                  const data = await r.json();
+                  toast.success(`Email inviata a ${data.email_dest}`);
+                  setInvioEmailOdaId(null);
+                  refetchOda();
+                } catch (e: any) {
+                  toast.error(e.message || 'Errore invio email');
+                } finally {
+                  setOdaLoading(false);
+                }
+              }}
+              disabled={odaLoading || !emailOverride.trim()}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50"
+            >
+              {odaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Invia email
+            </button>
+            <button
+              onClick={() => setInvioEmailOdaId(null)}
+              className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm"
+            >
+              Annulla
+            </button>
+          </div>
+        </div>
+      </ConflictDialog>
 
       {/* === DIALOG: Conflitto Ordine Esistente === */}
       <ConflictDialog open={showOrdineConflict} title="Ordine esistente" onClose={() => setShowOrdineConflict(false)}>

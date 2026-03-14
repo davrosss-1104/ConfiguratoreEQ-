@@ -1,4 +1,4 @@
-/**
+﻿/**
  * RuleBuilderPage.tsx — Editor regole JSON + Rule Designer iframe
  *
  * Supporta TUTTI i formati regola:
@@ -18,7 +18,7 @@ import {
   Calculator, Package, ArrowUpDown, Folder, FolderOpen
 } from 'lucide-react';
 
-const API = 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL ?? '';
 
 const OPERATORS = [
   { value: 'equals', label: 'Uguale a' },

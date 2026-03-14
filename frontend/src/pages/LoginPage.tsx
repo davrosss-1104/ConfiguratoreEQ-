@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, Lock, User, Zap } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -34,9 +34,12 @@ export default function LoginPage() {
       // Salva token e user (ora include permessi, ruolo, gruppo)
       localStorage.setItem('token', data.access_token);
       localStorage.setItem('user', JSON.stringify(data.user));
-      
-      // Redirect
-      navigate('/');
+      const ruolo = data.user?.ruolo_codice ?? '';
+      if (ruolo === 'cliente_base' || ruolo === 'cliente_avanzato') {
+        navigate('/portale');
+      } else {
+     navigate('/');
+   }
     } catch (err: any) {
       setError(err.message || 'Errore durante il login');
     } finally {
@@ -44,7 +47,8 @@ export default function LoginPage() {
     }
   };
 
-  // Bypass per sviluppo
+  // Bypass per sviluppo (solo in dev)
+  const isDev = import.meta.env.DEV;
   const handleDevBypass = () => {
     localStorage.setItem('token', 'dev-token-bypass');
     localStorage.setItem('user', JSON.stringify({
@@ -54,7 +58,7 @@ export default function LoginPage() {
       gruppo_nome: 'Elettroquadri',
       ruolo_nome: 'Super Amministratore',
       ruolo_codice: 'superadmin',
-      permessi: [],  // vuoto = nessun filtro (retrocompatibilità)
+      permessi: [],
     }));
     navigate('/');
   };
@@ -132,22 +136,24 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Bypass sviluppo */}
-          <div className="mt-6 pt-6 border-t">
-            <button
-              onClick={handleDevBypass}
-              className="w-full py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
-            >
-              Accesso sviluppo (bypass)
-            </button>
-          </div>
-
-          {/* Credenziali demo */}
-          <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
-            <p className="font-medium">Credenziali demo:</p>
-            <p>Username: <code className="bg-blue-100 px-1 rounded">admin</code></p>
-            <p>Password: <code className="bg-blue-100 px-1 rounded">admin</code></p>
-          </div>
+          {/* Bypass e credenziali demo: solo in sviluppo */}
+          {isDev && (
+            <>
+              <div className="mt-6 pt-6 border-t">
+                <button
+                  onClick={handleDevBypass}
+                  className="w-full py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
+                >
+                  Accesso sviluppo (bypass)
+                </button>
+              </div>
+              <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
+                <p className="font-medium">Credenziali demo:</p>
+                <p>Username: <code className="bg-blue-100 px-1 rounded">admin</code></p>
+                <p>Password: <code className="bg-blue-100 px-1 rounded">admin</code></p>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Footer */}

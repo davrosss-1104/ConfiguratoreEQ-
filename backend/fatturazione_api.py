@@ -31,7 +31,7 @@ from fatturazione_provider import get_sdi_provider
 
 logger = logging.getLogger("fatturazione.api")
 
-router = APIRouter(prefix="/api/fatturazione", tags=["Fatturazione Elettronica"])
+router = APIRouter(prefix="/fatturazione", tags=["Fatturazione Elettronica"])
 
 
 # ==========================================

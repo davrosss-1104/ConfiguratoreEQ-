@@ -1,4 +1,4 @@
-/**
+﻿/**
  * TemplateFieldConfigPanel.tsx
  * 
  * Pannello per configurare, per ogni template, i flag di ogni campo:
@@ -12,7 +12,7 @@
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 interface FieldInfo {
   codice: string;

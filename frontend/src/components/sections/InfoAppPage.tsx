@@ -1,11 +1,11 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import {
   Info, History, BookOpen, FileSpreadsheet, ChevronDown, ChevronRight,
   ExternalLink, Package, Cpu, Database, Layout, Zap, Shield, Mail,
   CheckCircle2, Clock, Tag, Download, GitBranch
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 // ==========================================
 // DATI APP

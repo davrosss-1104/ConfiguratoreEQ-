@@ -1,4 +1,4 @@
-/**
+﻿/**
  * RicercaOrdiniPage.tsx — Ricerca ordini con filtri + selezione multipla per fatturazione
  */
 import { useState, useCallback, useMemo } from 'react';
@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const API = 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL ?? '';
 
 // ============================================================
 // TIPI

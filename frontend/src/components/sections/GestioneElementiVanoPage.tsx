@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Plus, Trash2, Edit2, Check, GripVertical } from 'lucide-react';
 
-const API = (window as any).__API_BASE__ || 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL ?? '';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES

@@ -1738,6 +1738,10 @@ class RuleEngine:
             out = result.get("output", {})
             if out:
                 print(f"[PIPELINE]   → {len(out)} output keys")
+            # Se multi_match non trova nulla, non ha senso continuare
+            if step.get("action") == "multi_match" and not out:
+                self.warnings.append(f"Pipeline {rid}: multi_match step {i} senza risultati, pipeline interrotta")
+                break
             if step.get("action") == "add_material" and out.get("added"):
                 added += 1
 
