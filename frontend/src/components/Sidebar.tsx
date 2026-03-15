@@ -104,8 +104,6 @@ const ROUTE_NAVIGATION: Record<string, string> = {
 
 // Sezioni che si aprono in una nuova scheda
 const NUOVA_SCHEDA: Set<string> = new Set([
-  // Assistenza
-  'tickets', 'impianti', 'report-tempi',
   // Tutta l'amministrazione (tutte le voci con permesso admin)
   ...Object.keys(ADMIN_MENU_PERMESSI),
   'gestione-fornitori',
@@ -320,7 +318,7 @@ export const Sidebar = ({
         {sezioniConfigurazione.map(s => renderItem(s))}
 
         {/* ── FATTURAZIONE ── */}
-        {fatturazioneAttiva && haPermesso(permessi, 'fatturazione.view') && (
+        {fatturazioneAttiva && haPermesso(permessi, 'fatturazione.view', isAdmin) && (
           <>
             <div className="mx-5 my-3 border-t border-gray-100" />
             <div className="px-5 mb-1">
@@ -343,7 +341,7 @@ export const Sidebar = ({
         )}
 
         {/* ── ASSISTENZA ── */}
-        {ticketingAttivo && haPermesso(permessi, 'ticketing.view') && (
+        {ticketingAttivo && haPermesso(permessi, 'ticketing.view', isAdmin) && (
           <>
             <div className="mx-5 my-3 border-t border-gray-100" />
             <div className="px-5 mb-1">

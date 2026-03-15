@@ -80,7 +80,7 @@ if not config_file.exists():
         # Moduli acquistati per questa installazione.
         # Valori separati da virgola tra: fatturazione, ticketing, portale_cliente, tempi
         # Usare * per abilitare tutti i moduli (installazione demo / David)
-        "moduli": "fatturazione",
+        "moduli": "*",
     }
     with open(config_file, "w") as f:
         config.write(f)
@@ -148,7 +148,7 @@ Base.metadata.create_all(bind=db_module.engine)
 # ══════════════════════════════════════════════════════════════
 
 from fastapi import Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # ── 1. Disabilita Swagger/ReDoc in produzione ──
@@ -202,7 +202,7 @@ class LoginRateLimiter:
 login_limiter = LoginRateLimiter(max_attempts=rate_limit_max, window_seconds=rate_limit_window)
 
 
-# ── 3. Security Headers Middleware ──
+# ── 4. Security Headers Middleware ──
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # Estrai IP reale (dietro IIS reverse proxy)
@@ -258,7 +258,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
-# ── 4. Trusted Host Middleware (opzionale) ──
+# ── 5. Trusted Host Middleware (opzionale) ──
 if trusted_host:
     from starlette.middleware.trustedhost import TrustedHostMiddleware
     hosts = [h.strip() for h in trusted_host.split(",")]
@@ -267,7 +267,7 @@ if trusted_host:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
     logger.info(f"Trusted hosts: {hosts}")
 
-# ── 5. Aggiorna CORS per produzione ──
+# ── 6. Aggiorna CORS per produzione ──
 from fastapi.middleware.cors import CORSMiddleware
 
 allowed_origins_str = config.get("app", "allowed_origins", fallback="*")
@@ -290,14 +290,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── 6. Endpoint health check (utile per IIS health probe) ──
+# ── 7. Endpoint health check (utile per IIS health probe) ──
 @app.get("/health", include_in_schema=False, tags=["system"])
 async def health_check():
     return {"status": "ok", "timestamp": time.time()}
 
 # ── Serve frontend React (build statico) ──
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 
 WEB_DIR = BASE_DIR / "web"
 

@@ -6,8 +6,10 @@ import {
   ArrowRight, ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 const API_BASE = '/api';
+const navigate = useNavigate();
 
 // ==========================================
 // TIPI
@@ -391,7 +393,7 @@ export default function TicketsPage() {
   useEffect(() => { caricaTickets(); }, [caricaTickets]);
 
   const apriDettaglio = (id: number) => {
-    window.open(`/tickets/${id}`, '_blank');
+    navigate(`/tickets/${id}`);
   };
 
   const statoOptions = [

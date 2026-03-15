@@ -118,7 +118,7 @@ export const PreventivoPage = () => {
   const { data: cliente } = useQuery({
     queryKey: ['cliente', clienteId],
     queryFn: async () => {
-      const res = await fetch(`http://localhost:8000/clienti/${clienteId}`);
+      const res = await fetch(`/clienti/${clienteId}`);
       if (!res.ok) return null;
       return res.json();
     },
