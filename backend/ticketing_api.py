@@ -1315,3 +1315,57 @@ def controlla_escalation_tickets(db_path: str):
     conn.commit()
     conn.close()
     logger.info(f"[ESCALATION] {escalati} ticket escalati")
+
+# ==========================================
+# UTENTI SUPPORTO
+# ==========================================
+
+@router.get("/utenti-supporto")
+def utenti_supporto_lista(db: Session = Depends(get_db)):
+    conn = _raw(db)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT us.id, us.utente_id, u.username, u.email, us.note, us.created_at
+        FROM ticket_utenti_supporto us
+        JOIN utenti u ON u.id = us.utente_id
+        ORDER BY u.username ASC
+    """)
+    cols = [d[0] for d in cur.description]
+    rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+@router.post("/utenti-supporto", status_code=201)
+def utenti_supporto_aggiungi(payload: dict, db: Session = Depends(get_db)):
+    conn = _raw(db)
+    cur = conn.cursor()
+    utente_id = payload.get("utente_id")
+    if not utente_id:
+        conn.close()
+        raise HTTPException(400, "utente_id obbligatorio")
+    cur.execute("SELECT id FROM utenti WHERE id = ?", (utente_id,))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(404, "Utente non trovato")
+    cur.execute("SELECT id FROM ticket_utenti_supporto WHERE utente_id = ?", (utente_id,))
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(409, "Utente già nella lista di supporto")
+    cur.execute(
+        "INSERT INTO ticket_utenti_supporto (utente_id, note) VALUES (?, ?)",
+        (utente_id, payload.get("note", ""))
+    )
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return {"id": new_id, "utente_id": utente_id}
+
+
+@router.delete("/utenti-supporto/{utente_id}", status_code=204)
+def utenti_supporto_rimuovi(utente_id: int, db: Session = Depends(get_db)):
+    conn = _raw(db)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM ticket_utenti_supporto WHERE utente_id = ?", (utente_id,))
+    conn.commit()
+    conn.close()

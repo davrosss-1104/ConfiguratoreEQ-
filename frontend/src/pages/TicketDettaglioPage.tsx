@@ -12,6 +12,15 @@ import PannelloTempi from '@/components/PannelloTempi';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
+function getTokenPayload() {
+  try {
+    const token = localStorage.getItem('token');
+    if (!token) return null;
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(base64));
+  } catch { return null; }
+}
+
 // ==========================================
 // TIPI
 // ==========================================
@@ -891,6 +900,9 @@ export default function TicketDettaglioPage() {
   };
 
   const terminale = ['chiuso', 'annullato'].includes(ticket.stato);
+  const tokenPayload = getTokenPayload();
+  const currentUserId = tokenPayload?.user_id;
+  const isAdmin = tokenPayload?.is_admin ?? false;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1223,6 +1235,8 @@ export default function TicketDettaglioPage() {
             ticketId={ticket.id}
             assegnatoId={ticket.assegnato_a}
             terminale={terminale}
+            currentUserId={currentUserId}
+            isAdmin={isAdmin}
           />
         </div>
       </div>

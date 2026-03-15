@@ -971,7 +971,7 @@ def login(data: dict, db: Session = Depends(get_db)):
             ruolo_nome = ruolo.nome
             ruolo_codice = ruolo.codice
     
-    access_token = create_access_token(data={"sub": user.username})
+    access_token = create_access_token(data={"sub": user.username, "user_id": user.id, "is_admin": bool(user.is_admin)})
     return {
         "access_token": access_token,
         "token_type": "bearer",

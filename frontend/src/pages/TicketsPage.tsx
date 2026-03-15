@@ -9,7 +9,6 @@ import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 
 const API_BASE = '/api';
-const navigate = useNavigate();
 
 // ==========================================
 // TIPI
@@ -343,6 +342,7 @@ function NuovoTicketModal({
 // PAGINA PRINCIPALE
 // ==========================================
 export default function TicketsPage() {
+  const navigate = useNavigate();
   const [tickets, setTickets]       = useState<TicketItem[]>([]);
   const [totale, setTotale]         = useState(0);
   const [loading, setLoading]       = useState(true);
