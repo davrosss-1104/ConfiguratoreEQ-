@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 # PARSING POSIZIONI VANO
 # ─────────────────────────────────────────────────────────────────────────────
 
-def parse_posizioni_vano(posizioni_json: Optional[str]) -> Dict[str, Any]:
+def parse_posizioni_vano(
+    posizioni_json: Optional[str],
+    elementi_noti: Optional[List[str]] = None,
+) -> Dict[str, Any]:
     """
     Trasforma il JSON grezzo di posizioni_elementi in campi flat.
 
@@ -49,13 +52,17 @@ def parse_posizioni_vano(posizioni_json: Optional[str]) -> Dict[str, Any]:
 
       vano.elementi_esterni   → ["QM"]          (lato A/B/C/D)
       vano.elementi_interni   → ["UPS"]
+
+    elementi_noti: lista di id_elemento dal DB (se None usa fallback statico).
     """
     ctx: Dict[str, Any] = {}
 
-    ELEMENTI_NOTI = ["QM", "IN", "UPS", "BotI", "Sirena", "Altro"]
+    # Fallback statico se il DB non è disponibile
+    _ELEMENTI_FALLBACK = ["QM", "IN", "UPS", "BotI", "Sirena", "Altro"]
+    noti = elementi_noti if elementi_noti is not None else _ELEMENTI_FALLBACK
 
     # Default: tutti non presenti
-    for el in ELEMENTI_NOTI:
+    for el in noti:
         key = el.lower().replace(" ", "_")
         ctx[f"vano.{key}_presente"] = False
 
@@ -409,18 +416,37 @@ def apply_variabili_derivate(ctx: Dict[str, Any], db) -> Dict[str, Any]:
     """
     from sqlalchemy import text as sa_text
 
+    # Carica lista id_elemento attivi dal DB per generare i default _presente = False
+    elementi_noti: Optional[List[str]] = None
+    try:
+        rows_el = db.execute(sa_text(
+            "SELECT id_elemento FROM elementi_vano WHERE attivo = 1"
+        )).fetchall()
+        elementi_noti = [r[0] for r in rows_el if r[0]]
+    except Exception as e:
+        logger.warning(f"apply_variabili_derivate: impossibile caricare elementi_vano: {e}")
+        # elementi_noti rimane None → parse_posizioni_vano usa il fallback statico
 
-    # Parsa posizioni_elementi → vano.quadro_el_presente, vano.quadro_el_lato, ecc.
+    # Parsa posizioni_elementi → vano.*_presente, vano.*_lato, ecc.
     posizioni_json = (
         ctx.get("disposizione_vano.posizioni_elementi")
         or ctx.get("posizioni_elementi")
     )
-    if posizioni_json and "vano.quadro_el_presente" not in ctx:
+    if posizioni_json and "vano._parsed" not in ctx:
         try:
-            parsed = parse_posizioni_vano(posizioni_json)
+            parsed = parse_posizioni_vano(posizioni_json, elementi_noti)
             ctx.update(parsed)
+            ctx["vano._parsed"] = True  # guardia idempotente
         except Exception as e:
             logger.warning(f"apply_variabili_derivate: errore parse posizioni: {e}")
+    elif not posizioni_json and elementi_noti and "vano._parsed" not in ctx:
+        # Nessuna posizione salvata ma elementi noti: genera tutti _presente = False
+        for el in elementi_noti:
+            key = el.lower().replace(" ", "_")
+            ctx.setdefault(f"vano.{key}_presente", False)
+        ctx.setdefault("vano.elementi_esterni", [])
+        ctx.setdefault("vano.elementi_interni", [])
+        ctx["vano._parsed"] = True
 
     # Parsa sbarchi
     sbarchi_json = (

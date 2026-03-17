@@ -73,7 +73,7 @@
  [],
  False,
  False,
- 1773616024,
+ 1773675766,
  [('run.exe',
    'C:\\Users\\david\\Desktop\\Python\\ConfiguratoreEQ\\1.0\\backend\\venv\\Lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\run.exe',
    'EXECUTABLE')],

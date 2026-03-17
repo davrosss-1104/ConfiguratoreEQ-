@@ -85,6 +85,24 @@ MODULI_DISPONIBILI = {
         "default":     True,
         "icona":       "ShoppingCart",
     },
+    "mrp": {
+        "nome":        "MRP — Pianificazione Acquisti",
+        "descrizione": "Calcolo fabbisogni da BOM e commesse, proposte ordini cumulative per fornitore",
+        "default":     True,
+        "icona":       "BarChart2",
+    },
+    "magazzino": {
+        "nome":        "Magazzino",
+        "descrizione": "Gestione giacenze, movimenti di magazzino, alert sotto-scorta",
+        "default":     True,
+        "icona":       "Warehouse",
+    },
+    "produzione": {
+    "nome": "Produzione",
+    "descrizione": "Avanzamento fasi, schedulazione commesse, WIP materiali, Gantt",
+    "default": True,
+    "icona": "Factory",
+    },
 }
 
 

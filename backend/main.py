@@ -214,6 +214,24 @@ from oda_api import router as oda_router
 oda_router.dependencies = [Depends(richiedi_modulo("oda"))]
 app.include_router(oda_router)
 
+from mrp_api import router as mrp_router
+mrp_router.dependencies = [Depends(richiedi_modulo("mrp"))]
+app.include_router(mrp_router)
+
+from magazzino_api import router as magazzino_router
+magazzino_router.dependencies = [Depends(richiedi_modulo("magazzino"))]
+app.include_router(magazzino_router)
+
+from analytics_api import router as analytics_router
+app.include_router(analytics_router)
+
+from dashboard_api import router as dashboard_router
+app.include_router(dashboard_router)
+
+from produzione_api import router as produzione_router
+produzione_router.dependencies = [Depends(richiedi_modulo("produzione"))]
+app.include_router(produzione_router)
+
 from fornitori_api import router as fornitori_router
 app.include_router(fornitori_router)
 

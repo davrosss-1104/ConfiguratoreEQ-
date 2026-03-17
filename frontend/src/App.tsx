@@ -30,6 +30,14 @@ const ReportTempiPage     = React.lazy(() => import('./pages/ReportTempiPage'));
 // ── Acquisti ─────────────────────────────────────────────────────────────────
 const OrdiniAcquistoPage          = React.lazy(() => import('./pages/OrdiniAcquistoPage'));
 const OrdineAcquistoDettaglioPage = React.lazy(() => import('./pages/OrdineAcquistoDettaglioPage'));
+const MrpPage                     = React.lazy(() => import('./pages/MrpPage'));
+const MagazzinoPage               = React.lazy(() => import('./pages/MagazzinoPage'));
+const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage'));
+const DashboardPage = React.lazy(() => import('./pages/DashboardPage'));
+
+// ── Produzione ────────────────────────────────────────────────────────────────
+const ProduzionePages = React.lazy(() => import('./pages/ProduzionePages'));
+
 
 // ── Portale cliente ──────────────────────────────────────────────────────────
 const PortaleClientePage = React.lazy(() => import('./pages/PortaleClientePage'));
@@ -120,6 +128,15 @@ function App() {
             {/* Acquisti */}
             <Route path="/acquisti/oda" element={<L page={OrdiniAcquistoPage} />} />
             <Route path="/acquisti/oda/:id" element={<L page={OrdineAcquistoDettaglioPage} />} />
+            <Route path="/acquisti/mrp" element={<L page={MrpPage} />} />
+            <Route path="/magazzino" element={<L page={MagazzinoPage} />} />
+
+            {/* Analisi */}
+            <Route path="/analytics"  element={<L page={AnalyticsPage} />} />
+            <Route path="/dashboard"  element={<L page={DashboardPage} />} />
+
+            {/* Produzione */}
+            <Route path="/produzione" element={<L page={ProduzionePages} />} />
 
             {/* Portale cliente */}
             <Route path="/portale" element={<L page={PortaleClientePage} />} />
@@ -136,7 +153,7 @@ function App() {
             <Route path="/admin/opzioni" element={<L page={GestioneOpzioniPage} />} />
             <Route path="/admin/variabili-derivate" element={<L page={GestioneVariabiliDerivatePage} />} />
             <Route path="/admin/elementi-vano" element={<L page={GestioneElementiVanoPage} />} />
-            <Route path="/admin/rule-engine" element={<L page={RuleEnginePage} />} />
+            <Route path="/admin/rule-engine" element={<L page={RuleBuilderPage} />} />
             <Route path="/admin/rule-builder" element={<L page={RuleBuilderPage} />} />
             <Route path="/admin/pipeline" element={<L page={PipelineBuilderPage} />} />
             <Route path="/admin/template-doc" element={<L page={DocumentTemplateEditorPage} />} />

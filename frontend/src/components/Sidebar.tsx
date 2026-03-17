@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FileText, Settings, ScrollText, LayoutGrid, Cog, Info, DoorOpen,
@@ -6,7 +6,7 @@ import {
   ChevronDown, ChevronRight, Layers, Zap, Shield, Cable, Wrench,
   Box, Monitor, Cpu, Power, Lock, CircleDot, ClipboardList,
   GitBranch, Key, Receipt, Ticket, Building2, ShoppingCart,
-  Mail, HelpCircle, Timer, BarChart2, ExternalLink,
+  Mail, HelpCircle, Timer, BarChart2, ExternalLink, Warehouse, Factory,
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? '';
@@ -72,6 +72,11 @@ const ROUTE_NAVIGATION: Record<string, string> = {
   'ordini':              '/ordini',
   'fatturazione-config': '/fatturazione/configurazione',
   'ordini-acquisto':     '/acquisti/oda',
+  'mrp':                 '/acquisti/mrp',
+  'magazzino':           '/magazzino',
+  'produzione':          '/produzione',
+  'analytics':           '/analytics',
+  'dashboard':           '/dashboard',
 
   // Assistenza (nuova scheda)
   'tickets':             '/tickets',
@@ -85,14 +90,14 @@ const ROUTE_NAVIGATION: Record<string, string> = {
   'gestione-fornitori':  '/admin/fornitori',
 
   // Admin — Configuratore (nuova scheda)
-  'gestione-campi':        '/admin/campi',
-  'gestione-sezioni':      '/admin/sezioni',
-  'gestione-opzioni':      '/admin/opzioni',
-  'gestione-variabili':    '/admin/variabili-derivate',
-  'gestione-elementi-vano':'/admin/elementi-vano',
-  'rule-engine':           '/admin/rule-engine',
-  'pipeline-builder':      '/admin/pipeline',
-  'editor-template-doc':   '/admin/template-doc',
+  'gestione-campi':         '/admin/campi',
+  'gestione-sezioni':       '/admin/sezioni',
+  'gestione-opzioni':       '/admin/opzioni',
+  'gestione-variabili':     '/admin/variabili-derivate',
+  'gestione-elementi-vano': '/admin/elementi-vano',
+  'rule-engine':            '/admin/rule-engine',
+  'pipeline-builder':       '/admin/pipeline',
+  'editor-template-doc':    '/admin/template-doc',
 
   // Admin — Utenti & Sistema (nuova scheda)
   'gestione-utenti':   '/admin/utenti',
@@ -166,6 +171,9 @@ export const Sidebar = ({
   const ticketingAttivo    = moduliAttivi['ticketing']    === true;
   const tempiAttivi        = moduliAttivi['tempi']        === true;
   const odaAttivo          = moduliAttivi['oda']          === true;
+  const mrpAttivo          = moduliAttivi['mrp']          === true;
+  const magazzinoAttivo    = moduliAttivi['magazzino']    === true;
+  const produzioneAttiva   = moduliAttivi['produzione']   === true;
 
   useEffect(() => {
     const load = () => {
@@ -208,13 +216,13 @@ export const Sidebar = ({
         id: 'configuratore', label: 'Configuratore',
         icon: <Settings2 className="h-4 w-4" />,
         items: [
-          { id: 'gestione-opzioni',   label: 'Opzioni',            icon: <ListChecks className="h-4 w-4" /> },
-          { id: 'gestione-campi',     label: 'Campi',              icon: <LayoutList className="h-4 w-4" /> },
-          { id: 'gestione-sezioni',   label: 'Sezioni',            icon: <Layers     className="h-4 w-4" /> },
-          { id: 'rule-engine',        label: 'Rule Engine',        icon: <Settings2  className="h-4 w-4" /> },
-          { id: 'import-excel',       label: 'Importa Excel',      icon: <LayoutList className="h-4 w-4" /> },
-          { id: 'pipeline-builder',   label: 'Pipeline di calcolo',icon: <Cpu        className="h-4 w-4" /> },
-          { id: 'editor-template-doc', label: 'Template documenti', icon: <FileText   className="h-4 w-4" /> },
+          { id: 'gestione-opzioni',    label: 'Opzioni',             icon: <ListChecks className="h-4 w-4" /> },
+          { id: 'gestione-campi',      label: 'Campi',               icon: <LayoutList className="h-4 w-4" /> },
+          { id: 'gestione-sezioni',    label: 'Sezioni',             icon: <Layers     className="h-4 w-4" /> },
+          { id: 'rule-engine',         label: 'Rule Engine',         icon: <Settings2  className="h-4 w-4" /> },
+          { id: 'import-excel',        label: 'Importa Excel',       icon: <LayoutList className="h-4 w-4" /> },
+          { id: 'pipeline-builder',    label: 'Pipeline di calcolo', icon: <Cpu        className="h-4 w-4" /> },
+          { id: 'editor-template-doc', label: 'Template documenti',  icon: <FileText   className="h-4 w-4" /> },
         ],
       },
       {
@@ -251,7 +259,7 @@ export const Sidebar = ({
         return req ? haPermesso(permessi, req, isAdmin) : true;
       }),
     })).filter(g => g.items.length > 0);
-  }, [permessi, isAdmin, fatturazioneAttiva, ticketingAttivo]);
+  }, [permessi, isAdmin, fatturazioneAttiva, ticketingAttivo, mrpAttivo, magazzinoAttivo]);
 
   const showAdmin = isAdmin || haAlmenoUnPermessoAdmin(permessi);
 
@@ -337,8 +345,31 @@ export const Sidebar = ({
               <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Acquisti</span>
             </div>
             {renderItem({ id: 'ordini-acquisto', label: 'Ordini di Acquisto', icon: <ShoppingCart className="h-4 w-4" /> })}
+            {mrpAttivo       && renderItem({ id: 'mrp',       label: 'Pianificazione MRP', icon: <BarChart2  className="h-4 w-4" /> })}
+            {magazzinoAttivo && renderItem({ id: 'magazzino', label: 'Magazzino',           icon: <Warehouse  className="h-4 w-4" /> })}
           </>
         )}
+
+        {/* ── PRODUZIONE ── */}
+        {produzioneAttiva && (
+          <>
+            <div className="mx-5 my-3 border-t border-gray-100" />
+            <div className="px-5 mb-1">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Produzione</span>
+            </div>
+            {renderItem({ id: 'produzione', label: 'Avanzamento', icon: <Factory   className="h-4 w-4" /> })}
+          </>
+        )}
+
+        {/* ── ANALYTICS ── */}
+        <>
+          <div className="mx-5 my-3 border-t border-gray-100" />
+          <div className="px-5 mb-1">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Analisi</span>
+          </div>
+          {renderItem({ id: 'dashboard', label: 'Dashboard',    icon: <LayoutGrid className="h-4 w-4" /> })}
+          {renderItem({ id: 'analytics', label: 'Analisi dati', icon: <BarChart2  className="h-4 w-4" /> })}
+        </>
 
         {/* ── ASSISTENZA ── */}
         {ticketingAttivo && haPermesso(permessi, 'ticketing.view', isAdmin) && (

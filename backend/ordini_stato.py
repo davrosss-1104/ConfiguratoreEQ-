@@ -14,12 +14,15 @@ IMPORTANTE: Registrare PRIMA delle route inline /ordini/{ordine_id}
             Eliminare le vecchie route inline STATI_ORDINE / api_cambio_stato / api_storico_stati
 """
 
+import logging
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+
+logger = logging.getLogger("ordini_stato")
 
 try:
     from database import get_db
@@ -203,7 +206,7 @@ def _valida_transizione(stato_corrente: str, stato_nuovo: str, ordine: dict, db:
     if stato_nuovo == "in_produzione":
         if not ordine.get("bom_esplosa"):
             return "Per avviare la produzione e' necessario esplodere la BOM prima"
-        
+
     # Impianti obbligatori se modulo ticketing attivo
     if stato_nuovo == "in_produzione":
         if is_modulo_attivo(db, "ticketing"):
@@ -249,6 +252,49 @@ def _registra_transizione(cursor, ordine_id, stato_da, stato_a, motivo=None, ute
         INSERT INTO ordini_storico_stato (ordine_id, stato_precedente, stato_nuovo, motivo, utente, created_at)
         VALUES (?, ?, ?, ?, ?, datetime('now'))
     """, (ordine_id, stato_da, stato_a, motivo, utente or "utente"))
+
+
+# ==========================================
+# HOOKS MODULI
+# ==========================================
+
+def _hook_in_produzione(conn, ordine_id: int, created_by: str, db: Session) -> dict:
+    """
+    Hook chiamato alla transizione → in_produzione.
+    1. Crea fasi produzione da template (se modulo produzione attivo)
+    2. Popola WIP da BOM (se modulo produzione attivo)
+    Ritorna warning se nessun template trovato.
+    """
+    warning = None
+    if not is_modulo_attivo(db, "produzione"):
+        return {"warning": None}
+    try:
+        from produzione_api import crea_fasi_da_template, popola_wip_da_bom
+        result = crea_fasi_da_template(conn, ordine_id, created_by)
+        if not result["ok"]:
+            warning = result.get("warning")
+        else:
+            # Popola WIP dalla BOM
+            try:
+                popola_wip_da_bom(conn, ordine_id)
+            except Exception as e_wip:
+                logger.warning(f"WIP popola fallito per ordine {ordine_id}: {e_wip}")
+    except Exception as e:
+        logger.warning(f"Hook in_produzione fallito per ordine {ordine_id}: {e}")
+        warning = f"Fasi produzione non create automaticamente: {e}"
+    return {"warning": warning}
+
+
+def _hook_spedito(conn, ordine_id: int, created_by: str, db: Session):
+    """Hook chiamato alla transizione → spedito. Scarica commessa dal magazzino."""
+    if not is_modulo_attivo(db, "magazzino"):
+        return
+    try:
+        from magazzino_api import scarica_commessa_per_ordine
+        scarica_commessa_per_ordine(conn, ordine_id, created_by)
+        conn.commit()
+    except Exception as e:
+        logger.warning(f"Scarico magazzino fallito per ordine {ordine_id}: {e}")
 
 
 # ==========================================
@@ -305,6 +351,18 @@ def get_transizioni_disponibili(ordine_id: int, db: Session = Depends(get_db)):
                 continue
             info = STATI_ORDINE.get(st, {})
             errore = _valida_transizione(stato, st, ordine, db)
+
+            # Warning produzione (non blocca, ma segnala)
+            warning_produzione = None
+            if st == "in_produzione" and not errore and is_modulo_attivo(db, "produzione"):
+                try:
+                    cursor.execute("SELECT COUNT(*) FROM fasi_template WHERE attivo = 1")
+                    n_template = cursor.fetchone()[0]
+                    if n_template == 0:
+                        warning_produzione = "Nessun template fasi configurato. Le fasi dovranno essere create manualmente."
+                except Exception:
+                    pass
+
             transizioni.append({
                 "stato_a": st,
                 "etichetta": ETICHETTE_TRANSIZIONE.get(st, info.get("label", st)),
@@ -314,6 +372,7 @@ def get_transizioni_disponibili(ordine_id: int, db: Session = Depends(get_db)):
                 "richiede_note": st in ("sospeso", "annullato"),
                 "bloccata": errore is not None,
                 "motivo_blocco": errore,
+                "warning": warning_produzione,
             })
 
     return {
@@ -390,6 +449,16 @@ def cambia_stato_ordine(ordine_id: int, payload: dict = Body(...), db: Session =
     _registra_transizione(cursor, ordine_id, stato_corrente, stato_nuovo, note, created_by)
     conn.commit()
 
+    # ── HOOK: in_produzione ──
+    hook_warning = None
+    if stato_nuovo == "in_produzione":
+        hook_result = _hook_in_produzione(conn, ordine_id, created_by, db)
+        hook_warning = hook_result.get("warning")
+
+    # ── HOOK: spedito ──
+    if stato_nuovo == "spedito":
+        _hook_spedito(conn, ordine_id, created_by, db)
+
     return {
         "ordine_id": ordine_id,
         "stato_precedente": stato_corrente,
@@ -397,6 +466,7 @@ def cambia_stato_ordine(ordine_id: int, payload: dict = Body(...), db: Session =
         "stato_info": STATI_ORDINE.get(stato_nuovo, {}),
         "transizioni_disponibili": TRANSIZIONI.get(stato_nuovo, []),
         "note": note,
+        "warning": hook_warning,
     }
 
 
@@ -422,7 +492,6 @@ def get_storico_stati(ordine_id: int, db: Session = Depends(get_db)):
     rows = []
     for row in cursor.fetchall():
         entry = dict(zip(cols, row))
-        # Mappa colonne DB -> nomi attesi dal frontend
         entry["stato_da"] = entry.pop("stato_precedente", "") or ""
         entry["stato_a"] = entry.pop("stato_nuovo", "")
         entry["note"] = entry.pop("motivo", "") or ""
